@@ -1,0 +1,38 @@
+groups:
+  - name: feed-service
+    rules:
+      - alert: FeedHighP95Latency
+        expr: histogram_quantile(0.95, sum(rate(feed_latency_ms_bucket[5m])) by (le, mode)) > 350
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Feed p95 latency is high
+          description: Feed latency p95 crossed 350ms for at least 10m.
+
+      - alert: FeedVeryHighP99Latency
+        expr: histogram_quantile(0.99, sum(rate(feed_latency_ms_bucket[5m])) by (le, mode)) > 700
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Feed p99 latency is critical
+          description: Feed latency p99 crossed 700ms for at least 5m.
+
+      - alert: FeedLowRetentionD1
+        expr: sum(rate(feed_retention_total{window="d1",retained="true"}[1h])) / clamp_min(sum(rate(feed_retention_total{window="d1"}[1h])), 1) < 0.18
+        for: 60m
+        labels:
+          severity: warning
+        annotations:
+          summary: D1 retention dropped
+          description: D1 retained ratio below 18% over the last hour.
+
+      - alert: FeedClickThroughDrop
+        expr: sum(rate(feed_click_total[30m])) / clamp_min(sum(rate(feed_served_total[30m])), 1) < 0.03
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: Feed CTR dropped
+          description: Click-through rate dropped below 3%.

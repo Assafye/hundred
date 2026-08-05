@@ -1,0 +1,18 @@
+{
+  "scripts": {
+    "migrate:chat-senders:dry": "node scripts/migrate-chat-message-sender-profile.js",
+    "migrate:chat-senders": "DRY_RUN=false node scripts/migrate-chat-message-sender-profile.js",
+    "sync:users-public:dry": "node scripts/sync-users-public-from-users.js",
+    "sync:users-public": "DRY_RUN=false node scripts/sync-users-public-from-users.js",
+    "sync:user-scores:dry": "node scripts/sync-user-scores-from-posts.js",
+    "sync:user-scores": "DRY_RUN=false node scripts/sync-user-scores-from-posts.js",
+    "secure-actions:dry": "node scripts/process-secure-actions.js",
+    "secure-actions": "DRY_RUN=false node scripts/process-secure-actions.js",
+    "feed:api": "uvicorn scripts.feed_api_service:create_default_feed_app --factory --host 0.0.0.0 --port 8000",
+    "feed:test": "python -m unittest scripts.tests.test_feed_engine",
+    "feed:load": "python scripts/load_test_feed_api.py http://localhost:8000/v1/feed/query 30 600"
+  },
+  "dependencies": {
+    "firebase-admin": "^14.1.0"
+  }
+}

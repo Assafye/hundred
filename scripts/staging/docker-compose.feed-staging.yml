@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  feed-api:
+    image: python:3.13-slim
+    working_dir: /app
+    volumes:
+      - ../../:/app
+    command: >
+      sh -c "pip install -r scripts/requirements-feed.txt &&
+             uvicorn scripts.feed_staging_app:create_app --factory --host 0.0.0.0 --port 8000 --workers 2"
+    environment:
+      FEED_REDIS_URL: ${FEED_REDIS_URL}
+      UPSTASH_REDIS_REST_URL: ${UPSTASH_REDIS_REST_URL:-}
+      UPSTASH_REDIS_REST_TOKEN: ${UPSTASH_REDIS_REST_TOKEN:-}
+      FEED_QDRANT_URL: ${FEED_QDRANT_URL}
+      FEED_QDRANT_COLLECTION: ${FEED_QDRANT_COLLECTION:-posts_embeddings}
+      FEED_QDRANT_API_KEY: ${FEED_QDRANT_API_KEY:-}
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    volumes:
+      - ./prometheus.feed.yml:/etc/prometheus/prometheus.yml:ro
+      - ../alerts/feed_alert_rules.yml:/etc/prometheus/alerts/feed_alert_rules.yml:ro
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    depends_on:
+      - feed-api
+    restart: unless-stopped

@@ -1,0 +1,225 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isSelf(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function groupDoc(groupId) {
+      return /databases/$(database)/documents/groups/$(groupId);
+    }
+
+    function isGroupAdmin(groupId) {
+      return isSignedIn() &&
+        exists(groupDoc(groupId)) &&
+        get(groupDoc(groupId)).data.adminUid == request.auth.uid;
+    }
+
+    function memberDoc(groupId) {
+      return /databases/$(database)/documents/groups/$(groupId)/members/$(request.auth.uid);
+    }
+
+    function isApprovedMember(groupId) {
+      return isSignedIn() &&
+        exists(memberDoc(groupId)) &&
+        get(memberDoc(groupId)).data.status == 'approved';
+    }
+
+    function groupAllowsAutoJoin(groupId) {
+      return exists(groupDoc(groupId)) &&
+        get(groupDoc(groupId)).data.isPublic == true &&
+        (
+          !('isAdminApprovalRequired' in get(groupDoc(groupId)).data) ||
+          get(groupDoc(groupId)).data.isAdminApprovalRequired != true
+        );
+    }
+
+    function chatDoc(chatId) {
+      return /databases/$(database)/documents/chats/$(chatId);
+    }
+
+    function isChatParticipant(chatId) {
+      return isSignedIn() &&
+        exists(chatDoc(chatId)) &&
+        request.auth.uid in get(chatDoc(chatId)).data.participants;
+    }
+
+    function isPostOwner() {
+      return isSignedIn() && resource.data.authorId == request.auth.uid;
+    }
+
+    function isPostOwnerById(postId) {
+      return isSignedIn() &&
+        get(/databases/$(database)/documents/posts/$(postId)).data.authorId == request.auth.uid;
+    }
+
+    function isCommentOnMyPost(postId) {
+      return isSignedIn() && (
+        (
+          ('postAuthorId' in resource.data) &&
+          resource.data.postAuthorId == request.auth.uid
+        ) ||
+        isPostOwnerById(postId)
+      );
+    }
+
+    function isCreatingOwnPost() {
+      return isSignedIn() && request.resource.data.authorId == request.auth.uid;
+    }
+
+    match /groups/{groupId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.adminUid == request.auth.uid;
+      allow update: if isGroupAdmin(groupId) || (
+        isApprovedMember(groupId) &&
+        request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'groupImageUrl',
+          'updatedAt',
+          'members',
+          'membersList',
+          'membersCount',
+          'pendingCount',
+          'invitedFriendUids'
+        ])
+      );
+      allow delete: if isGroupAdmin(groupId);
+
+      match /members/{uid} {
+        allow read: if isSignedIn();
+        allow create: if isGroupAdmin(groupId) || (
+          isApprovedMember(groupId) &&
+          request.resource.data.keys().hasOnly([
+            'uid',
+            'status',
+            'role',
+            'invitedBy',
+            'joinedAt',
+            'updatedAt'
+          ]) &&
+          request.resource.data.uid == uid &&
+          request.resource.data.role == 'member' &&
+          request.resource.data.invitedBy == request.auth.uid &&
+          (
+            request.resource.data.status == 'pending' ||
+            (
+              request.resource.data.status == 'approved' &&
+              groupAllowsAutoJoin(groupId)
+            )
+          )
+        );
+        allow update, delete: if isGroupAdmin(groupId);
+      }
+
+      match /attendance/{uid} {
+        allow read: if isSignedIn();
+        allow create, update: if isSignedIn() && request.auth.uid == uid;
+        allow delete: if isGroupAdmin(groupId);
+      }
+
+      match /messages/{messageId} {
+        allow read: if isApprovedMember(groupId) || isGroupAdmin(groupId);
+        allow create: if isApprovedMember(groupId) &&
+          request.resource.data.senderId == request.auth.uid;
+        allow update, delete: if false;
+      }
+    }
+
+    match /posts/{postId} {
+      allow read: if isSignedIn();
+      allow create: if isCreatingOwnPost();
+      allow update, delete: if isPostOwner();
+
+      match /comments/{commentId} {
+        allow read: if isSignedIn();
+        allow create: if isSignedIn() && request.resource.data.authorId == request.auth.uid;
+        allow update: if isSignedIn() && resource.data.authorId == request.auth.uid;
+        allow delete: if isSignedIn() && (
+          resource.data.authorId == request.auth.uid ||
+          isCommentOnMyPost(postId)
+        );
+      }
+    }
+
+    match /meet_now_posts/{postId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.authorUid == request.auth.uid;
+      allow update, delete: if isSignedIn() && resource.data.authorUid == request.auth.uid;
+    }
+
+    match /users_public/{uid} {
+      allow read: if true;
+      allow create, update, delete: if isSelf(uid);
+    }
+
+    match /users/{uid} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isSelf(uid);
+
+      match /secure_actions/{actionId} {
+        allow read, create, update, delete: if isSelf(uid);
+      }
+
+      match /activity/{activityId} {
+        allow read, create, delete: if isSelf(uid);
+        allow update: if false;
+      }
+
+      match /activity_limits/{postId} {
+        allow read, create, update, delete: if isSelf(uid);
+      }
+
+      match /saved_posts/{postId} {
+        allow read, create, update, delete: if isSelf(uid);
+      }
+
+      match /notifications/{notificationId} {
+        allow read, create, update, delete: if isSelf(uid);
+      }
+    }
+
+    match /account_deletion_feedback/{feedbackId} {
+      allow create: if isSignedIn() &&
+        request.resource.data.uid == request.auth.uid &&
+        request.resource.data.keys().hasOnly([
+          'uid',
+          'reason',
+          'email',
+          'createdAt'
+        ]) &&
+        request.resource.data.reason is string &&
+        request.resource.data.email is string;
+      allow read, update, delete: if false;
+    }
+
+    match /chats/{chatId} {
+      allow read: if isSignedIn() &&
+        (resource.data.isPublic == true || request.auth.uid in resource.data.participants);
+
+      allow create: if isSignedIn() &&
+        request.resource.data.id == chatId &&
+        request.auth.uid in request.resource.data.participants;
+
+      allow update: if isChatParticipant(chatId);
+      allow delete: if false;
+
+      match /messages/{messageId} {
+        allow read: if isChatParticipant(chatId);
+        allow create: if isChatParticipant(chatId) &&
+          request.resource.data.senderId == request.auth.uid;
+        allow update, delete: if false;
+      }
+
+      match /readReceipts/{uid} {
+        allow read: if isChatParticipant(chatId);
+        allow create, update: if isChatParticipant(chatId) &&
+          request.auth.uid == uid &&
+          request.resource.data.uid == request.auth.uid;
+        allow delete: if false;
+      }
+    }
+  }
+}
