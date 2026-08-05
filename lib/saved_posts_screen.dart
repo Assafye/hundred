@@ -179,7 +179,7 @@ class _SavedPostsScreenState extends State<SavedPostsScreen> {
           border: Border.all(
             color: isLight
                 ? const Color(0xFFA9C3FF)
-                : _accentCyan.withOpacity( 0.18),
+                : _accentCyan.withValues(alpha: 0.18),
           ),
         ),
         child: Text(
@@ -215,7 +215,7 @@ class _SavedPostsScreenState extends State<SavedPostsScreen> {
           border: Border.all(
             color: isLight
                 ? const Color(0xFFA9C3FF)
-                : _accentCyan.withOpacity( 0.16),
+                : _accentCyan.withValues(alpha: 0.16),
           ),
         ),
         child: ClipRRect(
@@ -239,8 +239,8 @@ class _SavedPostsScreenState extends State<SavedPostsScreen> {
                 ),
               Container(
                 color: isLight
-                    ? Colors.black.withOpacity( 0.12)
-                    : Colors.black.withOpacity( 0.28),
+                    ? Colors.black.withValues(alpha: 0.12)
+                    : Colors.black.withValues(alpha: 0.28),
               ),
               Positioned(
                 left: 10,

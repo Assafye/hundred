@@ -420,15 +420,16 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                                               color: isSelected
                                                   ? const Color(0xFF8D78FF)
                                                   : Colors.white
-                                                      .withOpacity( 0.72),
+                                                      .withValues(alpha: 0.72),
                                               width: isSelected ? 1.8 : 1.2,
                                             ),
                                             boxShadow: [
                                               BoxShadow(
                                                 color: const Color(0xFF76CFFF)
-                                                    .withOpacity( isSelected
-                                                        ? 0.42
-                                                        : 0.32),
+                                                    .withValues(
+                                                        alpha: isSelected
+                                                            ? 0.42
+                                                            : 0.32),
                                                 blurRadius:
                                                     isSelected ? 18 : 14,
                                                 offset: const Offset(0, 7),
@@ -526,8 +527,8 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
             ),
             boxShadow: [
               BoxShadow(
-                color:
-                    const Color(0xFF76CFFF).withOpacity( isLight ? 0.2 : 0.12),
+                color: const Color(0xFF76CFFF)
+                    .withValues(alpha: isLight ? 0.2 : 0.12),
                 blurRadius: 14,
                 offset: const Offset(0, 6),
               ),
@@ -554,7 +555,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                       end: Alignment.bottomRight,
                     ),
                     border: Border.all(
-                      color: Colors.white.withOpacity( 0.82),
+                      color: Colors.white.withValues(alpha: 0.82),
                     ),
                   ),
                   child: Icon(
@@ -618,8 +619,8 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                                   ),
                                   boxShadow: [
                                     BoxShadow(
-                                      color: const Color(0xFF9ECFFF)
-                                          .withOpacity( isLight ? 0.32 : 0.2),
+                                      color: const Color(0xFF9ECFFF).withValues(
+                                          alpha: isLight ? 0.32 : 0.2),
                                       blurRadius: 10,
                                       offset: const Offset(0, 4),
                                     ),
@@ -896,8 +897,9 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final isLight = Theme.of(context).brightness == Brightness.light;
-    final panelColor =
-        isLight ? Colors.white.withOpacity( 0.86) : const Color(0xFF1E2632);
+    final panelColor = isLight
+        ? Colors.white.withValues(alpha: 0.86)
+        : const Color(0xFF1E2632);
     final fieldFillColor =
         isLight ? const Color(0xFFF2F7FF) : const Color(0xFF0B1019);
     final fieldBorderColor =
@@ -909,514 +911,521 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
 
     return SwipeBackWrapper(
       child: Scaffold(
-      backgroundColor: isLight ? Colors.white : const Color(0xFF0B1019),
-      appBar: AppBar(
-        backgroundColor:
-            isLight ? const Color(0xFFBFD9FF) : const Color(0xFF1E2632),
-        elevation: 0,
-        iconTheme: IconThemeData(color: primaryTextColor),
-        title: Text(
-          'הגדרות קבוצה',
-          style:
-              TextStyle(color: primaryTextColor, fontWeight: FontWeight.bold),
-        ),
-      ),
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: isLight
-                ? const [Color(0xFFF8FBFF), Colors.white]
-                : const [Color(0xFF0B1019), Color(0xFF131B33)],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
+        backgroundColor: isLight ? Colors.white : const Color(0xFF0B1019),
+        appBar: AppBar(
+          backgroundColor:
+              isLight ? const Color(0xFFBFD9FF) : const Color(0xFF1E2632),
+          elevation: 0,
+          iconTheme: IconThemeData(color: primaryTextColor),
+          title: Text(
+            'הגדרות קבוצה',
+            style:
+                TextStyle(color: primaryTextColor, fontWeight: FontWeight.bold),
           ),
         ),
-        child: SafeArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Center(
-                  child: Container(
-                    width: 96,
-                    height: 96,
-                    decoration: BoxDecoration(
-                      color: panelColor,
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color:
-                            isLight ? const Color(0xFFA9C3FF) : Colors.white12,
+        body: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: isLight
+                  ? const [Color(0xFFF8FBFF), Colors.white]
+                  : const [Color(0xFF0B1019), Color(0xFF131B33)],
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+            ),
+          ),
+          child: SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 96,
+                      height: 96,
+                      decoration: BoxDecoration(
+                        color: panelColor,
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: isLight
+                              ? const Color(0xFFA9C3FF)
+                              : Colors.white12,
+                        ),
+                        image: _existingImageUrl.isNotEmpty
+                            ? DecorationImage(
+                                image: NetworkImage(_existingImageUrl),
+                                fit: BoxFit.cover,
+                              )
+                            : null,
                       ),
-                      image: _existingImageUrl.isNotEmpty
-                          ? DecorationImage(
-                              image: NetworkImage(_existingImageUrl),
-                              fit: BoxFit.cover,
+                      child: _existingImageUrl.isEmpty
+                          ? Icon(
+                              Icons.groups_rounded,
+                              color: isLight
+                                  ? const Color(0xFF5A6CFF)
+                                  : Colors.white54,
+                              size: 30,
                             )
                           : null,
                     ),
-                    child: _existingImageUrl.isEmpty
-                        ? Icon(
-                            Icons.groups_rounded,
-                            color: isLight
-                                ? const Color(0xFF5A6CFF)
-                                : Colors.white54,
-                            size: 30,
-                          )
-                        : null,
                   ),
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: _groupNameController,
-                  enabled: widget.isAdmin,
-                  style: TextStyle(
-                    color: primaryTextColor,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 18,
-                  ),
-                  decoration: InputDecoration(
-                    hintText: 'שם הקבוצה',
-                    hintStyle: TextStyle(color: secondaryTextColor),
-                    filled: true,
-                    fillColor: panelColor,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(14),
-                      borderSide: BorderSide(color: fieldBorderColor),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: _groupNameController,
+                    enabled: widget.isAdmin,
+                    style: TextStyle(
+                      color: primaryTextColor,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 18,
                     ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(14),
-                      borderSide: BorderSide(color: fieldBorderColor),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(14),
-                      borderSide: BorderSide(
-                        color: isLight
-                            ? const Color(0xFF8EA8FF)
-                            : const Color(0xFF53C1F9),
+                    decoration: InputDecoration(
+                      hintText: 'שם הקבוצה',
+                      hintStyle: TextStyle(color: secondaryTextColor),
+                      filled: true,
+                      fillColor: panelColor,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(color: fieldBorderColor),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(color: fieldBorderColor),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(
+                          color: isLight
+                              ? const Color(0xFF8EA8FF)
+                              : const Color(0xFF53C1F9),
+                        ),
                       ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _descriptionController,
-                  enabled: widget.isAdmin,
-                  maxLines: 3,
-                  style: TextStyle(color: secondaryTextColor),
-                  decoration: InputDecoration(
-                    hintText: 'תיאור הקבוצה',
-                    hintStyle: TextStyle(color: secondaryTextColor),
-                    filled: true,
-                    fillColor: panelColor,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(14),
-                      borderSide: BorderSide(color: fieldBorderColor),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(14),
-                      borderSide: BorderSide(color: fieldBorderColor),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(14),
-                      borderSide: BorderSide(
-                        color: isLight
-                            ? const Color(0xFF8EA8FF)
-                            : const Color(0xFF53C1F9),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _descriptionController,
+                    enabled: widget.isAdmin,
+                    maxLines: 3,
+                    style: TextStyle(color: secondaryTextColor),
+                    decoration: InputDecoration(
+                      hintText: 'תיאור הקבוצה',
+                      hintStyle: TextStyle(color: secondaryTextColor),
+                      filled: true,
+                      fillColor: panelColor,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(color: fieldBorderColor),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(color: fieldBorderColor),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(
+                          color: isLight
+                              ? const Color(0xFF8EA8FF)
+                              : const Color(0xFF53C1F9),
+                        ),
                       ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 8),
-                _buildCategoryPickerTile(
-                  icon: Icons.category,
-                  title: 'קטגוריה ראשית',
-                  value: _mainCategory ?? kGeneralCategory,
-                  hint: 'בחר קטגוריה',
-                  onTap: !widget.isAdmin
-                      ? null
-                      : () async {
-                          final selected = await _showCategoryChoiceSheet(
-                            title: 'בחר קטגוריה ראשית',
-                            options: appMainCategories,
-                            selectedValue: _mainCategory,
-                          );
-                          if (!mounted || selected == null) return;
-                          setState(() {
-                            _mainCategory = selected;
-                            _subCategory = null;
-                          });
-                        },
-                ),
-                if (_mainCategory != null &&
-                    !isGeneralCategory(_mainCategory) &&
-                    subCategories.isNotEmpty) ...[
                   const SizedBox(height: 8),
                   _buildCategoryPickerTile(
-                    icon: Icons.subdirectory_arrow_right,
-                    title: 'תת קטגוריה',
-                    value: _subCategory ?? 'אחר',
-                    hint: 'בחר תת קטגוריה',
+                    icon: Icons.category,
+                    title: 'קטגוריה ראשית',
+                    value: _mainCategory ?? kGeneralCategory,
+                    hint: 'בחר קטגוריה',
                     onTap: !widget.isAdmin
                         ? null
                         : () async {
                             final selected = await _showCategoryChoiceSheet(
-                              title: _mainCategory!,
-                              options: subCategories,
-                              selectedValue: _subCategory,
+                              title: 'בחר קטגוריה ראשית',
+                              options: appMainCategories,
+                              selectedValue: _mainCategory,
                             );
                             if (!mounted || selected == null) return;
                             setState(() {
-                              _subCategory = selected;
+                              _mainCategory = selected;
+                              _subCategory = null;
                             });
                           },
                   ),
-                ],
-                const SizedBox(height: 12),
-                GestureDetector(
-                  onTap: widget.isAdmin ? _selectExecutionDate : null,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        vertical: 16, horizontal: 16),
-                    decoration: BoxDecoration(
-                      color: panelColor,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: isLight
-                            ? const Color(0xFFA9C3FF)
-                            : Colors.transparent,
+                  if (_mainCategory != null &&
+                      !isGeneralCategory(_mainCategory) &&
+                      subCategories.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    _buildCategoryPickerTile(
+                      icon: Icons.subdirectory_arrow_right,
+                      title: 'תת קטגוריה',
+                      value: _subCategory ?? 'אחר',
+                      hint: 'בחר תת קטגוריה',
+                      onTap: !widget.isAdmin
+                          ? null
+                          : () async {
+                              final selected = await _showCategoryChoiceSheet(
+                                title: _mainCategory!,
+                                options: subCategories,
+                                selectedValue: _subCategory,
+                              );
+                              if (!mounted || selected == null) return;
+                              setState(() {
+                                _subCategory = selected;
+                              });
+                            },
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  GestureDetector(
+                    onTap: widget.isAdmin ? _selectExecutionDate : null,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          vertical: 16, horizontal: 16),
+                      decoration: BoxDecoration(
+                        color: panelColor,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: isLight
+                              ? const Color(0xFFA9C3FF)
+                              : Colors.transparent,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            _executionDate != null
+                                ? 'תאריך ביצוע: ${_executionDate!.day}/${_executionDate!.month}/${_executionDate!.year} ${_executionDate!.hour}:${_executionDate!.minute.toString().padLeft(2, '0')}'
+                                : 'תאריך חסר',
+                            style: TextStyle(color: secondaryTextColor),
+                          ),
+                          Icon(
+                            Icons.calendar_today,
+                            color: isLight
+                                ? const Color(0xFF5A6CFF)
+                                : Colors.white54,
+                            size: 20,
+                          ),
+                        ],
                       ),
                     ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  ),
+                  const SizedBox(height: 16),
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: panelColor,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(
+                        color:
+                            isLight ? const Color(0xFFA9C3FF) : Colors.white12,
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        Text(
-                          _executionDate != null
-                              ? 'תאריך ביצוע: ${_executionDate!.day}/${_executionDate!.month}/${_executionDate!.year} ${_executionDate!.hour}:${_executionDate!.minute.toString().padLeft(2, '0')}'
-                              : 'תאריך חסר',
-                          style: TextStyle(color: secondaryTextColor),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'הגדרות מנהל',
+                              style: TextStyle(
+                                color: primaryTextColor,
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const Icon(Icons.lock_open,
+                                color: Color(0xFF9E7CFF)),
+                          ],
                         ),
-                        Icon(
-                          Icons.calendar_today,
-                          color: isLight
-                              ? const Color(0xFF5A6CFF)
-                              : Colors.white54,
-                          size: 20,
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Text('פרטיות:',
+                                style: TextStyle(color: primaryTextColor)),
+                            const SizedBox(width: 12),
+                            ChoiceChip(
+                              label: Text(
+                                'ציבורית',
+                                style: TextStyle(
+                                  color: isLight
+                                      ? const Color(0xFF24314F)
+                                      : Colors.white,
+                                ),
+                              ),
+                              selected: _isPublic,
+                              onSelected: widget.isAdmin
+                                  ? (value) => setState(() => _isPublic = true)
+                                  : null,
+                              selectedColor: const Color(0xFF9E7CFF),
+                              backgroundColor: fieldFillColor,
+                            ),
+                            const SizedBox(width: 8),
+                            ChoiceChip(
+                              label: Text(
+                                'פרטית',
+                                style: TextStyle(
+                                  color: isLight
+                                      ? const Color(0xFF24314F)
+                                      : Colors.white,
+                                ),
+                              ),
+                              selected: !_isPublic,
+                              onSelected: widget.isAdmin
+                                  ? (value) => setState(() => _isPublic = false)
+                                  : null,
+                              selectedColor: const Color(0xFF9E7CFF),
+                              backgroundColor: fieldFillColor,
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text('דרישת מינימום ניקוד',
+                                style: TextStyle(color: primaryTextColor)),
+                            Switch(
+                              value: _minScoreRequired,
+                              activeColor: const Color(0xFF9E7CFF),
+                              onChanged: widget.isAdmin
+                                  ? (value) => setState(() {
+                                        _minScoreRequired = value;
+                                      })
+                                  : null,
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: _minScoreController,
+                          enabled: widget.isAdmin && _minScoreRequired,
+                          keyboardType: TextInputType.number,
+                          style: TextStyle(color: primaryTextColor),
+                          decoration: InputDecoration(
+                            hintText: 'ניקוד מינימלי להצטרפות',
+                            hintStyle: TextStyle(color: secondaryTextColor),
+                            filled: true,
+                            fillColor: fieldFillColor,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(color: fieldBorderColor),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(color: fieldBorderColor),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(
+                                color: isLight
+                                    ? const Color(0xFF8EA8FF)
+                                    : const Color(0xFF53C1F9),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Text('טווח גילאים',
+                                style: TextStyle(color: primaryTextColor)),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: LayoutBuilder(
+                                builder: (context, constraints) {
+                                  final minAge = _ageRange.start.round();
+                                  final maxAge = _ageRange.end.round();
+                                  final isRtl = Directionality.of(context) ==
+                                      TextDirection.rtl;
+                                  const bubbleWidth = 42.0;
+                                  const thumbRadius = 10.0;
+                                  final trackWidth = constraints.maxWidth >
+                                          thumbRadius * 2
+                                      ? constraints.maxWidth - thumbRadius * 2
+                                      : 0.0;
+                                  final maxBubbleLeft =
+                                      (constraints.maxWidth - bubbleWidth)
+                                          .clamp(0.0, double.infinity);
+
+                                  double thumbOffsetFor(int value) {
+                                    final normalized =
+                                        (value - minimumUserAge) /
+                                            (maximumAgeRange - minimumUserAge);
+                                    final adjusted =
+                                        isRtl ? 1 - normalized : normalized;
+                                    final thumbCenter = thumbRadius +
+                                        trackWidth * adjusted.clamp(0.0, 1.0);
+                                    return thumbCenter - (bubbleWidth / 2);
+                                  }
+
+                                  double bubbleLeftFor(int value) {
+                                    return thumbOffsetFor(value)
+                                        .clamp(0.0, maxBubbleLeft);
+                                  }
+
+                                  final minOffset = bubbleLeftFor(minAge);
+                                  final maxOffset = bubbleLeftFor(maxAge);
+
+                                  Widget valueBubble(int value) {
+                                    return Container(
+                                      width: bubbleWidth,
+                                      alignment: Alignment.center,
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 5,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        gradient: const LinearGradient(
+                                          colors: [
+                                            Color(0xFF8DE8FF),
+                                            Color(0xFFC6B2FF),
+                                          ],
+                                          begin: Alignment.topLeft,
+                                          end: Alignment.bottomRight,
+                                        ),
+                                        borderRadius:
+                                            BorderRadius.circular(999),
+                                        border: Border.all(
+                                          color: Colors.white
+                                              .withValues(alpha: 0.7),
+                                        ),
+                                      ),
+                                      child: Text(
+                                        value.toString(),
+                                        style: const TextStyle(
+                                          color: Color(0xFF2A2C5A),
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                                    );
+                                  }
+
+                                  return Column(
+                                    children: [
+                                      SizedBox(
+                                        height: 32,
+                                        child: Stack(
+                                          children: [
+                                            Positioned(
+                                              left: minOffset,
+                                              child: valueBubble(minAge),
+                                            ),
+                                            Positioned(
+                                              left: maxOffset,
+                                              child: valueBubble(maxAge),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      RangeSlider(
+                                        values: _ageRange,
+                                        min: minimumUserAge.toDouble(),
+                                        max: maximumAgeRange.toDouble(),
+                                        divisions:
+                                            maximumAgeRange - minimumUserAge,
+                                        onChanged: widget.isAdmin
+                                            ? (value) => setState(
+                                                () => _ageRange = value)
+                                            : null,
+                                        activeColor: const Color(0xFF9E7CFF),
+                                      ),
+                                    ],
+                                  );
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: _meetingRegionController,
+                          enabled: widget.isAdmin,
+                          style: TextStyle(color: primaryTextColor),
+                          decoration: InputDecoration(
+                            hintText: 'אזור המפגש',
+                            hintStyle: TextStyle(color: secondaryTextColor),
+                            filled: true,
+                            fillColor: fieldFillColor,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(color: fieldBorderColor),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(color: fieldBorderColor),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(
+                                color: isLight
+                                    ? const Color(0xFF8EA8FF)
+                                    : const Color(0xFF53C1F9),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text('אישור מנהל',
+                                style: TextStyle(color: primaryTextColor)),
+                            Switch(
+                              value: _adminApproval,
+                              activeColor: const Color(0xFF9E7CFF),
+                              onChanged: widget.isAdmin
+                                  ? (value) =>
+                                      setState(() => _adminApproval = value)
+                                  : null,
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: isLight
+                                ? const Color(0xFFE8EEFF)
+                                : const Color(0xFF2A3242),
+                            foregroundColor: isLight
+                                ? const Color(0xFF1E2A45)
+                                : Colors.white,
+                            side: isLight
+                                ? const BorderSide(color: Color(0xFFA9C3FF))
+                                : BorderSide.none,
+                          ),
+                          onPressed:
+                              widget.isAdmin ? _openRemoveMembersSheet : null,
+                          icon: const Icon(Icons.person_remove),
+                          label: const Text('הסרת חברים'),
                         ),
                       ],
                     ),
                   ),
-                ),
-                const SizedBox(height: 16),
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: panelColor,
-                    borderRadius: BorderRadius.circular(18),
-                    border: Border.all(
-                      color: isLight ? const Color(0xFFA9C3FF) : Colors.white12,
+                  const SizedBox(height: 20),
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF9E7CFF),
+                      foregroundColor: isLight ? Colors.white : Colors.black,
+                      minimumSize: const Size.fromHeight(52),
                     ),
+                    onPressed: _isSaving ? null : _saveChanges,
+                    child: _isSaving
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2, color: Colors.white),
+                          )
+                        : const Text('שמור שינויים',
+                            style: TextStyle(fontWeight: FontWeight.bold)),
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            'הגדרות מנהל',
-                            style: TextStyle(
-                              color: primaryTextColor,
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const Icon(Icons.lock_open, color: Color(0xFF9E7CFF)),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Text('פרטיות:',
-                              style: TextStyle(color: primaryTextColor)),
-                          const SizedBox(width: 12),
-                          ChoiceChip(
-                            label: Text(
-                              'ציבורית',
-                              style: TextStyle(
-                                color: isLight
-                                    ? const Color(0xFF24314F)
-                                    : Colors.white,
-                              ),
-                            ),
-                            selected: _isPublic,
-                            onSelected: widget.isAdmin
-                                ? (value) => setState(() => _isPublic = true)
-                                : null,
-                            selectedColor: const Color(0xFF9E7CFF),
-                            backgroundColor: fieldFillColor,
-                          ),
-                          const SizedBox(width: 8),
-                          ChoiceChip(
-                            label: Text(
-                              'פרטית',
-                              style: TextStyle(
-                                color: isLight
-                                    ? const Color(0xFF24314F)
-                                    : Colors.white,
-                              ),
-                            ),
-                            selected: !_isPublic,
-                            onSelected: widget.isAdmin
-                                ? (value) => setState(() => _isPublic = false)
-                                : null,
-                            selectedColor: const Color(0xFF9E7CFF),
-                            backgroundColor: fieldFillColor,
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text('דרישת מינימום ניקוד',
-                              style: TextStyle(color: primaryTextColor)),
-                          Switch(
-                            value: _minScoreRequired,
-                            activeColor: const Color(0xFF9E7CFF),
-                            onChanged: widget.isAdmin
-                                ? (value) => setState(() {
-                                      _minScoreRequired = value;
-                                    })
-                                : null,
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      TextField(
-                        controller: _minScoreController,
-                        enabled: widget.isAdmin && _minScoreRequired,
-                        keyboardType: TextInputType.number,
-                        style: TextStyle(color: primaryTextColor),
-                        decoration: InputDecoration(
-                          hintText: 'ניקוד מינימלי להצטרפות',
-                          hintStyle: TextStyle(color: secondaryTextColor),
-                          filled: true,
-                          fillColor: fieldFillColor,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide(color: fieldBorderColor),
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide(color: fieldBorderColor),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide(
-                              color: isLight
-                                  ? const Color(0xFF8EA8FF)
-                                  : const Color(0xFF53C1F9),
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Text('טווח גילאים',
-                              style: TextStyle(color: primaryTextColor)),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: LayoutBuilder(
-                              builder: (context, constraints) {
-                                final minAge = _ageRange.start.round();
-                                final maxAge = _ageRange.end.round();
-                                final isRtl = Directionality.of(context) ==
-                                    TextDirection.rtl;
-                                const bubbleWidth = 42.0;
-                                const thumbRadius = 10.0;
-                                final trackWidth =
-                                    constraints.maxWidth > thumbRadius * 2
-                                        ? constraints.maxWidth - thumbRadius * 2
-                                        : 0.0;
-                                final maxBubbleLeft =
-                                  (constraints.maxWidth - bubbleWidth)
-                                    .clamp(0.0, double.infinity);
-
-                                double thumbOffsetFor(int value) {
-                                  final normalized = (value - minimumUserAge) /
-                                      (maximumAgeRange - minimumUserAge);
-                                  final adjusted =
-                                      isRtl ? 1 - normalized : normalized;
-                                  final thumbCenter = thumbRadius +
-                                      trackWidth * adjusted.clamp(0.0, 1.0);
-                                  return thumbCenter - (bubbleWidth / 2);
-                                }
-
-                                double bubbleLeftFor(int value) {
-                                  return thumbOffsetFor(value)
-                                    .clamp(0.0, maxBubbleLeft);
-                                }
-
-                                final minOffset = bubbleLeftFor(minAge);
-                                final maxOffset = bubbleLeftFor(maxAge);
-
-                                Widget valueBubble(int value) {
-                                  return Container(
-                                    width: bubbleWidth,
-                                    alignment: Alignment.center,
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 5,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      gradient: const LinearGradient(
-                                        colors: [
-                                          Color(0xFF8DE8FF),
-                                          Color(0xFFC6B2FF),
-                                        ],
-                                        begin: Alignment.topLeft,
-                                        end: Alignment.bottomRight,
-                                      ),
-                                      borderRadius: BorderRadius.circular(999),
-                                      border: Border.all(
-                                        color: Colors.white.withOpacity( 0.7),
-                                      ),
-                                    ),
-                                    child: Text(
-                                      value.toString(),
-                                      style: const TextStyle(
-                                        color: Color(0xFF2A2C5A),
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w800,
-                                      ),
-                                    ),
-                                  );
-                                }
-
-                                return Column(
-                                  children: [
-                                    SizedBox(
-                                      height: 32,
-                                      child: Stack(
-                                        children: [
-                                          Positioned(
-                                            left: minOffset,
-                                            child: valueBubble(minAge),
-                                          ),
-                                          Positioned(
-                                            left: maxOffset,
-                                            child: valueBubble(maxAge),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    RangeSlider(
-                                      values: _ageRange,
-                                      min: minimumUserAge.toDouble(),
-                                      max: maximumAgeRange.toDouble(),
-                                      divisions:
-                                          maximumAgeRange - minimumUserAge,
-                                      onChanged: widget.isAdmin
-                                          ? (value) =>
-                                              setState(() => _ageRange = value)
-                                          : null,
-                                      activeColor: const Color(0xFF9E7CFF),
-                                    ),
-                                  ],
-                                );
-                              },
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: _meetingRegionController,
-                        enabled: widget.isAdmin,
-                        style: TextStyle(color: primaryTextColor),
-                        decoration: InputDecoration(
-                          hintText: 'אזור המפגש',
-                          hintStyle: TextStyle(color: secondaryTextColor),
-                          filled: true,
-                          fillColor: fieldFillColor,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide(color: fieldBorderColor),
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide(color: fieldBorderColor),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide(
-                              color: isLight
-                                  ? const Color(0xFF8EA8FF)
-                                  : const Color(0xFF53C1F9),
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text('אישור מנהל',
-                              style: TextStyle(color: primaryTextColor)),
-                          Switch(
-                            value: _adminApproval,
-                            activeColor: const Color(0xFF9E7CFF),
-                            onChanged: widget.isAdmin
-                                ? (value) =>
-                                    setState(() => _adminApproval = value)
-                                : null,
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: isLight
-                              ? const Color(0xFFE8EEFF)
-                              : const Color(0xFF2A3242),
-                          foregroundColor:
-                              isLight ? const Color(0xFF1E2A45) : Colors.white,
-                          side: isLight
-                              ? const BorderSide(color: Color(0xFFA9C3FF))
-                              : BorderSide.none,
-                        ),
-                        onPressed:
-                            widget.isAdmin ? _openRemoveMembersSheet : null,
-                        icon: const Icon(Icons.person_remove),
-                        label: const Text('הסרת חברים'),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 20),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF9E7CFF),
-                    foregroundColor: isLight ? Colors.white : Colors.black,
-                    minimumSize: const Size.fromHeight(52),
-                  ),
-                  onPressed: _isSaving ? null : _saveChanges,
-                  child: _isSaving
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                              strokeWidth: 2, color: Colors.white),
-                        )
-                      : const Text('שמור שינויים',
-                          style: TextStyle(fontWeight: FontWeight.bold)),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
-      ),
       ),
     );
   }

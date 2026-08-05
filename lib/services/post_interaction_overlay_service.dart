@@ -5,6 +5,8 @@ class PostInteractionOverlayService {
 
   static final Map<String, Map<String, int>> _deltaByPostId =
       <String, Map<String, int>>{};
+  static final Map<String, Map<String, bool>> _intentByPostId =
+      <String, Map<String, bool>>{};
   static final StreamController<String> _changesController =
       StreamController<String>.broadcast();
 
@@ -60,5 +62,41 @@ class PostInteractionOverlayService {
     final normalizedPostId = postId.trim();
     if (normalizedPostId.isEmpty) return 0;
     return _deltaByPostId[normalizedPostId]?[metric] ?? 0;
+  }
+
+  static void setInteractionIntent({
+    required String postId,
+    bool? likedByMe,
+    bool? savedByMe,
+  }) {
+    final normalizedPostId = postId.trim();
+    if (normalizedPostId.isEmpty) return;
+
+    final current = _intentByPostId.putIfAbsent(
+      normalizedPostId,
+      () => <String, bool>{},
+    );
+
+    var changed = false;
+    if (likedByMe != null && current['likedByMe'] != likedByMe) {
+      current['likedByMe'] = likedByMe;
+      changed = true;
+    }
+    if (savedByMe != null && current['savedByMe'] != savedByMe) {
+      current['savedByMe'] = savedByMe;
+      changed = true;
+    }
+
+    if (!changed) return;
+    _changesController.add(normalizedPostId);
+  }
+
+  static bool? interactionIntentFor({
+    required String postId,
+    required String intent,
+  }) {
+    final normalizedPostId = postId.trim();
+    if (normalizedPostId.isEmpty) return null;
+    return _intentByPostId[normalizedPostId]?[intent];
   }
 }

@@ -205,7 +205,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                           const OutlineInputBorder(borderSide: BorderSide.none),
                       filled: true,
                       fillColor: isLight
-                          ? Colors.white.withOpacity( 0.62)
+                          ? Colors.white.withValues(alpha: 0.62)
                           : const Color(0xFF1E2632),
                     ),
                   ),
@@ -515,13 +515,14 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                                               color: isSelected
                                                   ? const Color(0xFF8D78FF)
                                                   : Colors.white
-                                                      .withOpacity( 0.72),
+                                                      .withValues(alpha: 0.72),
                                               width: isSelected ? 1.8 : 1.2,
                                             ),
                                             boxShadow: [
                                               BoxShadow(
                                                 color: const Color(0xFF76CFFF)
-                                                    .withOpacity( isSelected
+                                                    .withValues(
+                                                        alpha: isSelected
                                                             ? 0.42
                                                             : 0.32),
                                                 blurRadius:
@@ -622,7 +623,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
             boxShadow: [
               BoxShadow(
                 color: const Color(0xFF76CFFF)
-                    .withOpacity( isLight ? 0.2 : 0.12),
+                    .withValues(alpha: isLight ? 0.2 : 0.12),
                 blurRadius: 14,
                 offset: const Offset(0, 6),
               ),
@@ -649,7 +650,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                       end: Alignment.bottomRight,
                     ),
                     border: Border.all(
-                      color: Colors.white.withOpacity( 0.82),
+                      color: Colors.white.withValues(alpha: 0.82),
                     ),
                   ),
                   child: Icon(
@@ -713,7 +714,8 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                                   ),
                                   boxShadow: [
                                     BoxShadow(
-                                      color: const Color(0xFF9ECFFF).withOpacity( isLight ? 0.32 : 0.2),
+                                      color: const Color(0xFF9ECFFF).withValues(
+                                          alpha: isLight ? 0.32 : 0.2),
                                       blurRadius: 10,
                                       offset: const Offset(0, 4),
                                     ),
@@ -888,7 +890,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                     height: orbSizeA,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: const Color(0xFFB9A9FF).withOpacity( 0.12),
+                      color: const Color(0xFFB9A9FF).withValues(alpha: 0.12),
                     ),
                   ),
                 ),
@@ -903,7 +905,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                     height: orbSizeB,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: const Color(0xFF9EEBFF).withOpacity( 0.12),
+                      color: const Color(0xFF9EEBFF).withValues(alpha: 0.12),
                     ),
                   ),
                 ),
@@ -930,7 +932,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                                         borderColor: isLight
                                             ? const Color(0xFFA9C3FF)
                                             : const Color(0xFF53C1F9)
-                                                .withOpacity( 0.18),
+                                                .withValues(alpha: 0.18),
                                         borderWidth: 1.2,
                                       ),
                                       Positioned(
@@ -940,14 +942,14 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                                           decoration: BoxDecoration(
                                             color: isLight
                                                 ? Colors.white
-                                                    .withOpacity( 0.94)
+                                                    .withValues(alpha: 0.94)
                                                 : const Color(0xFF1E2632),
                                             shape: BoxShape.circle,
                                             border: Border.all(
                                               color: isLight
                                                   ? const Color(0xFFA9C3FF)
                                                   : const Color(0xFF53C1F9)
-                                                      .withOpacity( 0.18),
+                                                      .withValues(alpha: 0.18),
                                             ),
                                           ),
                                           child: Icon(
@@ -1004,15 +1006,39 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                                           : Colors.white54),
                                   filled: true,
                                   fillColor: isLight
-                                      ? Colors.white.withOpacity( 0.62)
+                                      ? Colors.white.withValues(alpha: 0.62)
                                       : const Color(0xFF1E2632),
-                                  border: InputBorder.none),
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                    borderSide: BorderSide(
+                                      color: isLight
+                                          ? const Color(0xFFA9C3FF)
+                                          : Colors.transparent,
+                                    ),
+                                  ),
+                                  enabledBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                    borderSide: BorderSide(
+                                      color: isLight
+                                          ? const Color(0xFFA9C3FF)
+                                          : Colors.transparent,
+                                    ),
+                                  ),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                    borderSide: BorderSide(
+                                      color: isLight
+                                          ? const Color(0xFF8FAEFF)
+                                          : Colors.transparent,
+                                      width: 1.2,
+                                    ),
+                                  )),
                             ),
                             const SizedBox(height: 12),
                             ListTile(
                               onTap: _openAddFriends,
                               tileColor: isLight
-                                  ? Colors.white.withOpacity( 0.62)
+                                  ? Colors.white.withValues(alpha: 0.62)
                                   : const Color(0xFF1E2632),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(14),
@@ -1109,7 +1135,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                                       setState(() => _isPublic = true),
                                   selectedColor: const Color(0xFF9E7CFF),
                                   backgroundColor: isLight
-                                      ? Colors.white.withOpacity( 0.62)
+                                      ? Colors.white.withValues(alpha: 0.62)
                                       : const Color(0xFF1E2632),
                                 ),
                                 const SizedBox(width: 8),
@@ -1124,7 +1150,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                                       setState(() => _isPublic = false),
                                   selectedColor: const Color(0xFF9E7CFF),
                                   backgroundColor: isLight
-                                      ? Colors.white.withOpacity( 0.62)
+                                      ? Colors.white.withValues(alpha: 0.62)
                                       : const Color(0xFF1E2632),
                                 ),
                               ],
@@ -1139,7 +1165,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                                       vertical: 16, horizontal: 16),
                                   decoration: BoxDecoration(
                                     color: isLight
-                                        ? Colors.white.withOpacity( 0.62)
+                                        ? Colors.white.withValues(alpha: 0.62)
                                         : const Color(0xFF1E2632),
                                     borderRadius: BorderRadius.circular(16),
                                     border: Border.all(
@@ -1184,7 +1210,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                                             : Colors.white54),
                                     filled: true,
                                     fillColor: isLight
-                                        ? Colors.white.withOpacity( 0.62)
+                                        ? Colors.white.withValues(alpha: 0.62)
                                         : const Color(0xFF1E2632),
                                     border: InputBorder.none),
                               ),
@@ -1203,7 +1229,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                                             : Colors.white54),
                                     filled: true,
                                     fillColor: isLight
-                                        ? Colors.white.withOpacity( 0.62)
+                                        ? Colors.white.withValues(alpha: 0.62)
                                         : const Color(0xFF1E2632),
                                     border: InputBorder.none),
                               ),
@@ -1293,7 +1319,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                                                           999),
                                                   border: Border.all(
                                                     color: Colors.white
-                                                        .withOpacity( 0.7),
+                                                        .withValues(alpha: 0.7),
                                                   ),
                                                 ),
                                                 child: Text(

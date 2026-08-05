@@ -157,6 +157,35 @@ class SocialService {
     );
   }
 
+  Future<void> _removeFollowerSelfOnlyFallback({
+    required String myUid,
+    required String followerUid,
+  }) async {
+    final myUserRef = _db.collection('users').doc(myUid);
+    final myPublicUserRef = _db.collection('users_public').doc(myUid);
+
+    final mySnap = await myUserRef.get();
+    final myData = mySnap.data() ?? <String, dynamic>{};
+    final myFollowers = _readUidSet(myData, 'followers')..remove(followerUid);
+    final myFollowing = _readUidSet(myData, 'following');
+
+    await myUserRef.set(
+      {
+        'followers': FieldValue.arrayRemove(<String>[followerUid]),
+        'followersCount': myFollowers.length,
+      },
+      SetOptions(merge: true),
+    );
+
+    await myPublicUserRef.set(
+      _publicCountersPayload(
+        followersCount: myFollowers.length,
+        followingCount: myFollowing.length,
+      ),
+      SetOptions(merge: true),
+    );
+  }
+
   Future<FollowActionResult> followUser(String targetUid) async {
     final myUid = _currentUid;
     if (targetUid.isEmpty) {
@@ -303,9 +332,10 @@ class SocialService {
       });
     } catch (e) {
       if (_isPermissionDenied(e)) {
-        debugPrint('[Follow Debug] permission-denied; applying self-only fallback');
-        final fallbackResult =
-            await _followUserSelfOnlyFallback(myUid: myUid, targetUid: targetUid);
+        debugPrint(
+            '[Follow Debug] permission-denied; applying self-only fallback');
+        final fallbackResult = await _followUserSelfOnlyFallback(
+            myUid: myUid, targetUid: targetUid);
         await _secureQueue.enqueue(
           type: SecureActionTypes.followUser,
           payload: <String, dynamic>{
@@ -440,7 +470,8 @@ class SocialService {
       });
     } catch (e) {
       if (_isPermissionDenied(e)) {
-        debugPrint('[Follow Debug] permission-denied on unfollow; applying self-only fallback');
+        debugPrint(
+            '[Follow Debug] permission-denied on unfollow; applying self-only fallback');
         await _unfollowSelfOnlyFallback(myUid: myUid, targetUid: targetUid);
         await _secureQueue.enqueue(
           type: SecureActionTypes.unfollowUser,
@@ -758,56 +789,79 @@ class SocialService {
     final followerPublicUserRef =
         _db.collection('users_public').doc(normalizedFollowerUid);
 
-    await _db.runTransaction((tx) async {
-      final myUserSnap = await tx.get(myUserRef);
-      final followerUserSnap = await tx.get(followerUserRef);
+    try {
+      await _db.runTransaction((tx) async {
+        final myUserSnap = await tx.get(myUserRef);
+        final followerUserSnap = await tx.get(followerUserRef);
 
-      final myData = myUserSnap.data() ?? <String, dynamic>{};
-      final followerData = followerUserSnap.data() ?? <String, dynamic>{};
+        final myData = myUserSnap.data() ?? <String, dynamic>{};
+        final followerData = followerUserSnap.data() ?? <String, dynamic>{};
 
-      final myFollowers = _readUidSet(myData, 'followers')
-        ..remove(normalizedFollowerUid);
-      final myFollowing = _readUidSet(myData, 'following');
-      final followerFollowing = _readUidSet(followerData, 'following')
-        ..remove(myUid);
-      final followerFollowers = _readUidSet(followerData, 'followers');
+        final myFollowers = _readUidSet(myData, 'followers')
+          ..remove(normalizedFollowerUid);
+        final myFollowing = _readUidSet(myData, 'following');
+        final followerFollowing = _readUidSet(followerData, 'following')
+          ..remove(myUid);
+        final followerFollowers = _readUidSet(followerData, 'followers');
 
-      tx.set(
-        myUserRef,
-        {
-          'followers': FieldValue.arrayRemove(<String>[normalizedFollowerUid]),
-          'followersCount': _uidCount(myFollowers),
-        },
-        SetOptions(merge: true),
-      );
+        tx.set(
+          myUserRef,
+          {
+            'followers':
+                FieldValue.arrayRemove(<String>[normalizedFollowerUid]),
+            'followersCount': _uidCount(myFollowers),
+          },
+          SetOptions(merge: true),
+        );
 
-      tx.set(
-        followerUserRef,
-        {
-          'following': FieldValue.arrayRemove(<String>[myUid]),
-          'followingCount': _uidCount(followerFollowing),
-        },
-        SetOptions(merge: true),
-      );
+        tx.set(
+          followerUserRef,
+          {
+            'following': FieldValue.arrayRemove(<String>[myUid]),
+            'followingCount': _uidCount(followerFollowing),
+          },
+          SetOptions(merge: true),
+        );
 
-      tx.set(
-        myPublicUserRef,
-        _publicCountersPayload(
-          followersCount: _uidCount(myFollowers),
-          followingCount: _uidCount(myFollowing),
-        ),
-        SetOptions(merge: true),
-      );
+        tx.set(
+          myPublicUserRef,
+          _publicCountersPayload(
+            followersCount: _uidCount(myFollowers),
+            followingCount: _uidCount(myFollowing),
+          ),
+          SetOptions(merge: true),
+        );
 
-      tx.set(
-        followerPublicUserRef,
-        _publicCountersPayload(
-          followersCount: _uidCount(followerFollowers),
-          followingCount: _uidCount(followerFollowing),
-        ),
-        SetOptions(merge: true),
-      );
-    });
+        tx.set(
+          followerPublicUserRef,
+          _publicCountersPayload(
+            followersCount: _uidCount(followerFollowers),
+            followingCount: _uidCount(followerFollowing),
+          ),
+          SetOptions(merge: true),
+        );
+      });
+    } catch (e) {
+      if (_isPermissionDenied(e)) {
+        debugPrint(
+          '[Follow Debug] permission-denied on removeFollower; '
+          'applying self-only fallback',
+        );
+        await _removeFollowerSelfOnlyFallback(
+          myUid: myUid,
+          followerUid: normalizedFollowerUid,
+        );
+        await _secureQueue.enqueue(
+          type: SecureActionTypes.removeFollower,
+          payload: <String, dynamic>{
+            'followerUid': normalizedFollowerUid,
+          },
+          dedupeKey: 'remove_follower:$myUid:$normalizedFollowerUid',
+        );
+        return;
+      }
+      rethrow;
+    }
   }
 
   Stream<Map<String, int>> watchUserCounters(String uid) {

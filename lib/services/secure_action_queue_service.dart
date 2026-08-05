@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 class SecureActionTypes {
   static const String followUser = 'follow_user';
   static const String unfollowUser = 'unfollow_user';
+  static const String removeFollower = 'remove_follower';
   static const String cancelFollowRequest = 'cancel_follow_request';
 
   static const String togglePostLike = 'toggle_post_like';
@@ -53,11 +54,8 @@ class SecureActionQueueService {
       throw ArgumentError('type is required');
     }
 
-    final actionRef = _db
-        .collection('users')
-        .doc(uid)
-        .collection('secure_actions')
-        .doc();
+    final actionRef =
+        _db.collection('users').doc(uid).collection('secure_actions').doc();
 
     await actionRef.set(<String, dynamic>{
       'id': actionRef.id,

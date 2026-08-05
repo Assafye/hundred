@@ -56,6 +56,7 @@ const ACTION_STATUS = {
 const ACTION_TYPE = {
   followUser: 'follow_user',
   unfollowUser: 'unfollow_user',
+  removeFollower: 'remove_follower',
   cancelFollowRequest: 'cancel_follow_request',
   togglePostLike: 'toggle_post_like',
   togglePostSave: 'toggle_post_save',
@@ -294,6 +295,56 @@ async function processUnfollowUser(actorUid, payload) {
     tx.set(targetPublicRef, {
       followersCount: targetFollowers.size,
       followingCount: targetFollowing.size,
+    }, { merge: true });
+  });
+}
+
+async function processRemoveFollower(actorUid, payload) {
+  const followerUid = String(payload.followerUid ?? '').trim();
+  if (!followerUid || followerUid === actorUid) return;
+
+  const myUserRef = db.collection('users').doc(actorUid);
+  const followerUserRef = db.collection('users').doc(followerUid);
+  const myPublicRef = db.collection('users_public').doc(actorUid);
+  const followerPublicRef = db.collection('users_public').doc(followerUid);
+
+  await db.runTransaction(async (tx) => {
+    const [mySnap, followerSnap] = await Promise.all([
+      tx.get(myUserRef),
+      tx.get(followerUserRef),
+    ]);
+
+    if (!mySnap.exists || !followerSnap.exists) return;
+
+    const myData = mySnap.data() || {};
+    const followerData = followerSnap.data() || {};
+
+    const myFollowers = normalizeUidSet(myData.followers);
+    const myFollowing = normalizeUidSet(myData.following);
+    const followerFollowing = normalizeUidSet(followerData.following);
+    const followerFollowers = normalizeUidSet(followerData.followers);
+
+    myFollowers.delete(followerUid);
+    followerFollowing.delete(actorUid);
+
+    tx.set(myUserRef, {
+      followers: Array.from(myFollowers),
+      followersCount: myFollowers.size,
+    }, { merge: true });
+
+    tx.set(followerUserRef, {
+      following: Array.from(followerFollowing),
+      followingCount: followerFollowing.size,
+    }, { merge: true });
+
+    tx.set(myPublicRef, {
+      followersCount: myFollowers.size,
+      followingCount: myFollowing.size,
+    }, { merge: true });
+
+    tx.set(followerPublicRef, {
+      followersCount: followerFollowers.size,
+      followingCount: followerFollowing.size,
     }, { merge: true });
   });
 }
@@ -890,6 +941,9 @@ async function processSingleAction(actionDoc) {
       return;
     case ACTION_TYPE.unfollowUser:
       await processUnfollowUser(actorUid, payload);
+      return;
+    case ACTION_TYPE.removeFollower:
+      await processRemoveFollower(actorUid, payload);
       return;
     case ACTION_TYPE.cancelFollowRequest:
       await processCancelFollowRequest(actorUid, payload);

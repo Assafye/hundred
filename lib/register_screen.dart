@@ -242,9 +242,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
               title: Row(
                 children: [
                   IconButton(
-                    onPressed:
-                        isBusy ? null : () => Navigator.of(dialogContext).pop(false),
-                    icon: const Icon(Icons.close_rounded, color: _textSecondary),
+                    onPressed: isBusy
+                        ? null
+                        : () => Navigator.of(dialogContext).pop(false),
+                    icon:
+                        const Icon(Icons.close_rounded, color: _textSecondary),
                     tooltip: 'סגירה',
                   ),
                   const Expanded(
@@ -363,15 +365,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
       fillColor: _fieldFill,
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(20),
-        borderSide: BorderSide(color: _accent.withOpacity( 0.14), width: 0.9),
+        borderSide: BorderSide(color: _accent.withValues(alpha: 0.14), width: 0.9),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(20),
-        borderSide: BorderSide(color: _accent.withOpacity( 0.14), width: 0.9),
+        borderSide: BorderSide(color: _accent.withValues(alpha: 0.14), width: 0.9),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(20),
-        borderSide: BorderSide(color: _accent.withOpacity( 0.66), width: 1.0),
+        borderSide: BorderSide(color: _accent.withValues(alpha: 0.66), width: 1.0),
       ),
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
       errorStyle: const TextStyle(color: Colors.redAccent),
@@ -429,7 +431,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
               surface: Color(0xFF1F2750),
               onPrimary: Colors.white,
               onSurface: _textPrimary,
-            ), dialogTheme: const DialogTheme(backgroundColor: Color(0xFF1A2247)),
+            ),
+            dialogTheme:
+                const DialogThemeData(backgroundColor: Color(0xFF1A2247)),
           ),
           child: child!,
         );
@@ -951,7 +955,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 boxShadow: isActive
                     ? [
                         BoxShadow(
-                          color: _accent.withOpacity( 0.24),
+                          color: _accent.withValues(alpha: 0.24),
                           blurRadius: 14,
                           spreadRadius: 0.6,
                         ),
@@ -1028,14 +1032,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
             color: isDefault
-                ? _accent.withOpacity( 0.5)
-                : _accent.withOpacity( 0.16),
+                ? _accent.withValues(alpha: 0.5)
+                : _accent.withValues(alpha: 0.16),
             width: isDefault ? 1.4 : 0.9,
           ),
           boxShadow: isDefault
               ? [
                   BoxShadow(
-                    color: _accent.withOpacity( 0.18),
+                    color: _accent.withValues(alpha: 0.18),
                     blurRadius: 14,
                     spreadRadius: 0.6,
                   ),
@@ -1332,8 +1336,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(
                       color: isDisabled
-                          ? _accent.withOpacity( 0.12)
-                          : _primary.withOpacity( 0.44),
+                          ? _accent.withValues(alpha: 0.12)
+                          : _primary.withValues(alpha: 0.44),
                       width: 0.9,
                     ),
                   ),
@@ -1418,193 +1422,194 @@ class _RegisterScreenState extends State<RegisterScreen> {
     final orbSizeB = (screenWidth * 0.92).clamp(260.0, 360.0);
     return SwipeBackWrapper(
       child: Scaffold(
-      backgroundColor: _bgBottom,
-      body: SafeArea(
-        child: Stack(
-          children: [
-            Positioned.fill(
-              child: AnimatedContainer(
+        backgroundColor: _bgBottom,
+        body: SafeArea(
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: AnimatedContainer(
+                  duration: const Duration(seconds: 8),
+                  curve: Curves.easeInOut,
+                  onEnd: _toggleBgAnimation,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin:
+                          _animateBg ? Alignment.topLeft : Alignment.topRight,
+                      end: _animateBg
+                          ? Alignment.bottomRight
+                          : Alignment.bottomLeft,
+                      colors: const [_bgTop, Color(0xFF0E1627), _bgBottom],
+                    ),
+                  ),
+                ),
+              ),
+              AnimatedPositioned(
                 duration: const Duration(seconds: 8),
                 curve: Curves.easeInOut,
-                onEnd: _toggleBgAnimation,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: _animateBg ? Alignment.topLeft : Alignment.topRight,
-                    end: _animateBg
-                        ? Alignment.bottomRight
-                        : Alignment.bottomLeft,
-                    colors: const [_bgTop, Color(0xFF0E1627), _bgBottom],
+                top: _animateBg ? -130 : -95,
+                left: _animateBg ? -95 : -55,
+                child: Container(
+                  width: orbSizeA,
+                  height: orbSizeA,
+                  decoration: const BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: RadialGradient(
+                      colors: [Color(0x3853D9FF), Color(0x0053D9FF)],
+                    ),
                   ),
                 ),
               ),
-            ),
-            AnimatedPositioned(
-              duration: const Duration(seconds: 8),
-              curve: Curves.easeInOut,
-              top: _animateBg ? -130 : -95,
-              left: _animateBg ? -95 : -55,
-              child: Container(
-                width: orbSizeA,
-                height: orbSizeA,
-                decoration: const BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: RadialGradient(
-                    colors: [Color(0x3853D9FF), Color(0x0053D9FF)],
+              AnimatedPositioned(
+                duration: const Duration(seconds: 8),
+                curve: Curves.easeInOut,
+                bottom: _animateBg ? -155 : -115,
+                right: _animateBg ? -110 : -65,
+                child: Container(
+                  width: orbSizeB,
+                  height: orbSizeB,
+                  decoration: const BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: RadialGradient(
+                      colors: [Color(0x3B7B79FF), Color(0x007B79FF)],
+                    ),
                   ),
                 ),
               ),
-            ),
-            AnimatedPositioned(
-              duration: const Duration(seconds: 8),
-              curve: Curves.easeInOut,
-              bottom: _animateBg ? -155 : -115,
-              right: _animateBg ? -110 : -65,
-              child: Container(
-                width: orbSizeB,
-                height: orbSizeB,
-                decoration: const BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: RadialGradient(
-                    colors: [Color(0x3B7B79FF), Color(0x007B79FF)],
-                  ),
-                ),
-              ),
-            ),
-            ListView(
-              padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
-              children: [
-                Container(
-                  padding: const EdgeInsets.fromLTRB(18, 22, 18, 20),
-                  decoration: BoxDecoration(
-                    color: const Color(0xD0121A2B),
-                    borderRadius: BorderRadius.circular(30),
-                    border: Border.all(
-                        color: _accent.withOpacity( 0.12), width: 0.8),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity( 0.24),
-                        blurRadius: 28,
-                        offset: const Offset(0, 14),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    children: [
-                      const Text(
-                        'הרשמה',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: _textPrimary,
-                          fontSize: 30,
-                          fontWeight: FontWeight.w700,
+              ListView(
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+                children: [
+                  Container(
+                    padding: const EdgeInsets.fromLTRB(18, 22, 18, 20),
+                    decoration: BoxDecoration(
+                      color: const Color(0xD0121A2B),
+                      borderRadius: BorderRadius.circular(30),
+                      border: Border.all(
+                          color: _accent.withValues(alpha: 0.12), width: 0.8),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.24),
+                          blurRadius: 28,
+                          offset: const Offset(0, 14),
                         ),
-                      ),
-                      const SizedBox(height: 10),
-                      if (_currentStep == 0)
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Text(
-                              'אם כבר יש לך משתמש - ',
-                              style: TextStyle(
-                                  color: _textSecondary,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w400),
-                            ),
-                            InkWell(
-                              onTap: () => Navigator.of(context).pop(),
-                              child: const Text(
-                                'התחבר',
+                      ],
+                    ),
+                    child: Column(
+                      children: [
+                        const Text(
+                          'הרשמה',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: _textPrimary,
+                            fontSize: 30,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        if (_currentStep == 0)
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Text(
+                                'אם כבר יש לך משתמש - ',
                                 style: TextStyle(
-                                  color: _accent,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w700,
+                                    color: _textSecondary,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w400),
+                              ),
+                              InkWell(
+                                onTap: () => Navigator.of(context).pop(),
+                                child: const Text(
+                                  'התחבר',
+                                  style: TextStyle(
+                                    color: _accent,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700,
+                                  ),
                                 ),
                               ),
-                            ),
-                          ],
-                        ),
-                      const SizedBox(height: 14),
-                      _buildStepHeader(),
-                      if (_currentStep == 0)
-                        _buildDetailsStep()
-                      else
-                        _buildProfileStep(),
-                      if (_currentStep == 1) _buildPrivacyPolicyAcceptance(),
-                      const SizedBox(height: 8),
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton(
-                          onPressed: _isRegistering
-                              ? null
-                              : (_currentStep == 0
-                                  ? _continueFromDetailsStep
-                                  : _onRegisterPressed),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: _primary,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            elevation: 0,
+                            ],
                           ),
-                          child: _isRegistering
-                              ? const SizedBox(
-                                  width: 20,
-                                  height: 20,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    valueColor: AlwaysStoppedAnimation<Color>(
-                                        Colors.white),
+                        const SizedBox(height: 14),
+                        _buildStepHeader(),
+                        if (_currentStep == 0)
+                          _buildDetailsStep()
+                        else
+                          _buildProfileStep(),
+                        if (_currentStep == 1) _buildPrivacyPolicyAcceptance(),
+                        const SizedBox(height: 8),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton(
+                            onPressed: _isRegistering
+                                ? null
+                                : (_currentStep == 0
+                                    ? _continueFromDetailsStep
+                                    : _onRegisterPressed),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: _primary,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              elevation: 0,
+                            ),
+                            child: _isRegistering
+                                ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                          Colors.white),
+                                    ),
+                                  )
+                                : Text(
+                                    _currentStep == 0 ? 'המשך' : 'סיום הרשמה',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16,
+                                    ),
                                   ),
-                                )
-                              : Text(
-                                  _currentStep == 0 ? 'המשך' : 'סיום הרשמה',
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 16,
-                                  ),
-                                ),
-                        ),
-                      ),
-                      if (_currentStep == 1)
-                        TextButton(
-                          onPressed: _isRegistering
-                              ? null
-                              : () {
-                                  setState(() {
-                                    _currentStep = 0;
-                                  });
-                                },
-                          child: const Text(
-                            'חזרה לשלב הקודם',
-                            style: TextStyle(color: _textSecondary),
                           ),
                         ),
-                    ],
+                        if (_currentStep == 1)
+                          TextButton(
+                            onPressed: _isRegistering
+                                ? null
+                                : () {
+                                    setState(() {
+                                      _currentStep = 0;
+                                    });
+                                  },
+                            child: const Text(
+                              'חזרה לשלב הקודם',
+                              style: TextStyle(color: _textSecondary),
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
-                ),
-              ],
-            ),
-            Positioned(
-              top: 2,
-              right: 6,
-              child: Material(
-                color: Colors.transparent,
-                child: IconButton(
-                  onPressed: () => Navigator.of(context).maybePop(),
-                  icon: const Icon(
-                    Icons.arrow_back_rounded,
-                    color: _textPrimary,
+                ],
+              ),
+              Positioned(
+                top: 2,
+                right: 6,
+                child: Material(
+                  color: Colors.transparent,
+                  child: IconButton(
+                    onPressed: () => Navigator.of(context).maybePop(),
+                    icon: const Icon(
+                      Icons.arrow_back_rounded,
+                      color: _textPrimary,
+                    ),
+                    tooltip: 'חזרה',
                   ),
-                  tooltip: 'חזרה',
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
       ),
     );
   }

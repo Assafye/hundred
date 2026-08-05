@@ -330,13 +330,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 child: Container(
                   decoration: BoxDecoration(
                     color: isLight
-                        ? Colors.white.withOpacity( 0.62)
+                        ? Colors.white.withValues(alpha: 0.62)
                         : const Color(0xFF121A2A),
                     borderRadius: BorderRadius.circular(18),
                     border: Border.all(
                       color: isLight
                           ? const Color(0xFFA7BFFF)
-                          : _accentPurple.withOpacity( 0.42),
+                          : _accentPurple.withValues(alpha: 0.42),
                     ),
                   ),
                   child: const Column(
@@ -374,7 +374,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                               ? _accentPurple
                               : (isLight
                                   ? const Color(0xFFA9C3FF)
-                                  : _accentCyan.withOpacity( 0.2)),
+                                  : _accentCyan.withValues(alpha: 0.2)),
                           width: isPrimary ? 2.2 : 1,
                         ),
                       ),
@@ -434,7 +434,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         width: 22,
                         height: 22,
                         decoration: BoxDecoration(
-                          color: Colors.black.withOpacity( 0.58),
+                          color: Colors.black.withValues(alpha: 0.58),
                           shape: BoxShape.circle,
                         ),
                         child: const Icon(
@@ -487,13 +487,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       ),
       filled: true,
       fillColor:
-          isLight ? Colors.white.withOpacity( 0.58) : const Color(0xFF142136),
+          isLight ? Colors.white.withValues(alpha: 0.58) : const Color(0xFF142136),
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
         borderSide: BorderSide(
           color:
-              isLight ? const Color(0xFFA9C3FF) : _accentCyan.withOpacity( 0.22),
+              isLight ? const Color(0xFFA9C3FF) : _accentCyan.withValues(alpha: 0.22),
           width: 1,
         ),
       ),
@@ -501,7 +501,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         borderRadius: BorderRadius.circular(16),
         borderSide: BorderSide(
           color:
-              isLight ? const Color(0xFFA9C3FF) : _accentCyan.withOpacity( 0.22),
+              isLight ? const Color(0xFFA9C3FF) : _accentCyan.withValues(alpha: 0.22),
           width: 1,
         ),
       ),
@@ -571,7 +571,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   color: (isLight ? const Color(0xFF9EEBFF) : _accentCyan)
-                      .withOpacity( isLight ? 0.14 : 0.08),
+                      .withValues(alpha: isLight ? 0.14 : 0.08),
                 ),
               ),
             ),
@@ -584,7 +584,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   color: (isLight ? const Color(0xFFB9A9FF) : _accentPurple)
-                      .withOpacity( isLight ? 0.14 : 0.09),
+                      .withValues(alpha: isLight ? 0.14 : 0.09),
                 ),
               ),
             ),
@@ -597,13 +597,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                   padding: const EdgeInsets.fromLTRB(16, 18, 16, 18),
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(24),
-                    color: isLight ? Colors.white.withOpacity( 0.6) : null,
+                    color: isLight ? Colors.white.withValues(alpha: 0.6) : null,
                     gradient: isLight
                         ? null
                         : LinearGradient(
                             colors: [
-                              _cardTop.withOpacity( 0.94),
-                              _cardBottom.withOpacity( 0.94),
+                              _cardTop.withValues(alpha: 0.94),
+                              _cardBottom.withValues(alpha: 0.94),
                             ],
                             begin: Alignment.topRight,
                             end: Alignment.bottomLeft,
@@ -611,13 +611,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                     border: Border.all(
                       color: isLight
                           ? const Color(0xFFA9C3FF)
-                          : _accentCyan.withOpacity( 0.24),
+                          : _accentCyan.withValues(alpha: 0.24),
                     ),
                     boxShadow: [
                       BoxShadow(
                         color: isLight
-                            ? const Color(0xFF53C1F9).withOpacity( 0.1)
-                            : Colors.black.withOpacity( 0.22),
+                            ? const Color(0xFF53C1F9).withValues(alpha: 0.1)
+                            : Colors.black.withValues(alpha: 0.22),
                         blurRadius: 16,
                         offset: const Offset(0, 8),
                       ),

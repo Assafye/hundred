@@ -383,12 +383,12 @@ class _ChatsScreenState extends State<ChatsScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
         color: isLight
-            ? Colors.white.withOpacity( 0.62)
-            : color.withOpacity( 0.16),
+            ? Colors.white.withValues(alpha: 0.62)
+            : color.withValues(alpha: 0.16),
         borderRadius: BorderRadius.circular(999),
         border: Border.all(
           color:
-              isLight ? const Color(0xFFA9C3FF) : color.withOpacity( 0.55),
+              isLight ? const Color(0xFFA9C3FF) : color.withValues(alpha: 0.55),
         ),
       ),
       child: Row(
@@ -420,13 +420,13 @@ class _ChatsScreenState extends State<ChatsScreen> {
       padding: const EdgeInsets.all(11),
       decoration: BoxDecoration(
         color: isLight
-            ? Colors.white.withOpacity( 0.66)
+            ? Colors.white.withValues(alpha: 0.66)
             : const Color(0xFF1A2435),
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
           color: isLight
               ? const Color(0xFFA9C3FF)
-              : accent.withOpacity( 0.35),
+              : accent.withValues(alpha: 0.35),
         ),
       ),
       child: Column(
@@ -497,7 +497,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
             child: Container(
               decoration: BoxDecoration(
                 color: isLight
-                    ? Colors.white.withOpacity( 0.78)
+                    ? Colors.white.withValues(alpha: 0.78)
                     : const Color(0xFF111A28),
                 borderRadius: BorderRadius.circular(22),
               ),
@@ -542,7 +542,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(18),
                           color: isLight
-                              ? Colors.white.withOpacity( 0.62)
+                              ? Colors.white.withValues(alpha: 0.62)
                               : null,
                           gradient: isLight
                               ? null
@@ -558,7 +558,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
                               color: isLight
                                   ? const Color(0xFFA9C3FF)
                                   : const Color(0xFF53C1F9)
-                                      .withOpacity( 0.35)),
+                                      .withValues(alpha: 0.35)),
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -756,7 +756,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
             child: Container(
               decoration: BoxDecoration(
                 color: isLight
-                    ? Colors.white.withOpacity( 0.78)
+                    ? Colors.white.withValues(alpha: 0.78)
                     : const Color(0xFF111A28),
                 borderRadius: BorderRadius.circular(20),
               ),
@@ -827,7 +827,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
                                         decoration: BoxDecoration(
                                           color: isLight
                                               ? Colors.white
-                                                  .withOpacity( 0.62)
+                                                  .withValues(alpha: 0.62)
                                               : const Color(0xFF1E2632),
                                           borderRadius:
                                               BorderRadius.circular(12),
@@ -835,7 +835,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
                                               color: isLight
                                                   ? const Color(0xFFA9C3FF)
                                                   : const Color(0xFF53C1F9)
-                                                      .withOpacity( 0.25)),
+                                                      .withValues(alpha: 0.25)),
                                         ),
                                         child: Row(
                                           children: [
@@ -946,7 +946,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
                       height: orbSizeA,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: const Color(0xFFB9A9FF).withOpacity( 0.12),
+                        color: const Color(0xFFB9A9FF).withValues(alpha: 0.12),
                       ),
                     ),
                   ),
@@ -961,7 +961,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
                       height: orbSizeB,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: const Color(0xFF9EEBFF).withOpacity( 0.12),
+                        color: const Color(0xFF9EEBFF).withValues(alpha: 0.12),
                       ),
                     ),
                   ),
@@ -977,16 +977,12 @@ class _ChatsScreenState extends State<ChatsScreen> {
                           children: [
                             Expanded(
                               child: Container(
+                                clipBehavior: Clip.antiAlias,
                                 decoration: BoxDecoration(
                                   color: isLight
-                                      ? Colors.white.withOpacity( 0.62)
+                                      ? Colors.white.withValues(alpha: 0.62)
                                       : const Color(0xFF1E2632),
                                   borderRadius: BorderRadius.circular(24),
-                                  border: Border.all(
-                                    color: isLight
-                                        ? const Color(0xFFA9C3FF)
-                                        : Colors.transparent,
-                                  ),
                                 ),
                                 child: TextField(
                                   controller: _searchController,
@@ -1003,6 +999,8 @@ class _ChatsScreenState extends State<ChatsScreen> {
                                           ? Colors.black54
                                           : Colors.grey[600],
                                     ),
+                                    filled: true,
+                                    fillColor: Colors.transparent,
                                     prefixIcon: Icon(
                                       Icons.search_rounded,
                                       color: isLight
@@ -1010,7 +1008,33 @@ class _ChatsScreenState extends State<ChatsScreen> {
                                           : Colors.grey[500],
                                       size: 20,
                                     ),
-                                    border: InputBorder.none,
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(24),
+                                      borderSide: BorderSide(
+                                        color: isLight
+                                            ? const Color(0xFFA9C3FF)
+                                            : const Color(0xFF3F5877),
+                                        width: 1.3,
+                                      ),
+                                    ),
+                                    enabledBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(24),
+                                      borderSide: BorderSide(
+                                        color: isLight
+                                            ? const Color(0xFFA9C3FF)
+                                            : const Color(0xFF3F5877),
+                                        width: 1.3,
+                                      ),
+                                    ),
+                                    focusedBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(24),
+                                      borderSide: BorderSide(
+                                        color: isLight
+                                            ? const Color(0xFFA9C3FF)
+                                            : const Color(0xFF3F5877),
+                                        width: 1.3,
+                                      ),
+                                    ),
                                     contentPadding: const EdgeInsets.symmetric(
                                       vertical: 12,
                                       horizontal: 16,
@@ -1050,13 +1074,13 @@ class _ChatsScreenState extends State<ChatsScreen> {
                                     ? [
                                         BoxShadow(
                                           color: const Color(0xFF53C1F9)
-                                              .withOpacity( 0.25),
+                                              .withValues(alpha: 0.25),
                                           blurRadius: 14,
                                           offset: const Offset(0, 5),
                                         ),
                                         BoxShadow(
                                           color: const Color(0xFFB79BFF)
-                                              .withOpacity( 0.22),
+                                              .withValues(alpha: 0.22),
                                           blurRadius: 14,
                                           offset: const Offset(0, 6),
                                         ),
@@ -1133,7 +1157,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
                         child: Container(
                           decoration: BoxDecoration(
                             color: isLight
-                                ? Colors.white.withOpacity( 0.62)
+                                ? Colors.white.withValues(alpha: 0.62)
                                 : const Color(0xFF1E2632),
                             borderRadius: BorderRadius.circular(24),
                             border: Border.all(
@@ -1437,7 +1461,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
                     final tile = Container(
                       decoration: BoxDecoration(
                         color: isLight
-                            ? Colors.white.withOpacity( 0.62)
+                            ? Colors.white.withValues(alpha: 0.62)
                             : const Color(0xFF1E2632),
                         borderRadius: BorderRadius.circular(16),
                       ),
@@ -1665,14 +1689,14 @@ class _ChatsScreenState extends State<ChatsScreen> {
                         child: Container(
                           decoration: BoxDecoration(
                             color: isLight
-                                ? Colors.white.withOpacity( 0.62)
+                                ? Colors.white.withValues(alpha: 0.62)
                                 : const Color(0xFF1E2632),
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(
                               color: isLight
                                   ? const Color(0xFFA9C3FF)
                                   : const Color(0xFF53C1F9)
-                                      .withOpacity( 0.22),
+                                      .withValues(alpha: 0.22),
                             ),
                           ),
                           padding: const EdgeInsets.all(12),
@@ -1792,7 +1816,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
                                           decoration: BoxDecoration(
                                             color: isLight
                                                 ? Colors.white
-                                                    .withOpacity( 0.72)
+                                                    .withValues(alpha: 0.72)
                                                 : const Color(0xFF0F1522),
                                             borderRadius:
                                                 BorderRadius.circular(999),
@@ -1800,7 +1824,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
                                               color: isLight
                                                   ? const Color(0xFFA9C3FF)
                                                   : const Color(0xFF53C1F9)
-                                                      .withOpacity( 0.28),
+                                                      .withValues(alpha: 0.28),
                                             ),
                                           ),
                                           child: Text(
@@ -1827,7 +1851,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
                                                 const Color(0xFF53C1F9),
                                             side: BorderSide(
                                               color: const Color(0xFF53C1F9)
-                                                  .withOpacity( 0.7),
+                                                  .withValues(alpha: 0.7),
                                             ),
                                             padding: const EdgeInsets.symmetric(
                                                 horizontal: 10, vertical: 10),
@@ -1857,7 +1881,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
                                                 const Color(0xFFB6A3FF),
                                             side: BorderSide(
                                               color: const Color(0xFF9E7CFF)
-                                                  .withOpacity( 0.7),
+                                                  .withValues(alpha: 0.7),
                                             ),
                                             padding: const EdgeInsets.symmetric(
                                                 horizontal: 10, vertical: 10),
@@ -2022,7 +2046,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
               color: const Color(0xFF2A1622),
               borderRadius: BorderRadius.circular(14),
               border: Border.all(
-                  color: const Color(0xFFFF6B9E).withOpacity( 0.55)),
+                  color: const Color(0xFFFF6B9E).withValues(alpha: 0.55)),
             ),
             child: Text(
               _friendlyJoinErrorMessage(error),
@@ -2046,7 +2070,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(18),
             side: BorderSide(
-              color: const Color(0xFF53C1F9).withOpacity( 0.45),
+              color: const Color(0xFF53C1F9).withValues(alpha: 0.45),
               width: 1.2,
             ),
           ),
@@ -2354,7 +2378,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
               side: BorderSide(
                 color: isLight
                     ? const Color(0xFFA9C3FF)
-                    : const Color(0xFF53C1F9).withOpacity( 0.7),
+                    : const Color(0xFF53C1F9).withValues(alpha: 0.7),
               ),
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
               shape: RoundedRectangleBorder(
@@ -2408,7 +2432,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: isLight
-          ? Colors.white.withOpacity( 0.96)
+          ? Colors.white.withValues(alpha: 0.96)
           : const Color(0xFF101826),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
@@ -2835,13 +2859,14 @@ class _ChatsScreenState extends State<ChatsScreen> {
                                               color: isSelected
                                                   ? const Color(0xFF8D78FF)
                                                   : Colors.white
-                                                      .withOpacity( 0.72),
+                                                      .withValues(alpha: 0.72),
                                               width: isSelected ? 1.8 : 1.2,
                                             ),
                                             boxShadow: [
                                               BoxShadow(
                                                 color: const Color(0xFF76CFFF)
-                                                    .withOpacity(
+                                                    .withValues(
+                                                  alpha:
                                                       isSelected ? 0.42 : 0.32,
                                                 ),
                                                 blurRadius:
@@ -2904,13 +2929,15 @@ class _ChatsScreenState extends State<ChatsScreen> {
                                                       ),
                                                       border: Border.all(
                                                         color: Colors.white
-                                                            .withOpacity( 0.78),
+                                                            .withValues(
+                                                                alpha: 0.78),
                                                       ),
                                                       boxShadow: [
                                                         BoxShadow(
                                                           color: const Color(
                                                                   0xFFFFB76A)
-                                                              .withOpacity( 0.28),
+                                                              .withValues(
+                                                                  alpha: 0.28),
                                                           blurRadius: 10,
                                                           offset: const Offset(
                                                               0, 4),
@@ -3003,7 +3030,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
             ),
             boxShadow: [
               BoxShadow(
-                color: const Color(0xFF76CFFF).withOpacity( 0.18),
+                color: const Color(0xFF76CFFF).withValues(alpha: 0.18),
                 blurRadius: 16,
                 offset: const Offset(0, 8),
               ),
@@ -3030,7 +3057,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
                       end: Alignment.bottomRight,
                     ),
                     border: Border.all(
-                      color: Colors.white.withOpacity( 0.74),
+                      color: Colors.white.withValues(alpha: 0.74),
                     ),
                   ),
                   child: Icon(icon, color: const Color(0xFF2A2361), size: 20),
@@ -3157,7 +3184,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
                 final tile = Container(
                   decoration: BoxDecoration(
                     color: isLight
-                        ? Colors.white.withOpacity( 0.62)
+                        ? Colors.white.withValues(alpha: 0.62)
                         : const Color(0xFF1E2632),
                     borderRadius: BorderRadius.circular(16),
                   ),
@@ -3255,7 +3282,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
         ),
         borderRadius: BorderRadius.circular(999),
         border:
-            Border.all(color: const Color(0xFF53C1F9).withOpacity( 0.7)),
+            Border.all(color: const Color(0xFF53C1F9).withValues(alpha: 0.7)),
         boxShadow: const [
           BoxShadow(
             color: Color(0x3346D3FF),
@@ -3299,7 +3326,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
         boxShadow: [
           BoxShadow(
             color: (isLight ? const Color(0xFF53C1F9) : const Color(0xFF9E7CFF))
-                .withOpacity( 0.5),
+                .withValues(alpha: 0.5),
             blurRadius: 8,
             spreadRadius: 0.6,
           ),
@@ -3315,7 +3342,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
         color: const Color(0xFF3A1218),
         borderRadius: BorderRadius.circular(999),
         border:
-            Border.all(color: const Color(0xFFFF6A8F).withOpacity( 0.8)),
+            Border.all(color: const Color(0xFFFF6A8F).withValues(alpha: 0.8)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -3351,7 +3378,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
-        color: isLight ? const Color(0xFFA9C3FF).withOpacity( 0.8) : null,
+        color: isLight ? const Color(0xFFA9C3FF).withValues(alpha: 0.8) : null,
         borderRadius: BorderRadius.circular(17),
       ),
       child: child,
@@ -3614,13 +3641,13 @@ class _ChatsScreenState extends State<ChatsScreen> {
       child: Container(
         decoration: BoxDecoration(
           color: isLight
-              ? Colors.white.withOpacity( 0.62)
+              ? Colors.white.withValues(alpha: 0.62)
               : const Color(0xFF1E2632),
           borderRadius: BorderRadius.circular(18),
           border: Border.all(
             color: isLight
                 ? const Color(0xFFA9C3FF)
-                : const Color(0xFF53C1F9).withOpacity( 0.25),
+                : const Color(0xFF53C1F9).withValues(alpha: 0.25),
           ),
         ),
         child: FutureBuilder<List<_GlobalSearchResult>>(

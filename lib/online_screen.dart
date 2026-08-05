@@ -273,7 +273,7 @@ class _OnlineScreenState extends State<OnlineScreen>
                               activeTrackColor: Colors.transparent,
                               inactiveTrackColor: Colors.transparent,
                               thumbColor: thumbColor,
-                              overlayColor: thumbColor.withOpacity( 0.18),
+                              overlayColor: thumbColor.withValues(alpha: 0.18),
                               valueIndicatorColor: thumbColor,
                             ),
                             child: Slider(
@@ -413,7 +413,7 @@ class _OnlineScreenState extends State<OnlineScreen>
                       Border.all(color: const Color(0xFFB9FFD2), width: 1.2),
                   boxShadow: [
                     BoxShadow(
-                      color: const Color(0xFF4FD17F).withOpacity( 0.28),
+                      color: const Color(0xFF4FD17F).withValues(alpha: 0.28),
                       blurRadius: 18,
                       offset: const Offset(0, 8),
                     ),
@@ -641,7 +641,7 @@ class _OnlineScreenState extends State<OnlineScreen>
                             color: (isLight
                                     ? const Color(0xFF8FB7FF)
                                     : const Color(0xFF46D3FF))
-                                .withOpacity( 0.28),
+                                .withValues(alpha: 0.28),
                           ),
                         ),
                         child: Column(
@@ -861,7 +861,7 @@ class _OnlineScreenState extends State<OnlineScreen>
                                               color: isSelected
                                                   ? const Color(0xFF8D78FF)
                                                   : Colors.white
-                                                      .withOpacity( 0.72),
+                                                      .withValues(alpha: 0.72),
                                               width: isSelected ? 1.8 : 1.2,
                                             ),
                                           ),
@@ -966,7 +966,7 @@ class _OnlineScreenState extends State<OnlineScreen>
                       end: Alignment.bottomRight,
                     ),
                     border: Border.all(
-                      color: Colors.white.withOpacity( 0.82),
+                      color: Colors.white.withValues(alpha: 0.82),
                     ),
                   ),
                   child: Icon(
@@ -1446,7 +1446,7 @@ class _OnlineScreenState extends State<OnlineScreen>
                       ),
                 boxShadow: [
                   BoxShadow(
-                    color: const Color(0xFF8E7DFF).withOpacity( 0.28),
+                    color: const Color(0xFF8E7DFF).withValues(alpha: 0.28),
                     blurRadius: 18,
                     offset: const Offset(0, 8),
                   ),
@@ -2239,7 +2239,7 @@ class _OnlineScreenState extends State<OnlineScreen>
         borderRadius: BorderRadius.circular(999),
         border: Border.all(
           color:
-              isLight ? const Color(0xFFA9C3FF) : _cyan.withOpacity( 0.28),
+              isLight ? const Color(0xFFA9C3FF) : _cyan.withValues(alpha: 0.28),
         ),
       ),
       child: Row(
@@ -2285,14 +2285,14 @@ class _OnlineScreenState extends State<OnlineScreen>
                   border: Border.all(
                     color: isLight
                         ? const Color(0xFFA9C3FF)
-                        : Colors.white.withOpacity( 0.14),
+                        : Colors.white.withValues(alpha: 0.14),
                   ),
                   boxShadow: [
                     BoxShadow(
                       color: (isLight
                               ? const Color(0xFF7DB2FF)
                               : const Color(0xFF56C7FF))
-                          .withOpacity( 0.16),
+                          .withValues(alpha: 0.16),
                       blurRadius: 18,
                       offset: const Offset(0, 10),
                     ),
@@ -2337,7 +2337,7 @@ class _OnlineScreenState extends State<OnlineScreen>
                           boxShadow: [
                             BoxShadow(
                               color: const Color(0xFFA971FF)
-                                  .withOpacity( 0.35),
+                                  .withValues(alpha: 0.35),
                               blurRadius: 14,
                               offset: const Offset(0, 6),
                             ),
@@ -2470,12 +2470,12 @@ class _OnlineScreenState extends State<OnlineScreen>
                     : const Color(0xFFA9C3FF))
                 : (isForcedOnline
                     ? const Color(0xFF7BFF9E)
-                    : _cyan.withOpacity( 0.9));
+                    : _cyan.withValues(alpha: 0.9));
             final backgroundColor = isLight
                 ? Colors.white
                 : (isForcedOnline
                     ? const Color(0xFF1F7A3A)
-                    : _purple.withOpacity( 0.2));
+                    : _purple.withValues(alpha: 0.2));
             final foregroundColor = isLight
                 ? (isForcedOnline ? const Color(0xFF2E8B57) : Colors.black)
                 : (isForcedOnline ? Colors.white : _cyanSoft);
@@ -2540,7 +2540,7 @@ class _OnlineScreenState extends State<OnlineScreen>
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(26),
-          color: isLight ? Colors.white.withOpacity( 0.72) : null,
+          color: isLight ? Colors.white.withValues(alpha: 0.72) : null,
           gradient: isLight
               ? null
               : const LinearGradient(
@@ -2555,11 +2555,11 @@ class _OnlineScreenState extends State<OnlineScreen>
           border: Border.all(
             color: isLight
                 ? const Color(0xFFA9C3FF)
-                : Colors.white.withOpacity( 0.08),
+                : Colors.white.withValues(alpha: 0.08),
           ),
           boxShadow: [
             BoxShadow(
-              color: const Color(0xFF7A6BFF).withOpacity( 0.24),
+              color: const Color(0xFF7A6BFF).withValues(alpha: 0.24),
               blurRadius: 22,
               offset: const Offset(0, 10),
             ),
@@ -2585,7 +2585,7 @@ class _OnlineScreenState extends State<OnlineScreen>
                       boxShadow: [
                         BoxShadow(
                           color:
-                              const Color(0xFF8B78FF).withOpacity( 0.35),
+                              const Color(0xFF8B78FF).withValues(alpha: 0.35),
                           blurRadius: 16,
                           offset: const Offset(0, 8),
                         ),
@@ -2619,7 +2619,7 @@ class _OnlineScreenState extends State<OnlineScreen>
                       style: TextStyle(
                         color: isLight
                             ? Colors.black87
-                            : Colors.white.withOpacity( 0.96),
+                            : Colors.white.withValues(alpha: 0.96),
                         fontSize: 15,
                         fontWeight: FontWeight.w700,
                       ),
@@ -2718,12 +2718,12 @@ class _OnlineScreenState extends State<OnlineScreen>
                                               color: isLight
                                                   ? const Color(0xFFA9C3FF)
                                                   : const Color(0xFF69A4EA)
-                                                      .withOpacity( 0.45),
+                                                      .withValues(alpha: 0.45),
                                             ),
                                             boxShadow: [
                                               BoxShadow(
                                                 color: const Color(0xFF8A74FF)
-                                                    .withOpacity( 0.22),
+                                                    .withValues(alpha: 0.22),
                                                 blurRadius: 14,
                                                 offset: const Offset(0, 6),
                                               ),
@@ -2797,16 +2797,16 @@ class _OnlineScreenState extends State<OnlineScreen>
                                           decoration: BoxDecoration(
                                             color: isLight
                                                 ? Colors.white
-                                                    .withOpacity( 0.92)
+                                                    .withValues(alpha: 0.92)
                                                 : const Color(0xFF0D1727)
-                                                    .withOpacity( 0.86),
+                                                    .withValues(alpha: 0.86),
                                             borderRadius:
                                                 BorderRadius.circular(12),
                                             border: Border.all(
                                               color: isLight
                                                   ? const Color(0xFF9EBBFF)
                                                   : const Color(0xFF7A95C9)
-                                                      .withOpacity( 0.7),
+                                                      .withValues(alpha: 0.7),
                                             ),
                                           ),
                                           child: Icon(
@@ -2833,7 +2833,7 @@ class _OnlineScreenState extends State<OnlineScreen>
                               boxShadow: [
                                 BoxShadow(
                                   color: const Color(0xFF805CFF)
-                                      .withOpacity( 0.34),
+                                      .withValues(alpha: 0.34),
                                   blurRadius: 14,
                                   offset: const Offset(0, 6),
                                 ),
@@ -2968,7 +2968,7 @@ class _OnlineScreenState extends State<OnlineScreen>
               style: TextStyle(
                 color: isLight
                     ? Colors.black
-                    : Colors.white.withOpacity( 0.95),
+                    : Colors.white.withValues(alpha: 0.95),
                 fontSize: 18,
                 fontWeight: FontWeight.w800,
               ),
@@ -2982,7 +2982,7 @@ class _OnlineScreenState extends State<OnlineScreen>
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: const Color(0xFF8A74FF).withOpacity( 0.3),
+                    color: const Color(0xFF8A74FF).withValues(alpha: 0.3),
                     blurRadius: 10,
                     offset: const Offset(0, 4),
                   ),
@@ -3046,7 +3046,7 @@ class _OnlineScreenState extends State<OnlineScreen>
                   ':מחפשים להיפגש עכשיו',
                   textAlign: TextAlign.right,
                   style: TextStyle(
-                    color: Colors.white.withOpacity( 0.96),
+                    color: Colors.white.withValues(alpha: 0.96),
                     fontSize: 18,
                     fontWeight: FontWeight.w800,
                   ),
@@ -3084,7 +3084,7 @@ class _OnlineScreenState extends State<OnlineScreen>
               side: BorderSide(
                 color: isLight
                     ? const Color(0xFFA9C3FF)
-                    : _cyan.withOpacity( 0.7),
+                    : _cyan.withValues(alpha: 0.7),
               ),
               backgroundColor: isLight ? Colors.white : null,
             ),
@@ -3163,9 +3163,9 @@ class _OnlineScreenState extends State<OnlineScreen>
                               : LinearGradient(
                                   colors: [
                                     const Color(0xFF14233A)
-                                        .withOpacity( 0.96),
+                                        .withValues(alpha: 0.96),
                                     const Color(0xFF312357)
-                                        .withOpacity( 0.96),
+                                        .withValues(alpha: 0.96),
                                   ],
                                   begin: Alignment.topRight,
                                   end: Alignment.bottomLeft,
@@ -3174,7 +3174,7 @@ class _OnlineScreenState extends State<OnlineScreen>
                           border: Border.all(
                             color: isLight
                                 ? const Color(0xFFA9C3FF)
-                                : _cyan.withOpacity( 0.18),
+                                : _cyan.withValues(alpha: 0.18),
                           ),
                         ),
                         padding: const EdgeInsets.all(10),
@@ -3235,12 +3235,13 @@ class _OnlineScreenState extends State<OnlineScreen>
                                             decoration: BoxDecoration(
                                               color: isLight
                                                   ? Colors.white
-                                                      .withOpacity( 0.9)
+                                                      .withValues(alpha: 0.9)
                                                   : const Color(0xCC111A28),
                                               borderRadius:
                                                   BorderRadius.circular(999),
                                               border: Border.all(
-                                                  color: _cyan.withOpacity( 0.45)),
+                                                  color: _cyan.withValues(
+                                                      alpha: 0.45)),
                                             ),
                                             child: Text(
                                               '$count חברים',
@@ -3307,8 +3308,8 @@ class _OnlineScreenState extends State<OnlineScreen>
             ? null
             : LinearGradient(
                 colors: [
-                  const Color(0xFF14233A).withOpacity( 0.96),
-                  const Color(0xFF312357).withOpacity( 0.96),
+                  const Color(0xFF14233A).withValues(alpha: 0.96),
+                  const Color(0xFF312357).withValues(alpha: 0.96),
                 ],
                 begin: Alignment.topRight,
                 end: Alignment.bottomLeft,
@@ -3316,7 +3317,7 @@ class _OnlineScreenState extends State<OnlineScreen>
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
           color:
-              isLight ? const Color(0xFF9FAFFF) : _cyan.withOpacity( 0.18),
+              isLight ? const Color(0xFF9FAFFF) : _cyan.withValues(alpha: 0.18),
         ),
       ),
       padding: const EdgeInsets.all(10),
@@ -3391,7 +3392,7 @@ class _OnlineScreenState extends State<OnlineScreen>
               ),
               boxShadow: [
                 BoxShadow(
-                  color: const Color(0xFFB05FFF).withOpacity( 0.34),
+                  color: const Color(0xFFB05FFF).withValues(alpha: 0.34),
                   blurRadius: 12,
                   offset: const Offset(0, 5),
                 ),
@@ -3499,7 +3500,7 @@ class _OnlineScreenState extends State<OnlineScreen>
                         Border.all(color: const Color(0xFF8BE7FF), width: 0.9),
                     boxShadow: [
                       BoxShadow(
-                        color: const Color(0xFF8BE7FF).withOpacity( 0.28),
+                        color: const Color(0xFF8BE7FF).withValues(alpha: 0.28),
                         blurRadius: 8,
                       ),
                     ],
@@ -3529,13 +3530,13 @@ class _OnlineScreenState extends State<OnlineScreen>
       margin: const EdgeInsets.fromLTRB(16, 0, 16, 14),
       padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
       decoration: BoxDecoration(
-        color: isLight ? Colors.white.withOpacity( 0.9) : null,
+        color: isLight ? Colors.white.withValues(alpha: 0.9) : null,
         gradient: isLight
             ? null
             : LinearGradient(
                 colors: [
-                  const Color(0xFF111E35).withOpacity( 0.96),
-                  const Color(0xFF2A1E4C).withOpacity( 0.96),
+                  const Color(0xFF111E35).withValues(alpha: 0.96),
+                  const Color(0xFF2A1E4C).withValues(alpha: 0.96),
                 ],
                 begin: Alignment.topRight,
                 end: Alignment.bottomLeft,
@@ -3543,11 +3544,11 @@ class _OnlineScreenState extends State<OnlineScreen>
         borderRadius: BorderRadius.circular(24),
         border: Border.all(
           color:
-              isLight ? const Color(0xFFA9C3FF) : _cyan.withOpacity( 0.22),
+              isLight ? const Color(0xFFA9C3FF) : _cyan.withValues(alpha: 0.22),
         ),
         boxShadow: [
           BoxShadow(
-            color: _cyan.withOpacity( 0.08),
+            color: _cyan.withValues(alpha: 0.08),
             blurRadius: 16,
             offset: const Offset(0, 8),
           ),
@@ -3600,7 +3601,7 @@ class _OnlineScreenState extends State<OnlineScreen>
       width: double.infinity,
       decoration: BoxDecoration(
         color: isLight
-            ? Colors.white.withOpacity( 0.78)
+            ? Colors.white.withValues(alpha: 0.78)
             : const Color(0xFF0E1726),
         borderRadius: BorderRadius.circular(18),
         border: Border.all(
@@ -3641,13 +3642,13 @@ class _OnlineScreenState extends State<OnlineScreen>
               ),
               boxShadow: [
                 BoxShadow(
-                  color: const Color(0xFF76CFFF).withOpacity( 0.4),
+                  color: const Color(0xFF76CFFF).withValues(alpha: 0.4),
                   blurRadius: 14,
                   offset: const Offset(0, 7),
                 ),
               ],
               border: Border.all(
-                color: Colors.white.withOpacity( 0.65),
+                color: Colors.white.withValues(alpha: 0.65),
                 width: 1.1,
               ),
             ),
@@ -3972,10 +3973,10 @@ class _OnlineScreenState extends State<OnlineScreen>
               end: Alignment.bottomRight,
             ),
             border: Border.all(
-                color: Colors.white.withOpacity( 0.72), width: 1.2),
+                color: Colors.white.withValues(alpha: 0.72), width: 1.2),
             boxShadow: [
               BoxShadow(
-                color: const Color(0xFF76CFFF).withOpacity( 0.35),
+                color: const Color(0xFF76CFFF).withValues(alpha: 0.35),
                 blurRadius: 15,
                 offset: const Offset(0, 7),
               ),
@@ -4034,10 +4035,10 @@ class _OnlineScreenState extends State<OnlineScreen>
             end: Alignment.bottomRight,
           ),
           border: Border.all(
-              color: Colors.white.withOpacity( 0.72), width: 1.2),
+              color: Colors.white.withValues(alpha: 0.72), width: 1.2),
           boxShadow: [
             BoxShadow(
-              color: const Color(0xFF76CFFF).withOpacity( 0.3),
+              color: const Color(0xFF76CFFF).withValues(alpha: 0.3),
               blurRadius: 14,
               offset: const Offset(0, 6),
             ),
@@ -4427,12 +4428,12 @@ class _MeetNowPostsViewerState extends State<_MeetNowPostsViewer> {
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
         color: isLight
-            ? Colors.white.withOpacity( 0.92)
+            ? Colors.white.withValues(alpha: 0.92)
             : const Color(0xFF17263C),
         borderRadius: BorderRadius.circular(999),
         border: Border.all(
           color:
-              isLight ? const Color(0xFFA9C3FF) : _cyan.withOpacity( 0.28),
+              isLight ? const Color(0xFFA9C3FF) : _cyan.withValues(alpha: 0.28),
         ),
       ),
       child: Row(
@@ -4549,10 +4550,12 @@ class _MeetNowPostsViewerState extends State<_MeetNowPostsViewer> {
                                   begin: Alignment.topCenter,
                                   end: Alignment.bottomCenter,
                                   colors: [
-                                    Colors.black.withOpacity( isLight ? 0.18 : 0.34,
+                                    Colors.black.withValues(
+                                      alpha: isLight ? 0.18 : 0.34,
                                     ),
                                     Colors.transparent,
-                                    Colors.black.withOpacity( isLight ? 0.36 : 0.58,
+                                    Colors.black.withValues(
+                                      alpha: isLight ? 0.36 : 0.58,
                                     ),
                                   ],
                                 ),
@@ -4571,8 +4574,8 @@ class _MeetNowPostsViewerState extends State<_MeetNowPostsViewer> {
                                     horizontal: 10, vertical: 6),
                                 decoration: BoxDecoration(
                                   color: isLight
-                                      ? Colors.white.withOpacity( 0.82)
-                                      : Colors.black.withOpacity( 0.4),
+                                      ? Colors.white.withValues(alpha: 0.82)
+                                      : Colors.black.withValues(alpha: 0.4),
                                   border: isLight
                                       ? Border.all(
                                           color: const Color(0xFFA9C3FF),
@@ -4663,11 +4666,11 @@ class _MeetNowPostsViewerState extends State<_MeetNowPostsViewer> {
                             if (isLight)
                               const Color(0xFFF8FBFF)
                             else
-                              const Color(0xFF101826).withOpacity( 0.98),
+                              const Color(0xFF101826).withValues(alpha: 0.98),
                             if (isLight)
                               const Color(0xFFEFF5FF)
                             else
-                              const Color(0xFF1E1A38).withOpacity( 0.98),
+                              const Color(0xFF1E1A38).withValues(alpha: 0.98),
                           ],
                           begin: Alignment.topRight,
                           end: Alignment.bottomLeft,
@@ -4676,7 +4679,7 @@ class _MeetNowPostsViewerState extends State<_MeetNowPostsViewer> {
                           top: BorderSide(
                             color: isLight
                                 ? const Color(0xFFA9C3FF)
-                                : _cyan.withOpacity( 0.28),
+                                : _cyan.withValues(alpha: 0.28),
                           ),
                         ),
                       ),
@@ -4710,13 +4713,13 @@ class _MeetNowPostsViewerState extends State<_MeetNowPostsViewer> {
                                     ),
                                     decoration: BoxDecoration(
                                       color: isLight
-                                          ? Colors.white.withOpacity( 0.9)
+                                          ? Colors.white.withValues(alpha: 0.9)
                                           : const Color(0xFF17263C),
                                       borderRadius: BorderRadius.circular(12),
                                       border: Border.all(
                                         color: isLight
                                             ? const Color(0xFFA9C3FF)
-                                            : _cyan.withOpacity( 0.22),
+                                            : _cyan.withValues(alpha: 0.22),
                                       ),
                                     ),
                                     child: Text(
@@ -4880,7 +4883,8 @@ class _MeetNowPostsViewerState extends State<_MeetNowPostsViewer> {
                                               side: BorderSide(
                                                 color: isLight
                                                     ? const Color(0xFFA9C3FF)
-                                                    : _cyan.withOpacity( 0.62),
+                                                    : _cyan.withValues(
+                                                        alpha: 0.62),
                                               ),
                                               padding:
                                                   const EdgeInsets.symmetric(

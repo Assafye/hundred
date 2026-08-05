@@ -47,7 +47,7 @@ class _NotificationSettingsScreenState
     final optionCard = isLight ? Colors.white : const Color(0xFF1A2435);
     final optionBorder = isLight
         ? const Color(0xFFA9C3FF)
-        : const Color(0xFF53C1F9).withOpacity( 0.13);
+        : const Color(0xFF53C1F9).withValues(alpha: 0.13);
 
     return Directionality(
       textDirection: TextDirection.rtl,
@@ -105,7 +105,7 @@ class _NotificationSettingsScreenState
                               color: isLight
                                   ? const Color(0xFFA9C3FF)
                                   : const Color(0xFF53C1F9)
-                                      .withOpacity( 0.2),
+                                      .withValues(alpha: 0.2),
                             ),
                           ),
                           child: Column(

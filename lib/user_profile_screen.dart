@@ -223,7 +223,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                     color: const Color(0xFF1A2435),
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(
-                      color: const Color(0xFF53C1F9).withOpacity( 0.22),
+                      color: const Color(0xFF53C1F9).withValues(alpha: 0.22),
                     ),
                   ),
                   child: Column(
@@ -868,10 +868,10 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                     end: Alignment.bottomRight,
                   ),
                   border: Border.all(
-                      color: Colors.white.withOpacity( 0.72), width: 1.2),
+                      color: Colors.white.withValues(alpha: 0.72), width: 1.2),
                   boxShadow: [
                     BoxShadow(
-                      color: const Color(0xFF76CFFF).withOpacity( 0.35),
+                      color: const Color(0xFF76CFFF).withValues(alpha: 0.35),
                       blurRadius: 15,
                       offset: const Offset(0, 7),
                     ),
@@ -926,7 +926,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                             end: Alignment.bottomRight,
                           ),
                     border:
-                        Border.all(color: Colors.white.withOpacity( 0.8)),
+                        Border.all(color: Colors.white.withValues(alpha: 0.8)),
                   ),
                   child: Text(
                     progress.isComplete
@@ -989,12 +989,12 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                     end: Alignment.bottomRight,
                   ),
             border: Border.all(
-                color: Colors.white.withOpacity( 0.72), width: 1.2),
+                color: Colors.white.withValues(alpha: 0.72), width: 1.2),
             boxShadow: [
               BoxShadow(
                 color:
                     (isDone ? const Color(0xFF8EA0B8) : const Color(0xFF76CFFF))
-                        .withOpacity( 0.3),
+                        .withValues(alpha: 0.3),
                 blurRadius: 14,
                 offset: const Offset(0, 6),
               ),
@@ -1268,13 +1268,13 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
             ),
             boxShadow: [
               BoxShadow(
-                color: const Color(0xFF7D72FF).withOpacity( 0.32),
+                color: const Color(0xFF7D72FF).withValues(alpha: 0.32),
                 blurRadius: 14,
                 offset: const Offset(0, 7),
               ),
             ],
             border: Border.all(
-              color: Colors.white.withOpacity( 0.65),
+              color: Colors.white.withValues(alpha: 0.65),
               width: 1.1,
             ),
           ),
@@ -1304,13 +1304,13 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
             ),
             boxShadow: [
               BoxShadow(
-                color: const Color(0xFF7D72FF).withOpacity( 0.32),
+                color: const Color(0xFF7D72FF).withValues(alpha: 0.32),
                 blurRadius: 14,
                 offset: const Offset(0, 7),
               ),
             ],
             border: Border.all(
-              color: Colors.white.withOpacity( 0.65),
+              color: Colors.white.withValues(alpha: 0.65),
               width: 1.1,
             ),
           ),
@@ -1625,14 +1625,14 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                                         horizontal: 12, vertical: 10),
                                     decoration: BoxDecoration(
                                       color: isLight
-                                          ? Colors.white.withOpacity( 0.72)
+                                          ? Colors.white.withValues(alpha: 0.72)
                                           : const Color(0xFF1A2435),
                                       borderRadius: BorderRadius.circular(14),
                                       border: Border.all(
                                         color: isLight
                                             ? const Color(0xFFA9C3FF)
                                             : const Color(0xFF53C1F9)
-                                                .withOpacity( 0.22),
+                                                .withValues(alpha: 0.22),
                                       ),
                                     ),
                                     child: Row(
@@ -1657,13 +1657,14 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                                             borderRadius:
                                                 BorderRadius.circular(999),
                                             border: Border.all(
-                                              color: Colors.white.withOpacity( isLight ? 0.78 : 0.3,
+                                              color: Colors.white.withValues(
+                                                alpha: isLight ? 0.78 : 0.3,
                                               ),
                                             ),
                                             boxShadow: [
                                               BoxShadow(
                                                 color: const Color(0xFF7BD6FF)
-                                                    .withOpacity( 0.24),
+                                                    .withValues(alpha: 0.24),
                                                 blurRadius: 12,
                                                 offset: const Offset(0, 4),
                                               ),
@@ -1944,7 +1945,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         border: Border.all(
           color: isLight
               ? const Color(0xFFA9C3FF)
-              : const Color(0xFF53C1F9).withOpacity( 0.12),
+              : const Color(0xFF53C1F9).withValues(alpha: 0.12),
         ),
       ),
       child: ClipRRect(
@@ -1976,7 +1977,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                               borderRadius: BorderRadius.circular(999),
                               border: Border.all(
                                 color: const Color(0xFFFF8A2A)
-                                    .withOpacity( 0.72),
+                                    .withValues(alpha: 0.72),
                               ),
                             ),
                             child: const Text(
@@ -1997,13 +1998,13 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                                   horizontal: 8, vertical: 5),
                               decoration: BoxDecoration(
                                 color: isLight
-                                    ? Colors.white.withOpacity( 0.92)
+                                    ? Colors.white.withValues(alpha: 0.92)
                                     : const Color(0xFF2A2248)
-                                        .withOpacity( 0.94),
+                                        .withValues(alpha: 0.94),
                                 borderRadius: BorderRadius.circular(999),
                                 border: Border.all(
                                   color: const Color(0xFF9E7CFF)
-                                      .withOpacity( 0.55),
+                                      .withValues(alpha: 0.55),
                                 ),
                               ),
                               child: Text(
@@ -2079,20 +2080,20 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                           decoration: BoxDecoration(
                             color: isTaggedCategoryView
                                 ? (isLight
-                                    ? Colors.white.withOpacity( 0.92)
+                                    ? Colors.white.withValues(alpha: 0.92)
                                     : const Color(0xFF2A2248)
-                                        .withOpacity( 0.94))
+                                        .withValues(alpha: 0.94))
                                 : (isLight
-                                    ? Colors.white.withOpacity( 0.92)
+                                    ? Colors.white.withValues(alpha: 0.92)
                                     : const Color(0xFF141925)
-                                        .withOpacity( 0.92)),
+                                        .withValues(alpha: 0.92)),
                             borderRadius: BorderRadius.circular(999),
                             border: Border.all(
                               color: isTaggedCategoryView
                                   ? const Color(0xFF9E7CFF)
-                                      .withOpacity( 0.55)
+                                      .withValues(alpha: 0.55)
                                   : const Color(0xFF53C1F9)
-                                      .withOpacity( 0.4),
+                                      .withValues(alpha: 0.4),
                             ),
                           ),
                           child: Text(
@@ -2166,7 +2167,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         border: Border.all(
           color: isLight
               ? const Color(0xFFA9C3FF)
-              : const Color(0xFF53C1F9).withOpacity( 0.18),
+              : const Color(0xFF53C1F9).withValues(alpha: 0.18),
         ),
       ),
       child: Padding(
@@ -2464,7 +2465,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     }
     await showDialog<void>(
       context: context,
-      barrierColor: Colors.black.withOpacity( 0.78),
+      barrierColor: Colors.black.withValues(alpha: 0.78),
       builder: (dialogContext) {
         final isLight = Theme.of(dialogContext).brightness == Brightness.light;
         final size = MediaQuery.of(dialogContext).size;
@@ -3033,14 +3034,14 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                                     horizontal: 10, vertical: 10),
                                 decoration: BoxDecoration(
                                   color: isLight
-                                      ? Colors.white.withOpacity( 0.72)
+                                      ? Colors.white.withValues(alpha: 0.72)
                                       : const Color(0xFF1A2435),
                                   borderRadius: BorderRadius.circular(14),
                                   border: Border.all(
                                     color: isLight
                                         ? const Color(0xFFA9C3FF)
                                         : const Color(0xFF53C1F9)
-                                            .withOpacity( 0.22),
+                                            .withValues(alpha: 0.22),
                                   ),
                                 ),
                                 child: Row(
@@ -3164,7 +3165,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                                               border: Border.all(
                                                 color: isFollowCta
                                                     ? const Color(0xFFE6D9FF)
-                                                    : Colors.white.withOpacity( isLight
+                                                    : Colors.white.withValues(
+                                                        alpha: isLight
                                                             ? 0.9
                                                             : 0.22,
                                                       ),
@@ -3175,7 +3177,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                                                       BoxShadow(
                                                         color: const Color(
                                                           0xFF9E7CFF,
-                                                        ).withOpacity( 0.3),
+                                                        ).withValues(
+                                                            alpha: 0.3),
                                                         blurRadius: 10,
                                                         offset:
                                                             const Offset(0, 3),
@@ -3761,7 +3764,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         decoration: BoxDecoration(
           color: const Color(0xFF1A2435),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: accent.withOpacity( 0.35)),
+          border: Border.all(color: accent.withValues(alpha: 0.35)),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -3869,7 +3872,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                                   borderRadius: BorderRadius.circular(12),
                                   border: Border.all(
                                     color: const Color(0xFF53C1F9)
-                                        .withOpacity( 0.25),
+                                        .withValues(alpha: 0.25),
                                   ),
                                 ),
                                 child: Row(
@@ -3981,7 +3984,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
               color: const Color(0xFF2A1622),
               borderRadius: BorderRadius.circular(14),
               border: Border.all(
-                  color: const Color(0xFFFF6B9E).withOpacity( 0.55)),
+                  color: const Color(0xFFFF6B9E).withValues(alpha: 0.55)),
             ),
             child: Text(
               joinErrorMessage,
@@ -4025,7 +4028,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
               color: const Color(0xFF2A1622),
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
-                color: const Color(0xFFFF6B9E).withOpacity( 0.62),
+                color: const Color(0xFFFF6B9E).withValues(alpha: 0.62),
               ),
             ),
             child: Text(
@@ -4092,13 +4095,13 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: isLight
-            ? Colors.white.withOpacity( 0.82)
+            ? Colors.white.withValues(alpha: 0.82)
             : const Color(0xFF1E2632),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: isLight
               ? const Color(0xFFA9C3FF)
-              : const Color(0xFF53C1F9).withOpacity( 0.2),
+              : const Color(0xFF53C1F9).withValues(alpha: 0.2),
         ),
       ),
       child: Column(
@@ -4203,7 +4206,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                   border: Border.all(
                     color: isLight
                         ? const Color(0xFFA9C3FF)
-                        : const Color(0xFF53C1F9).withOpacity( 0.28),
+                        : const Color(0xFF53C1F9).withValues(alpha: 0.28),
                   ),
                 ),
                 child: Text(
@@ -4220,7 +4223,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                 style: OutlinedButton.styleFrom(
                   foregroundColor: const Color(0xFF53C1F9),
                   side: BorderSide(
-                      color: const Color(0xFF53C1F9).withOpacity( 0.7)),
+                      color: const Color(0xFF53C1F9).withValues(alpha: 0.7)),
                   padding:
                       const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
                   shape: RoundedRectangleBorder(
@@ -4238,7 +4241,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                 style: OutlinedButton.styleFrom(
                   foregroundColor: const Color(0xFFB6A3FF),
                   side: BorderSide(
-                      color: const Color(0xFF9E7CFF).withOpacity( 0.7)),
+                      color: const Color(0xFF9E7CFF).withValues(alpha: 0.7)),
                   padding:
                       const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
                   shape: RoundedRectangleBorder(
@@ -4498,7 +4501,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
                           color:
-                              const Color(0xFF53C1F9).withOpacity( 0.55),
+                              const Color(0xFF53C1F9).withValues(alpha: 0.55),
                         ),
                       ),
                       child: const Icon(Icons.chat_bubble_outline_rounded,
@@ -4516,7 +4519,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
                           color:
-                              const Color(0xFF53C1F9).withOpacity( 0.55),
+                              const Color(0xFF53C1F9).withValues(alpha: 0.55),
                         ),
                       ),
                       child: TextField(
@@ -4555,7 +4558,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
                           color:
-                              const Color(0xFF53C1F9).withOpacity( 0.55),
+                              const Color(0xFF53C1F9).withValues(alpha: 0.55),
                         ),
                       ),
                       child: Center(
@@ -4803,7 +4806,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                 label: 'קבוצות ציבוריות',
                 icon: Icons.public_rounded,
                 onPressed: _showPublicGroupsSheet,
-                borderColor: const Color(0xFF53C1F9).withOpacity( 0.75),
+                borderColor: const Color(0xFF53C1F9).withValues(alpha: 0.75),
                 isLight: isLight,
               ),
             ),
@@ -4813,7 +4816,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                 label: 'קבוצות משותפות',
                 icon: Icons.groups_2_rounded,
                 onPressed: _showMutualGroupsSheet,
-                borderColor: const Color(0xFF9E7CFF).withOpacity( 0.75),
+                borderColor: const Color(0xFF9E7CFF).withValues(alpha: 0.75),
                 isLight: isLight,
               ),
             ),
@@ -4823,7 +4826,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                 label: 'חברים משותפים',
                 icon: Icons.people_alt_rounded,
                 onPressed: _showMutualFriendsSheet,
-                borderColor: const Color(0xFF53C1F9).withOpacity( 0.75),
+                borderColor: const Color(0xFF53C1F9).withValues(alpha: 0.75),
                 isLight: isLight,
               ),
             ),
@@ -4913,7 +4916,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
             border: Border.all(
               color: isLight
                   ? const Color(0xFFA9C3FF)
-                  : accent.withOpacity( 0.34),
+                  : accent.withValues(alpha: 0.34),
             ),
           ),
           child: Column(
@@ -4973,8 +4976,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
             ? null
             : LinearGradient(
                 colors: [
-                  const Color(0xFF1A2E45).withOpacity( 0.98),
-                  const Color(0xFF30244A).withOpacity( 0.98),
+                  const Color(0xFF1A2E45).withValues(alpha: 0.98),
+                  const Color(0xFF30244A).withValues(alpha: 0.98),
                 ],
                 begin: Alignment.topRight,
                 end: Alignment.bottomLeft,
@@ -4983,18 +4986,18 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         border: Border.all(
           color: isLight
               ? const Color(0xFFA9C3FF)
-              : const Color(0xFF53C1F9).withOpacity( 0.42),
+              : const Color(0xFF53C1F9).withValues(alpha: 0.42),
         ),
         boxShadow: [
           BoxShadow(
             color: const Color(0xFF53C1F9)
-                .withOpacity( isLight ? 0.08 : 0.14),
+                .withValues(alpha: isLight ? 0.08 : 0.14),
             blurRadius: 12,
             offset: const Offset(0, 4),
           ),
           if (isLight)
             BoxShadow(
-              color: const Color(0xFF9E7CFF).withOpacity( 0.08),
+              color: const Color(0xFF9E7CFF).withValues(alpha: 0.08),
               blurRadius: 12,
               offset: const Offset(0, 5),
             ),
@@ -5134,7 +5137,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                   child: Container(
                     decoration: BoxDecoration(
                       color: isLight
-                          ? Colors.white.withOpacity( 0.94)
+                          ? Colors.white.withValues(alpha: 0.94)
                           : const Color(0xFF111A28),
                       borderRadius: BorderRadius.circular(24),
                     ),
@@ -5400,14 +5403,14 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                               padding: const EdgeInsets.all(10),
                               decoration: BoxDecoration(
                                 color: isLight
-                                    ? Colors.white.withOpacity( 0.82)
+                                    ? Colors.white.withValues(alpha: 0.82)
                                     : const Color(0xFF0F1522),
                                 borderRadius: BorderRadius.circular(18),
                                 border: Border.all(
                                   color: isLight
                                       ? const Color(0xFFA9C3FF)
                                       : const Color(0xFF53C1F9)
-                                          .withOpacity( 0.2),
+                                          .withValues(alpha: 0.2),
                                 ),
                               ),
                               child: Row(
@@ -5509,14 +5512,14 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         boxShadow: [
           BoxShadow(
             color:
-                const Color(0xFF7D72FF).withOpacity( isLight ? 0.26 : 0.5),
+                const Color(0xFF7D72FF).withValues(alpha: isLight ? 0.26 : 0.5),
             blurRadius: 22,
             spreadRadius: 1.2,
             offset: const Offset(0, 9),
           ),
           BoxShadow(
             color:
-                const Color(0xFF4CD9FF).withOpacity( isLight ? 0.2 : 0.35),
+                const Color(0xFF4CD9FF).withValues(alpha: isLight ? 0.2 : 0.35),
             blurRadius: 18,
             spreadRadius: 0.8,
             offset: const Offset(0, 2),
@@ -5567,7 +5570,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 color: isComplete
-                    ? Colors.white.withOpacity( 0.95)
+                    ? Colors.white.withValues(alpha: 0.95)
                     : (isLight ? Colors.black87 : Colors.white70),
                 fontSize: 11.5,
                 fontWeight: FontWeight.w700,
@@ -5633,13 +5636,13 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                   padding: const EdgeInsets.all(18),
                   decoration: BoxDecoration(
                     color: isLight
-                        ? Colors.white.withOpacity( 0.84)
+                        ? Colors.white.withValues(alpha: 0.84)
                         : const Color(0xFF1A2435),
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(
                       color: isLight
                           ? const Color(0xFFA9C3FF)
-                          : const Color(0xFF53C1F9).withOpacity( 0.22),
+                          : const Color(0xFF53C1F9).withValues(alpha: 0.22),
                     ),
                   ),
                   child: Text(

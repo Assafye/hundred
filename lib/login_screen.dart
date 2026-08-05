@@ -214,15 +214,15 @@ class _LoginScreenState extends State<LoginScreen> {
       fillColor: _fieldFill,
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(20),
-        borderSide: BorderSide(color: _accent.withOpacity( 0.16), width: 0.9),
+        borderSide: BorderSide(color: _accent.withValues(alpha: 0.16), width: 0.9),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(20),
-        borderSide: BorderSide(color: _accent.withOpacity( 0.14), width: 0.9),
+        borderSide: BorderSide(color: _accent.withValues(alpha: 0.14), width: 0.9),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(20),
-        borderSide: BorderSide(color: _accent.withOpacity( 0.66), width: 1.0),
+        borderSide: BorderSide(color: _accent.withValues(alpha: 0.66), width: 1.0),
       ),
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
     );
@@ -316,10 +316,10 @@ class _LoginScreenState extends State<LoginScreen> {
                       color: const Color(0xD0121A2B),
                       borderRadius: BorderRadius.circular(30),
                       border: Border.all(
-                          color: _accent.withOpacity( 0.12), width: 0.8),
+                          color: _accent.withValues(alpha: 0.12), width: 0.8),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity( 0.24),
+                          color: Colors.black.withValues(alpha: 0.24),
                           blurRadius: 28,
                           offset: const Offset(0, 14),
                         ),

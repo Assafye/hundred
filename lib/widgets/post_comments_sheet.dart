@@ -61,7 +61,7 @@ class _PostCommentsSheetState extends State<PostCommentsSheet> {
               margin: const EdgeInsets.symmetric(horizontal: 24),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity( 0.86),
+                color: Colors.white.withValues(alpha: 0.86),
                 borderRadius: BorderRadius.circular(18),
                 border: Border.all(
                   color: const Color(0xFFE25454),
@@ -69,7 +69,7 @@ class _PostCommentsSheetState extends State<PostCommentsSheet> {
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity( 0.1),
+                    color: Colors.black.withValues(alpha: 0.1),
                     blurRadius: 10,
                     offset: const Offset(0, 4),
                   ),
@@ -451,13 +451,13 @@ class _PostCommentsSheetState extends State<PostCommentsSheet> {
                         color: (isLight
                                 ? const Color(0xFFF5F9FF)
                                 : const Color(0xFF182336))
-                            .withOpacity( isLight ? 0.95 : 0.92),
+                            .withValues(alpha: isLight ? 0.95 : 0.92),
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(
                             color: (isLight
                                     ? const Color(0xFF6F7ED8)
                                     : const Color(0xFF46D3FF))
-                                .withOpacity( isLight ? 0.44 : 0.24)),
+                                .withValues(alpha: isLight ? 0.44 : 0.24)),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.end,
@@ -657,10 +657,17 @@ class _PostCommentsSheetState extends State<PostCommentsSheet> {
     final isLight = _isLightMode(context);
     final mediaQuery = MediaQuery.of(context);
     final keyboardInset = mediaQuery.viewInsets.bottom;
+    final sheetHeightFactor = 0.75;
+    final composerBottomGap = 24.0;
+    final bottomSpacerHeight = keyboardInset > 0 ? 0.0 : composerBottomGap;
+    final composerContainerColor =
+        (isLight ? const Color(0xFFF7FAFF) : const Color(0xFF121C2D))
+            .withValues(alpha: 0.95);
     return SafeArea(
       top: false,
+      bottom: false,
       child: Container(
-        height: mediaQuery.size.height * 0.78,
+        height: mediaQuery.size.height * sheetHeightFactor,
         decoration: BoxDecoration(
           gradient: LinearGradient(
             colors: isLight
@@ -681,7 +688,7 @@ class _PostCommentsSheetState extends State<PostCommentsSheet> {
                 color: (isLight
                         ? const Color(0xFF8EA3FF)
                         : const Color(0xFF9EDBFF))
-                    .withOpacity( 0.5),
+                    .withValues(alpha: 0.5),
                 borderRadius: BorderRadius.circular(99),
               ),
             ),
@@ -777,156 +784,160 @@ class _PostCommentsSheetState extends State<PostCommentsSheet> {
                 },
               ),
             ),
-            Container(
-              padding: EdgeInsets.fromLTRB(
-                14,
-                10,
-                14,
-                keyboardInset > 0 ? keyboardInset + 10 : 10,
-              ),
-              decoration: BoxDecoration(
-                color: (isLight
-                        ? const Color(0xFFF7FAFF)
-                        : const Color(0xFF121C2D))
-                    .withOpacity( 0.95),
-                border: Border(
-                  top: BorderSide(
-                      color: (isLight
-                              ? const Color(0xFF8D9AFF)
-                              : const Color(0xFF46D3FF))
-                          .withOpacity( 0.2)),
-                ),
-              ),
+            Padding(
+              padding: EdgeInsets.only(bottom: keyboardInset),
               child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  if (_replyToCommentId.isNotEmpty)
-                    Container(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 8),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(999),
-                        color: isLight
-                            ? const Color(0xFFE7EEFF)
-                            : const Color(0xFF1F2D46),
-                      ),
-                      child: Row(
-                        children: [
-                          GestureDetector(
-                            onTap: () {
-                              setState(() {
-                                _replyToCommentId = '';
-                                _replyToHandle = '';
-                              });
-                            },
-                            child: const Icon(Icons.close_rounded,
-                                color: Colors.white70, size: 18),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              'תגובה ל$_replyToHandle',
-                              textAlign: TextAlign.right,
-                              style: TextStyle(
-                                color: isLight
-                                    ? const Color(0xFF2A3A5A)
-                                    : const Color(0xFFEAF4FF),
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                        ],
+                  Container(
+                    padding: const EdgeInsets.fromLTRB(14, 10, 14, 8),
+                    decoration: BoxDecoration(
+                      color: composerContainerColor,
+                      border: Border(
+                        top: BorderSide(
+                            color: (isLight
+                                    ? const Color(0xFF8D9AFF)
+                                    : const Color(0xFF46D3FF))
+                                .withValues(alpha: 0.2)),
                       ),
                     ),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: _commentController,
-                          focusNode: _commentFocusNode,
-                          textAlign: TextAlign.right,
-                          minLines: 1,
-                          maxLines: 3,
-                          style: TextStyle(
-                            color: isLight
-                                ? const Color(0xFF2A3A5A)
-                                : Colors.white,
-                            fontSize: 15,
+                    child: Column(
+                      children: [
+                        if (_replyToCommentId.isNotEmpty)
+                          Container(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 8),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(999),
+                              color: isLight
+                                  ? const Color(0xFFE7EEFF)
+                                  : const Color(0xFF1F2D46),
+                            ),
+                            child: Row(
+                              children: [
+                                GestureDetector(
+                                  onTap: () {
+                                    setState(() {
+                                      _replyToCommentId = '';
+                                      _replyToHandle = '';
+                                    });
+                                  },
+                                  child: const Icon(Icons.close_rounded,
+                                      color: Colors.white70, size: 18),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'תגובה ל$_replyToHandle',
+                                    textAlign: TextAlign.right,
+                                    style: TextStyle(
+                                      color: isLight
+                                          ? const Color(0xFF2A3A5A)
+                                          : const Color(0xFFEAF4FF),
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-                          decoration: InputDecoration(
-                            hintText: 'כתוב תגובה...',
-                            hintStyle: TextStyle(
-                                color: isLight
-                                    ? const Color(0xFF7A89A5)
-                                    : Colors.white54,
-                                fontSize: 15),
-                            filled: true,
-                            fillColor: isLight
-                                ? const Color(0xFFEAF1FF)
-                                : const Color(0xFF1A2740),
-                            contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 14, vertical: 12),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(14),
-                              borderSide: BorderSide(
-                                color: const Color(0xFF46D3FF)
-                                    .withOpacity( 0.26),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: _commentController,
+                                focusNode: _commentFocusNode,
+                                textAlign: TextAlign.right,
+                                minLines: 1,
+                                maxLines: 3,
+                                style: TextStyle(
+                                  color: isLight
+                                      ? const Color(0xFF2A3A5A)
+                                      : Colors.white,
+                                  fontSize: 15,
+                                ),
+                                decoration: InputDecoration(
+                                  hintText: 'כתוב תגובה...',
+                                  hintStyle: TextStyle(
+                                      color: isLight
+                                          ? const Color(0xFF7A89A5)
+                                          : Colors.white54,
+                                      fontSize: 15),
+                                  filled: true,
+                                  fillColor: isLight
+                                      ? const Color(0xFFEAF1FF)
+                                      : const Color(0xFF1A2740),
+                                  contentPadding: const EdgeInsets.symmetric(
+                                      horizontal: 14, vertical: 12),
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                    borderSide: BorderSide(
+                                      color: const Color(0xFF46D3FF)
+                                          .withValues(alpha: 0.26),
+                                    ),
+                                  ),
+                                  enabledBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                    borderSide: BorderSide(
+                                      color: const Color(0xFF46D3FF)
+                                          .withValues(alpha: 0.26),
+                                    ),
+                                  ),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                    borderSide: const BorderSide(
+                                        color: Color(0xFF8C62FF)),
+                                  ),
+                                ),
+                                onSubmitted: (_) => _submitComment(),
                               ),
                             ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(14),
-                              borderSide: BorderSide(
-                                color: const Color(0xFF46D3FF)
-                                    .withOpacity( 0.26),
+                            const SizedBox(width: 10),
+                            GestureDetector(
+                              onTap: _isSubmitting ? null : _submitComment,
+                              child: Container(
+                                width: 46,
+                                height: 46,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  gradient: _isSubmitting
+                                      ? const LinearGradient(
+                                          colors: [
+                                            Color(0xFF3A4963),
+                                            Color(0xFF3A4963)
+                                          ],
+                                        )
+                                      : const LinearGradient(
+                                          colors: [
+                                            Color(0xFF8C62FF),
+                                            Color(0xFF46D3FF)
+                                          ],
+                                          begin: Alignment.topLeft,
+                                          end: Alignment.bottomRight,
+                                        ),
+                                ),
+                                child: _isSubmitting
+                                    ? const Padding(
+                                        padding: EdgeInsets.all(11),
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Colors.white,
+                                        ),
+                                      )
+                                    : const Icon(Icons.send_rounded,
+                                        color: Colors.white, size: 22),
                               ),
                             ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(14),
-                              borderSide:
-                                  const BorderSide(color: Color(0xFF8C62FF)),
-                            ),
-                          ),
-                          onSubmitted: (_) => _submitComment(),
+                          ],
                         ),
-                      ),
-                      const SizedBox(width: 10),
-                      GestureDetector(
-                        onTap: _isSubmitting ? null : _submitComment,
-                        child: Container(
-                          width: 46,
-                          height: 46,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            gradient: _isSubmitting
-                                ? const LinearGradient(
-                                    colors: [
-                                      Color(0xFF3A4963),
-                                      Color(0xFF3A4963)
-                                    ],
-                                  )
-                                : const LinearGradient(
-                                    colors: [
-                                      Color(0xFF8C62FF),
-                                      Color(0xFF46D3FF)
-                                    ],
-                                    begin: Alignment.topLeft,
-                                    end: Alignment.bottomRight,
-                                  ),
-                          ),
-                          child: _isSubmitting
-                              ? const Padding(
-                                  padding: EdgeInsets.all(11),
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Colors.white,
-                                  ),
-                                )
-                              : const Icon(Icons.send_rounded,
-                                  color: Colors.white, size: 22),
-                        ),
-                      ),
-                    ],
+                      ],
+                    ),
+                  ),
+                  Container(
+                    height: bottomSpacerHeight,
+                    color: composerContainerColor,
                   ),
                 ],
               ),
