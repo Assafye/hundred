@@ -93,7 +93,7 @@ class PostDetailScreen extends StatelessWidget {
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   color: isLight
-                      ? Colors.white.withValues(alpha: 0.84)
+                      ? Colors.white.withOpacity( 0.84)
                       : const Color(0xFF1E2632),
                   borderRadius: BorderRadius.circular(18),
                   border: Border.all(

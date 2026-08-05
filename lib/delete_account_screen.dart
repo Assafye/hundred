@@ -102,26 +102,26 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
       padding: const EdgeInsets.fromLTRB(18, 22, 18, 18),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(26),
-        color: isLight ? Colors.white.withValues(alpha: 0.72) : null,
+        color: isLight ? Colors.white.withOpacity( 0.72) : null,
         gradient: isLight
             ? null
             : LinearGradient(
                 colors: [
-                  _cardTop.withValues(alpha: 0.95),
-                  _cardBottom.withValues(alpha: 0.95),
+                  _cardTop.withOpacity( 0.95),
+                  _cardBottom.withOpacity( 0.95),
                 ],
                 begin: Alignment.topRight,
                 end: Alignment.bottomLeft,
               ),
         border: Border.all(
           color:
-              isLight ? const Color(0xFFA9C3FF) : _accentCyan.withValues(alpha: 0.24),
+              isLight ? const Color(0xFFA9C3FF) : _accentCyan.withOpacity( 0.24),
         ),
         boxShadow: [
           BoxShadow(
             color: isLight
-                ? _accentCyan.withValues(alpha: 0.08)
-                : Colors.black.withValues(alpha: 0.22),
+                ? _accentCyan.withOpacity( 0.08)
+                : Colors.black.withOpacity( 0.22),
             blurRadius: 18,
             offset: const Offset(0, 8),
           ),
@@ -141,7 +141,7 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
               border: Border.all(
                 color: isLight
                     ? const Color(0xFFFFB6C6)
-                    : const Color(0xFFFF7F9C).withValues(alpha: 0.35),
+                    : const Color(0xFFFF7F9C).withOpacity( 0.35),
               ),
             ),
             child: Icon(
@@ -183,7 +183,7 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
                 side: BorderSide(
                   color: isLight
                       ? const Color(0xFFA9C3FF)
-                      : _accentCyan.withValues(alpha: 0.24),
+                      : _accentCyan.withOpacity( 0.24),
                 ),
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 shape: RoundedRectangleBorder(
@@ -232,14 +232,14 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
                 ),
                 filled: true,
                 fillColor: isLight
-                    ? Colors.white.withValues(alpha: 0.92)
+                    ? Colors.white.withOpacity( 0.92)
                     : const Color(0xFF101A2B),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(18),
                   borderSide: BorderSide(
                     color: isLight
                         ? const Color(0xFFFFC2D0)
-                        : const Color(0xFFFF7F9C).withValues(alpha: 0.26),
+                        : const Color(0xFFFF7F9C).withOpacity( 0.26),
                   ),
                 ),
                 enabledBorder: OutlineInputBorder(
@@ -247,7 +247,7 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
                   borderSide: BorderSide(
                     color: isLight
                         ? const Color(0xFFFFC2D0)
-                        : const Color(0xFFFF7F9C).withValues(alpha: 0.26),
+                        : const Color(0xFFFF7F9C).withOpacity( 0.26),
                   ),
                 ),
                 focusedBorder: OutlineInputBorder(
@@ -275,7 +275,7 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
                 side: BorderSide(
                   color: isLight
                       ? const Color(0xFFA9C3FF)
-                      : _accentCyan.withValues(alpha: 0.24),
+                      : _accentCyan.withOpacity( 0.24),
                 ),
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 shape: RoundedRectangleBorder(
@@ -371,7 +371,7 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   color:
-                      (isLight ? _accentCyan : _accentCyan).withValues(alpha: 0.09),
+                      (isLight ? _accentCyan : _accentCyan).withOpacity( 0.09),
                 ),
               ),
             ),
@@ -384,7 +384,7 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   color: (isLight ? _accentPurple : _accentPurple)
-                      .withValues(alpha: 0.08),
+                      .withOpacity( 0.08),
                 ),
               ),
             ),

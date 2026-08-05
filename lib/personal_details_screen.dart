@@ -109,7 +109,7 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
         borderRadius: BorderRadius.circular(20),
         borderSide: BorderSide(
           color:
-              isLight ? const Color(0xFFA9C3FF) : _accentCyan.withValues(alpha: 0.14),
+              isLight ? const Color(0xFFA9C3FF) : _accentCyan.withOpacity( 0.14),
           width: 0.9,
         ),
       ),
@@ -117,7 +117,7 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
         borderRadius: BorderRadius.circular(20),
         borderSide: BorderSide(
           color:
-              isLight ? const Color(0xFFA9C3FF) : _accentCyan.withValues(alpha: 0.14),
+              isLight ? const Color(0xFFA9C3FF) : _accentCyan.withOpacity( 0.14),
           width: 0.9,
         ),
       ),
@@ -126,7 +126,7 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
         borderSide: BorderSide(
           color: isLight
               ? const Color(0xFFB79BFF)
-              : _accentPurple.withValues(alpha: 0.7),
+              : _accentPurple.withOpacity( 0.7),
           width: 1.0,
         ),
       ),
@@ -155,7 +155,7 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
               surface: const Color(0xFF101826),
             ),
             dialogTheme:
-                const DialogThemeData(backgroundColor: Color(0xFF101826)),
+                const DialogTheme(backgroundColor: Color(0xFF101826)),
           ),
           child: child ?? const SizedBox.shrink(),
         );
@@ -393,7 +393,7 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: (isLight ? const Color(0xFF9EEBFF) : _accentCyan)
-                        .withValues(alpha: isLight ? 0.15 : 0.08),
+                        .withOpacity( isLight ? 0.15 : 0.08),
                   ),
                 ),
               ),
@@ -406,7 +406,7 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: (isLight ? const Color(0xFFB9A9FF) : _accentPurple)
-                        .withValues(alpha: isLight ? 0.16 : 0.09),
+                        .withOpacity( isLight ? 0.16 : 0.09),
                   ),
                 ),
               ),
@@ -430,8 +430,8 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
                                       ? null
                                       : LinearGradient(
                                           colors: [
-                                            _cardTop.withValues(alpha: 0.95),
-                                            _cardBottom.withValues(alpha: 0.95),
+                                            _cardTop.withOpacity( 0.95),
+                                            _cardBottom.withOpacity( 0.95),
                                           ],
                                           begin: Alignment.topRight,
                                           end: Alignment.bottomLeft,
@@ -439,7 +439,7 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
                                   border: Border.all(
                                       color: isLight
                                           ? const Color(0xFFA9C3FF)
-                                          : _accentCyan.withValues(alpha: 0.12),
+                                          : _accentCyan.withOpacity( 0.12),
                                       width: 0.8),
                                 ),
                                 child: Form(

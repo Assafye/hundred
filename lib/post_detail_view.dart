@@ -243,7 +243,7 @@ class _PostDetailViewState extends State<PostDetailView> {
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: const Color(0xFF53C1F9).withValues(alpha: 0.36),
+                        color: const Color(0xFF53C1F9).withOpacity( 0.36),
                         blurRadius: 22,
                         spreadRadius: 2,
                       ),
@@ -874,9 +874,9 @@ class _PostDetailViewState extends State<PostDetailView> {
       constraints: BoxConstraints(maxWidth: maxChipWidth),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
-        color: isLight ? Colors.white : color.withValues(alpha: 0.16),
+        color: isLight ? Colors.white : color.withOpacity( 0.16),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withValues(alpha: 0.55)),
+        border: Border.all(color: color.withOpacity( 0.55)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -913,7 +913,7 @@ class _PostDetailViewState extends State<PostDetailView> {
       decoration: BoxDecoration(
         color: isLight ? Colors.white : const Color(0xFF1A2435),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: accent.withValues(alpha: 0.35)),
+        border: Border.all(color: accent.withOpacity( 0.35)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1046,7 +1046,7 @@ class _PostDetailViewState extends State<PostDetailView> {
                             color: isLight
                                 ? const Color(0xFFA9C3FF)
                                 : const Color(0xFF53C1F9)
-                                    .withValues(alpha: 0.35),
+                                    .withOpacity( 0.35),
                           ),
                         ),
                         child: Column(
@@ -1322,7 +1322,7 @@ class _PostDetailViewState extends State<PostDetailView> {
                                     color: isLight
                                         ? const Color(0xFFB4C5FF)
                                         : const Color(0xFF53C1F9)
-                                            .withValues(alpha: 0.28),
+                                            .withOpacity( 0.28),
                                   ),
                                 ),
                                 child: Column(
@@ -1682,7 +1682,7 @@ class _PostDetailViewState extends State<PostDetailView> {
                                           color: isLight
                                               ? const Color(0xFFA9C3FF)
                                               : const Color(0xFF53C1F9)
-                                                  .withValues(alpha: 0.22),
+                                                  .withOpacity( 0.22),
                                         ),
                                       ),
                                       child: Row(
@@ -2164,29 +2164,16 @@ class _PostDetailViewState extends State<PostDetailView> {
     if (postId.isEmpty || _likeInFlightPostIds.contains(postId)) return;
 
     final index = _currentIndex;
-    final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
     final previousLiked = _isLikedByMe(post);
     final nextLiked = !previousLiked;
-    final likesRaw = (post['likes'] as List<dynamic>? ?? const []);
-    final likes = likesRaw
-        .map((item) => item.toString().trim())
-        .where((v) => v.isNotEmpty)
-        .toSet();
-    final hasLiked = uid.isNotEmpty ? previousLiked : likes.contains(uid);
-    if (uid.isNotEmpty) {
-      if (hasLiked) {
-        likes.remove(uid);
-      } else {
-        likes.add(uid);
-      }
-    }
+    final hasLiked = previousLiked;
 
     setState(() {
       _likeInFlightPostIds.add(postId);
       _posts[index] = <String, dynamic>{
         ..._posts[index],
-        'likes': likes.toList(growable: false),
-        'likesCount': likes.length,
+        // Keep only intent flag local; counts are driven by overlay delta + backend.
+        'likedByCurrentUser': nextLiked,
       };
     });
     PostInteractionOverlayService.setInteractionIntent(
@@ -2240,29 +2227,16 @@ class _PostDetailViewState extends State<PostDetailView> {
     if (postId.isEmpty || _saveInFlightPostIds.contains(postId)) return;
 
     final index = _currentIndex;
-    final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
     final previousSaved = _isSavedByMe(post);
     final nextSaved = !previousSaved;
-    final savedByRaw = (post['savedBy'] as List<dynamic>? ?? const []);
-    final savedBy = savedByRaw
-        .map((item) => item.toString().trim())
-        .where((v) => v.isNotEmpty)
-        .toSet();
-    final hasSaved = uid.isNotEmpty ? previousSaved : savedBy.contains(uid);
-    if (uid.isNotEmpty) {
-      if (hasSaved) {
-        savedBy.remove(uid);
-      } else {
-        savedBy.add(uid);
-      }
-    }
+    final hasSaved = previousSaved;
 
     setState(() {
       _saveInFlightPostIds.add(postId);
       _posts[index] = <String, dynamic>{
         ..._posts[index],
-        'savedBy': savedBy.toList(growable: false),
-        'savesCount': savedBy.length,
+        // Keep only intent flag local; counts are driven by overlay delta + backend.
+        'savedByCurrentUser': nextSaved,
       };
     });
     PostInteractionOverlayService.setInteractionIntent(
@@ -2603,6 +2577,7 @@ class _PostDetailViewState extends State<PostDetailView> {
       backgroundColor: Colors.transparent,
       builder: (_) => PostShareTargetsSheet(
         postPayload: _sharePayloadFromPost(post),
+        onShareSent: () => _shareCurrentPost(post, silent: false),
       ),
     );
     await ShareFlowLogService.log(
@@ -2707,13 +2682,13 @@ class _PostDetailViewState extends State<PostDetailView> {
                   ),
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(999),
-                    color: isLight ? Colors.white.withValues(alpha: 0.9) : null,
+                    color: isLight ? Colors.white.withOpacity( 0.9) : null,
                     gradient: isLight
                         ? null
                         : LinearGradient(
                             colors: [
-                              const Color(0xFF132238).withValues(alpha: 0.9),
-                              const Color(0xFF261A46).withValues(alpha: 0.9),
+                              const Color(0xFF132238).withOpacity( 0.9),
+                              const Color(0xFF261A46).withOpacity( 0.9),
                             ],
                             begin: Alignment.centerLeft,
                             end: Alignment.centerRight,
@@ -2721,7 +2696,7 @@ class _PostDetailViewState extends State<PostDetailView> {
                     border: Border.all(
                       color: isLight
                           ? const Color(0xFFA9C3FF)
-                          : const Color(0xFF46D3FF).withValues(alpha: 0.35),
+                          : const Color(0xFF46D3FF).withOpacity( 0.35),
                       width: isLight ? 1.8 : 1,
                     ),
                   ),
@@ -2770,9 +2745,9 @@ class _PostDetailViewState extends State<PostDetailView> {
                         begin: Alignment.topCenter,
                         end: Alignment.bottomCenter,
                         colors: [
-                          Colors.black.withValues(alpha: 0.12),
+                          Colors.black.withOpacity( 0.12),
                           Colors.transparent,
-                          Colors.black.withValues(alpha: 0.55),
+                          Colors.black.withOpacity( 0.55),
                         ],
                         stops: const [0.0, 0.45, 1.0],
                       ),
@@ -2799,25 +2774,25 @@ class _PostDetailViewState extends State<PostDetailView> {
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(999),
                       color:
-                          isLight ? Colors.white.withValues(alpha: 0.92) : null,
+                          isLight ? Colors.white.withOpacity( 0.92) : null,
                       gradient: isLight
                           ? null
                           : LinearGradient(
                               colors: [
-                                const Color(0xFF15263F).withValues(alpha: 0.94),
-                                const Color(0xFF2F1F54).withValues(alpha: 0.94),
+                                const Color(0xFF15263F).withOpacity( 0.94),
+                                const Color(0xFF2F1F54).withOpacity( 0.94),
                               ],
                             ),
                       border: Border.all(
                         color: isLight
                             ? const Color(0xFFA9C3FF)
-                            : const Color(0xFF46D3FF).withValues(alpha: 0.34),
+                            : const Color(0xFF46D3FF).withOpacity( 0.34),
                         width: isLight ? 2.0 : 1,
                       ),
                       boxShadow: [
                         BoxShadow(
                           color:
-                              const Color(0xFF46D3FF).withValues(alpha: 0.24),
+                              const Color(0xFF46D3FF).withOpacity( 0.24),
                           blurRadius: 12,
                           spreadRadius: 0.5,
                         ),
@@ -2850,7 +2825,7 @@ class _PostDetailViewState extends State<PostDetailView> {
                         end: Alignment.centerRight,
                       ),
                       border: Border.all(
-                        color: const Color(0xFFFF8A2A).withValues(alpha: 0.72),
+                        color: const Color(0xFFFF8A2A).withOpacity( 0.72),
                       ),
                     ),
                     child: const Text(
@@ -2883,29 +2858,29 @@ class _PostDetailViewState extends State<PostDetailView> {
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
                                 color: isLight
-                                    ? Colors.white.withValues(alpha: 0.92)
+                                    ? Colors.white.withOpacity( 0.92)
                                     : null,
                                 gradient: isLight
                                     ? null
                                     : LinearGradient(
                                         colors: [
                                           const Color(0xFF15263F)
-                                              .withValues(alpha: 0.94),
+                                              .withOpacity( 0.94),
                                           const Color(0xFF2F1F54)
-                                              .withValues(alpha: 0.94),
+                                              .withOpacity( 0.94),
                                         ],
                                       ),
                                 border: Border.all(
                                   color: isLight
                                       ? const Color(0xFFA9C3FF)
                                       : const Color(0xFF46D3FF)
-                                          .withValues(alpha: 0.34),
+                                          .withOpacity( 0.34),
                                   width: isLight ? 2.0 : 1,
                                 ),
                                 boxShadow: [
                                   BoxShadow(
                                     color: const Color(0xFF46D3FF)
-                                        .withValues(alpha: 0.24),
+                                        .withOpacity( 0.24),
                                     blurRadius: 12,
                                     spreadRadius: 0.5,
                                   ),
@@ -3022,7 +2997,7 @@ class _PostDetailViewState extends State<PostDetailView> {
                               boxShadow: [
                                 BoxShadow(
                                   color: const Color(0xFF46D3FF)
-                                      .withValues(alpha: 0.35),
+                                      .withOpacity( 0.35),
                                   blurRadius: 16,
                                   spreadRadius: 1,
                                 ),
@@ -3064,7 +3039,7 @@ class _PostDetailViewState extends State<PostDetailView> {
                               boxShadow: [
                                 BoxShadow(
                                   color: const Color(0xFF46D3FF)
-                                      .withValues(alpha: 0.35),
+                                      .withOpacity( 0.35),
                                   blurRadius: hasLinkedGroup ? 20 : 16,
                                   spreadRadius: hasLinkedGroup ? 1.8 : 1,
                                 ),
@@ -3213,7 +3188,7 @@ class _PostDetailViewState extends State<PostDetailView> {
                               boxShadow: [
                                 BoxShadow(
                                   color: const Color(0xFF46D3FF)
-                                      .withValues(alpha: 0.24),
+                                      .withOpacity( 0.24),
                                   blurRadius: 14,
                                   spreadRadius: 0.4,
                                 ),
@@ -3396,19 +3371,19 @@ class _PostDetailViewState extends State<PostDetailView> {
               color: isActive
                   ? null
                   : (isLight
-                      ? Colors.white.withValues(alpha: 0.92)
-                      : const Color(0xFF121D2E).withValues(alpha: 0.84)),
+                      ? Colors.white.withOpacity( 0.92)
+                      : const Color(0xFF121D2E).withOpacity( 0.84)),
               border: Border.all(
                 color: isActiveLight
                     ? Colors.transparent
                     : isLight
                         ? const Color(0xFFA9C3FF)
-                        : const Color(0xFF46D3FF).withValues(alpha: 0.35),
+                        : const Color(0xFF46D3FF).withOpacity( 0.35),
               ),
               boxShadow: isActiveLight
                   ? [
                       BoxShadow(
-                        color: const Color(0xFF6CCBFF).withValues(alpha: 0.36),
+                        color: const Color(0xFF6CCBFF).withOpacity( 0.36),
                         blurRadius: 14,
                         spreadRadius: 0.6,
                       ),
@@ -3428,7 +3403,7 @@ class _PostDetailViewState extends State<PostDetailView> {
                         margin: const EdgeInsets.all(2.0),
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: Colors.white.withValues(alpha: 0.96),
+                          color: Colors.white.withOpacity( 0.96),
                         ),
                         child: Center(
                           child: ShaderMask(
@@ -3479,19 +3454,19 @@ class _PostDetailViewState extends State<PostDetailView> {
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(999),
-        color: isLight ? Colors.white.withValues(alpha: 0.9) : null,
+        color: isLight ? Colors.white.withOpacity( 0.9) : null,
         gradient: isLight
             ? null
             : LinearGradient(
                 colors: [
-                  const Color(0xFF15263F).withValues(alpha: 0.9),
-                  const Color(0xFF2F1F54).withValues(alpha: 0.9),
+                  const Color(0xFF15263F).withOpacity( 0.9),
+                  const Color(0xFF2F1F54).withOpacity( 0.9),
                 ],
               ),
         border: Border.all(
           color: isLight
               ? const Color(0xFFA9C3FF)
-              : const Color(0xFF46D3FF).withValues(alpha: 0.26),
+              : const Color(0xFF46D3FF).withOpacity( 0.26),
         ),
       ),
       child: Row(

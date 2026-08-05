@@ -653,8 +653,8 @@ class _CreatePostScreenState extends State<CreatePostScreen>
                   height: 74,
                   decoration: BoxDecoration(
                     color: isLight
-                        ? Colors.white.withValues(alpha: 0.78)
-                        : Colors.black.withValues(alpha: 0.58),
+                        ? Colors.white.withOpacity( 0.78)
+                        : Colors.black.withOpacity( 0.58),
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(
                       color: isLight ? const Color(0xFFA9C3FF) : Colors.white24,
@@ -696,8 +696,8 @@ class _CreatePostScreenState extends State<CreatePostScreen>
                     height: 22,
                     decoration: BoxDecoration(
                       color: isLight
-                          ? Colors.white.withValues(alpha: 0.86)
-                          : Colors.black.withValues(alpha: 0.75),
+                          ? Colors.white.withOpacity( 0.86)
+                          : Colors.black.withOpacity( 0.75),
                       shape: BoxShape.circle,
                     ),
                     child: InkWell(
@@ -738,8 +738,8 @@ class _CreatePostScreenState extends State<CreatePostScreen>
       child: Container(
         decoration: BoxDecoration(
           color: isLight
-              ? const Color(0xFFCFEFFF).withValues(alpha: 0.78)
-              : Colors.black.withValues(alpha: 0.34),
+              ? const Color(0xFFCFEFFF).withOpacity( 0.78)
+              : Colors.black.withOpacity( 0.34),
           borderRadius: const BorderRadius.only(
             topLeft: Radius.circular(24),
             topRight: Radius.circular(24),
@@ -828,7 +828,7 @@ class _CreatePostScreenState extends State<CreatePostScreen>
               ),
               boxShadow: [
                 BoxShadow(
-                  color: const Color(0xFF9E7CFF).withValues(alpha: 0.25),
+                  color: const Color(0xFF9E7CFF).withOpacity( 0.25),
                   blurRadius: 18,
                   spreadRadius: 1,
                 ),
@@ -880,7 +880,7 @@ class _CreatePostScreenState extends State<CreatePostScreen>
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           color: isLight
-              ? Colors.white.withValues(alpha: 0.9)
+              ? Colors.white.withOpacity( 0.9)
               : const Color(0xFF172235),
           border: Border.all(
             color: isLight ? const Color(0xFFA9C3FF) : Colors.white24,
@@ -906,8 +906,8 @@ class _CreatePostScreenState extends State<CreatePostScreen>
           extendBodyBehindAppBar: true,
           appBar: AppBar(
             backgroundColor: isLight
-                ? Colors.white.withValues(alpha: 0.6)
-                : Colors.black.withValues(alpha: 0.2),
+                ? Colors.white.withOpacity( 0.6)
+                : Colors.black.withOpacity( 0.2),
             elevation: 0,
             leading: IconButton(
               icon: Icon(
@@ -946,10 +946,10 @@ class _CreatePostScreenState extends State<CreatePostScreen>
                         end: Alignment.bottomCenter,
                         colors: [
                           (isLight ? Colors.white : Colors.black)
-                              .withValues(alpha: 0.18),
-                          Colors.black.withValues(alpha: 0.0),
+                              .withOpacity( 0.18),
+                          Colors.black.withOpacity( 0.0),
                           (isLight ? Colors.white : Colors.black)
-                              .withValues(alpha: 0.18),
+                              .withOpacity( 0.18),
                         ],
                         stops: const [0.0, 0.4, 1.0],
                       ),
@@ -980,8 +980,8 @@ class _CreatePostScreenState extends State<CreatePostScreen>
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
         decoration: BoxDecoration(
           color: isLight
-              ? Colors.white.withValues(alpha: 0.82)
-              : Colors.white.withValues(alpha: 0.08),
+              ? Colors.white.withOpacity( 0.82)
+              : Colors.white.withOpacity( 0.08),
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
             color: isLight ? const Color(0xFFA9C3FF) : Colors.white12,

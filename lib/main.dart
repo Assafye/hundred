@@ -228,11 +228,11 @@ class _MyAppState extends State<MyApp> {
         labelSmall: TextStyle(
             color: AppColors.textSecondary, fontWeight: FontWeight.w400),
       ),
-      cardTheme: CardThemeData(
-        color: AppColors.backgroundElevated.withValues(alpha: 0.9),
+      cardTheme: CardTheme(
+        color: AppColors.backgroundElevated.withOpacity( 0.9),
         elevation: 0,
         margin: EdgeInsets.zero,
-        shadowColor: Colors.black.withValues(alpha: 0.22),
+        shadowColor: Colors.black.withOpacity( 0.22),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(26),
         ),
@@ -253,7 +253,7 @@ class _MyAppState extends State<MyApp> {
         style: OutlinedButton.styleFrom(
           foregroundColor: AppColors.textPrimary,
           side: BorderSide(
-              color: AppColors.secondaryBlue.withValues(alpha: 0.35), width: 0.9),
+              color: AppColors.secondaryBlue.withOpacity( 0.35), width: 0.9),
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
           textStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
@@ -268,7 +268,7 @@ class _MyAppState extends State<MyApp> {
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: AppColors.tertiaryContainer.withValues(alpha: 0.72),
+        fillColor: AppColors.tertiaryContainer.withOpacity( 0.72),
         labelStyle: const TextStyle(color: AppColors.textSecondary),
         hintStyle: const TextStyle(color: AppColors.textSecondary),
         contentPadding:
@@ -284,34 +284,34 @@ class _MyAppState extends State<MyApp> {
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(20),
           borderSide: BorderSide(
-              color: AppColors.secondaryBlue.withValues(alpha: 0.7), width: 1.0),
+              color: AppColors.secondaryBlue.withOpacity( 0.7), width: 1.0),
         ),
       ),
       bottomNavigationBarTheme: BottomNavigationBarThemeData(
         backgroundColor: AppColors.backgroundElevated,
         selectedItemColor: AppColors.primaryPurple,
-        unselectedItemColor: AppColors.textSecondary.withValues(alpha: 0.72),
+        unselectedItemColor: AppColors.textSecondary.withOpacity( 0.72),
         type: BottomNavigationBarType.fixed,
         elevation: 0,
       ),
-      dialogTheme: DialogThemeData(
+      dialogTheme: DialogTheme(
         backgroundColor: AppColors.backgroundElevated,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       ),
       dividerTheme: DividerThemeData(
-        color: AppColors.textSecondary.withValues(alpha: 0.14),
+        color: AppColors.textSecondary.withOpacity( 0.14),
         thickness: 0.7,
         space: 1,
       ),
       chipTheme: ChipThemeData(
-        backgroundColor: AppColors.tertiaryContainer.withValues(alpha: 0.8),
+        backgroundColor: AppColors.tertiaryContainer.withOpacity( 0.8),
         selectedColor: AppColors.primaryPurple,
         disabledColor: AppColors.background,
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(24),
           side: BorderSide(
-              color: AppColors.secondaryBlue.withValues(alpha: 0.3), width: 0.8),
+              color: AppColors.secondaryBlue.withOpacity( 0.3), width: 0.8),
         ),
         labelStyle: const TextStyle(
             color: AppColors.textPrimary, fontWeight: FontWeight.w600),
@@ -396,11 +396,11 @@ class _MyAppState extends State<MyApp> {
         labelSmall:
             TextStyle(color: lightTextSecondary, fontWeight: FontWeight.w400),
       ),
-      cardTheme: CardThemeData(
+      cardTheme: CardTheme(
         color: lightSurface,
         elevation: 0,
         margin: EdgeInsets.zero,
-        shadowColor: const Color(0xFF26345A).withValues(alpha: 0.08),
+        shadowColor: const Color(0xFF26345A).withOpacity( 0.08),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(26),
         ),
@@ -421,7 +421,7 @@ class _MyAppState extends State<MyApp> {
         style: OutlinedButton.styleFrom(
           foregroundColor: lightText,
           side: BorderSide(
-              color: AppColors.secondaryBlue.withValues(alpha: 0.35), width: 0.9),
+              color: AppColors.secondaryBlue.withOpacity( 0.35), width: 0.9),
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
           textStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
@@ -452,7 +452,7 @@ class _MyAppState extends State<MyApp> {
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(20),
           borderSide: BorderSide(
-              color: AppColors.secondaryBlue.withValues(alpha: 0.6), width: 1.0),
+              color: AppColors.secondaryBlue.withOpacity( 0.6), width: 1.0),
         ),
       ),
       bottomNavigationBarTheme: const BottomNavigationBarThemeData(
@@ -462,7 +462,7 @@ class _MyAppState extends State<MyApp> {
         type: BottomNavigationBarType.fixed,
         elevation: 0,
       ),
-      dialogTheme: DialogThemeData(
+      dialogTheme: DialogTheme(
         backgroundColor: lightSurface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       ),
@@ -479,7 +479,7 @@ class _MyAppState extends State<MyApp> {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(24),
           side: BorderSide(
-              color: AppColors.secondaryBlue.withValues(alpha: 0.26), width: 0.8),
+              color: AppColors.secondaryBlue.withOpacity( 0.26), width: 0.8),
         ),
         labelStyle:
             const TextStyle(color: lightText, fontWeight: FontWeight.w600),

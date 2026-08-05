@@ -1,0 +1,33 @@
+name: Flutter Analyze
+
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.22.0
+          channel: stable
+          cache: true
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Guard against unsupported APIs on pinned SDK
+        run: |
+          if grep -R "withValues(" lib; then
+            echo "Found unsupported Color.withValues usage for Flutter 3.22.0";
+            exit 1;
+          fi
+
+      - name: Analyze
+        run: flutter analyze lib
