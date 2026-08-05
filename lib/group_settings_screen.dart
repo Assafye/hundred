@@ -420,13 +420,13 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                                               color: isSelected
                                                   ? const Color(0xFF8D78FF)
                                                   : Colors.white
-                                                      .withValues(alpha: 0.72),
+                                                      .withOpacity( 0.72),
                                               width: isSelected ? 1.8 : 1.2,
                                             ),
                                             boxShadow: [
                                               BoxShadow(
                                                 color: const Color(0xFF76CFFF)
-                                                    .withValues(alpha: isSelected
+                                                    .withOpacity( isSelected
                                                         ? 0.42
                                                         : 0.32),
                                                 blurRadius:
@@ -527,7 +527,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
             boxShadow: [
               BoxShadow(
                 color:
-                    const Color(0xFF76CFFF).withValues(alpha: isLight ? 0.2 : 0.12),
+                    const Color(0xFF76CFFF).withOpacity( isLight ? 0.2 : 0.12),
                 blurRadius: 14,
                 offset: const Offset(0, 6),
               ),
@@ -554,7 +554,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                       end: Alignment.bottomRight,
                     ),
                     border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.82),
+                      color: Colors.white.withOpacity( 0.82),
                     ),
                   ),
                   child: Icon(
@@ -619,7 +619,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                                   boxShadow: [
                                     BoxShadow(
                                       color: const Color(0xFF9ECFFF)
-                                          .withValues(alpha: isLight ? 0.32 : 0.2),
+                                          .withOpacity( isLight ? 0.32 : 0.2),
                                       blurRadius: 10,
                                       offset: const Offset(0, 4),
                                     ),
@@ -897,7 +897,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
   Widget build(BuildContext context) {
     final isLight = Theme.of(context).brightness == Brightness.light;
     final panelColor =
-        isLight ? Colors.white.withValues(alpha: 0.86) : const Color(0xFF1E2632);
+        isLight ? Colors.white.withOpacity( 0.86) : const Color(0xFF1E2632);
     final fieldFillColor =
         isLight ? const Color(0xFFF2F7FF) : const Color(0xFF0B1019);
     final fieldBorderColor =
@@ -1183,7 +1183,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                               style: TextStyle(color: primaryTextColor)),
                           Switch(
                             value: _minScoreRequired,
-                            activeThumbColor: const Color(0xFF9E7CFF),
+                            activeColor: const Color(0xFF9E7CFF),
                             onChanged: widget.isAdmin
                                 ? (value) => setState(() {
                                       _minScoreRequired = value;
@@ -1280,7 +1280,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                                       ),
                                       borderRadius: BorderRadius.circular(999),
                                       border: Border.all(
-                                        color: Colors.white.withValues(alpha: 0.7),
+                                        color: Colors.white.withOpacity( 0.7),
                                       ),
                                     ),
                                     child: Text(
@@ -1366,7 +1366,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                               style: TextStyle(color: primaryTextColor)),
                           Switch(
                             value: _adminApproval,
-                            activeThumbColor: const Color(0xFF9E7CFF),
+                            activeColor: const Color(0xFF9E7CFF),
                             onChanged: widget.isAdmin
                                 ? (value) =>
                                     setState(() => _adminApproval = value)

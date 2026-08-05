@@ -35,7 +35,7 @@ class CategoryMetalBadge extends StatelessWidget {
         color: const Color(0xFF0B1019),
         shape: BoxShape.circle,
         border: Border.all(
-          color: const Color(0xFF53C1F9).withValues(alpha: selected ? 1.0 : 0.85),
+          color: const Color(0xFF53C1F9).withOpacity( selected ? 1.0 : 0.85),
           width: 1.5,
         ),
       ),
@@ -52,12 +52,12 @@ class CategoryMetalBadge extends StatelessWidget {
         color: const Color(0xFF0B1019),
         borderRadius: BorderRadius.circular(radius),
         border: Border.all(
-          color: const Color(0xFF53C1F9).withValues(alpha: selected ? 1.0 : 0.85),
+          color: const Color(0xFF53C1F9).withOpacity( selected ? 1.0 : 0.85),
           width: 1.5,
         ),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF53C1F9).withValues(alpha: selected ? 0.16 : 0.08),
+            color: const Color(0xFF53C1F9).withOpacity( selected ? 0.16 : 0.08),
             blurRadius: selected ? 14 : 10,
             offset: const Offset(0, 6),
           ),

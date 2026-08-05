@@ -61,7 +61,7 @@ Widget _buildEventPickerVideoPoster({required bool isLight}) {
         width: 56,
         height: 56,
         decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: isLight ? 0.12 : 0.26),
+          color: Colors.black.withOpacity( isLight ? 0.12 : 0.26),
           shape: BoxShape.circle,
         ),
         child: const Icon(
@@ -660,7 +660,7 @@ class _PostEditScreenState extends State<PostEditScreen> {
                                     height: frameRect.top,
                                     child: Container(
                                       color:
-                                          Colors.black.withValues(alpha: 0.48),
+                                          Colors.black.withOpacity( 0.48),
                                     ),
                                   ),
                                   Positioned(
@@ -670,7 +670,7 @@ class _PostEditScreenState extends State<PostEditScreen> {
                                     bottom: 0,
                                     child: Container(
                                       color:
-                                          Colors.black.withValues(alpha: 0.48),
+                                          Colors.black.withOpacity( 0.48),
                                     ),
                                   ),
                                   Positioned(
@@ -680,7 +680,7 @@ class _PostEditScreenState extends State<PostEditScreen> {
                                     height: frameRect.height,
                                     child: Container(
                                       color:
-                                          Colors.black.withValues(alpha: 0.48),
+                                          Colors.black.withOpacity( 0.48),
                                     ),
                                   ),
                                   Positioned(
@@ -691,7 +691,7 @@ class _PostEditScreenState extends State<PostEditScreen> {
                                     height: frameRect.height,
                                     child: Container(
                                       color:
-                                          Colors.black.withValues(alpha: 0.48),
+                                          Colors.black.withOpacity( 0.48),
                                     ),
                                   ),
                                   Positioned(
@@ -1219,8 +1219,7 @@ class _PostEditScreenState extends State<PostEditScreen> {
                                                                         BoxDecoration(
                                                                       color: Colors
                                                                           .black
-                                                                          .withValues(
-                                                                              alpha: 0.58),
+                                                                          .withOpacity( 0.58),
                                                                       borderRadius:
                                                                           BorderRadius.circular(
                                                                               999),
@@ -1925,14 +1924,13 @@ class _PostEditScreenState extends State<PostEditScreen> {
                                               color: isSelected
                                                   ? const Color(0xFF8D78FF)
                                                   : Colors.white
-                                                      .withValues(alpha: 0.72),
+                                                      .withOpacity( 0.72),
                                               width: isSelected ? 1.8 : 1.2,
                                             ),
                                             boxShadow: [
                                               BoxShadow(
                                                 color: const Color(0xFF76CFFF)
-                                                    .withValues(
-                                                  alpha:
+                                                    .withOpacity(
                                                       isSelected ? 0.42 : 0.32,
                                                 ),
                                                 blurRadius:
@@ -1995,15 +1993,13 @@ class _PostEditScreenState extends State<PostEditScreen> {
                                                       ),
                                                       border: Border.all(
                                                         color: Colors.white
-                                                            .withValues(
-                                                                alpha: 0.78),
+                                                            .withOpacity( 0.78),
                                                       ),
                                                       boxShadow: [
                                                         BoxShadow(
                                                           color: const Color(
                                                                   0xFFFFB76A)
-                                                              .withValues(
-                                                                  alpha: 0.28),
+                                                              .withOpacity( 0.28),
                                                           blurRadius: 10,
                                                           offset: const Offset(
                                                               0, 4),
@@ -2142,7 +2138,7 @@ class _PostEditScreenState extends State<PostEditScreen> {
             ),
             boxShadow: [
               BoxShadow(
-                color: const Color(0xFF76CFFF).withValues(alpha: 0.18),
+                color: const Color(0xFF76CFFF).withOpacity( 0.18),
                 blurRadius: 16,
                 offset: const Offset(0, 8),
               ),
@@ -2169,7 +2165,7 @@ class _PostEditScreenState extends State<PostEditScreen> {
                       end: Alignment.bottomRight,
                     ),
                     border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.74),
+                      color: Colors.white.withOpacity( 0.74),
                     ),
                   ),
                   child: Icon(icon, color: const Color(0xFF2A2361), size: 20),
@@ -2938,7 +2934,7 @@ class _PostEditScreenState extends State<PostEditScreen> {
                       ? null
                       : _openCropEditor,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.black.withValues(alpha: 0.65),
+                    backgroundColor: Colors.black.withOpacity( 0.65),
                     foregroundColor: Colors.white,
                   ),
                   icon: const Icon(Icons.crop_rounded, size: 18),
@@ -2955,8 +2951,11 @@ class _PostEditScreenState extends State<PostEditScreen> {
             scrollDirection: Axis.horizontal,
             buildDefaultDragHandles: false,
             itemCount: _draftMediaItems.length,
-            onReorderItem: (oldIndex, newIndex) {
+            onReorder: (oldIndex, newIndex) {
               setState(() {
+                if (newIndex > oldIndex) {
+                  newIndex -= 1;
+                }
                 final item = _draftMediaItems.removeAt(oldIndex);
                 _draftMediaItems.insert(newIndex, item);
                 _currentMediaIndex =
@@ -3016,7 +3015,7 @@ class _PostEditScreenState extends State<PostEditScreen> {
                           child: Container(
                             padding: const EdgeInsets.all(4),
                             decoration: BoxDecoration(
-                              color: Colors.black.withValues(alpha: 0.62),
+                              color: Colors.black.withOpacity( 0.62),
                               borderRadius: BorderRadius.circular(999),
                             ),
                             child: const Icon(
@@ -3034,7 +3033,7 @@ class _PostEditScreenState extends State<PostEditScreen> {
                           child: Container(
                             padding: const EdgeInsets.all(4),
                             decoration: BoxDecoration(
-                              color: Colors.black.withValues(alpha: 0.6),
+                              color: Colors.black.withOpacity( 0.6),
                               borderRadius: BorderRadius.circular(999),
                             ),
                             child: const Icon(
@@ -3083,7 +3082,7 @@ class _PostEditScreenState extends State<PostEditScreen> {
                     child: OutlinedButton(
                       style: OutlinedButton.styleFrom(
                         backgroundColor: !_linkToExistingEvent
-                            ? const Color(0xFF53C1F9).withValues(alpha: 0.12)
+                            ? const Color(0xFF53C1F9).withOpacity( 0.12)
                             : Colors.transparent,
                         side: BorderSide(
                           color: !_linkToExistingEvent
@@ -3108,7 +3107,7 @@ class _PostEditScreenState extends State<PostEditScreen> {
                     child: OutlinedButton(
                       style: OutlinedButton.styleFrom(
                         backgroundColor: _linkToExistingEvent
-                            ? const Color(0xFF9E7CFF).withValues(alpha: 0.16)
+                            ? const Color(0xFF9E7CFF).withOpacity( 0.16)
                             : Colors.transparent,
                         side: BorderSide(
                           color: _linkToExistingEvent
@@ -3598,7 +3597,7 @@ class _InlineEditableVideoPlayerState
                     width: 64,
                     height: 64,
                     decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.42),
+                      color: Colors.black.withOpacity( 0.42),
                       shape: BoxShape.circle,
                     ),
                     child: const Icon(

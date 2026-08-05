@@ -368,7 +368,7 @@ class _SettingsHistoryScreenState extends State<SettingsHistoryScreen>
                       ),
                       const SizedBox(height: 10),
                       DropdownButtonFormField<String>(
-                        initialValue: selectedCategory,
+                        value: selectedCategory,
                         decoration: const InputDecoration(labelText: 'קטגוריה'),
                         items: [
                           const DropdownMenuItem<String>(
@@ -394,7 +394,7 @@ class _SettingsHistoryScreenState extends State<SettingsHistoryScreen>
                       ),
                       const SizedBox(height: 10),
                       DropdownButtonFormField<String>(
-                        initialValue: selectedSubCategory,
+                        value: selectedSubCategory,
                         decoration:
                             const InputDecoration(labelText: 'תת קטגוריה'),
                         items: [
@@ -417,7 +417,7 @@ class _SettingsHistoryScreenState extends State<SettingsHistoryScreen>
                       ),
                       const SizedBox(height: 10),
                       DropdownButtonFormField<String>(
-                        initialValue: timePreference,
+                        value: timePreference,
                         decoration:
                             const InputDecoration(labelText: 'זמן למפגש'),
                         items: const [
@@ -811,7 +811,7 @@ class _SettingsHistoryScreenState extends State<SettingsHistoryScreen>
           border: Border.all(
             color: isLight
                 ? const Color(0xFFA9C3FF)
-                : _accentCyan.withValues(alpha: 0.18),
+                : _accentCyan.withOpacity( 0.18),
           ),
         ),
         child: Text(
@@ -850,7 +850,7 @@ class _SettingsHistoryScreenState extends State<SettingsHistoryScreen>
               border: Border.all(
                 color: isLight
                     ? const Color(0xFFA9C3FF)
-                    : _accentCyan.withValues(alpha: 0.16),
+                    : _accentCyan.withOpacity( 0.16),
               ),
             ),
             child: ClipRRect(
@@ -879,7 +879,7 @@ class _SettingsHistoryScreenState extends State<SettingsHistoryScreen>
                         ),
                       ),
                     ),
-                  Container(color: Colors.black.withValues(alpha: 0.28)),
+                  Container(color: Colors.black.withOpacity( 0.28)),
                   Positioned(
                     left: 10,
                     right: 10,
@@ -961,7 +961,7 @@ class _SettingsHistoryScreenState extends State<SettingsHistoryScreen>
                   border: Border.all(
                     color: isLight
                         ? const Color(0xFFCFBEFF)
-                        : _accentPurple.withValues(alpha: 0.16),
+                        : _accentPurple.withOpacity( 0.16),
                   ),
                 ),
                 child: Row(
@@ -1018,7 +1018,7 @@ class _SettingsHistoryScreenState extends State<SettingsHistoryScreen>
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
-                            color: _accentCyan.withValues(alpha: 0.35)),
+                            color: _accentCyan.withOpacity( 0.35)),
                       ),
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(11),
@@ -1076,7 +1076,7 @@ class _SettingsHistoryScreenState extends State<SettingsHistoryScreen>
                               ),
                             if (hasVideo)
                               Container(
-                                color: Colors.black.withValues(alpha: 0.18),
+                                color: Colors.black.withOpacity( 0.18),
                                 alignment: Alignment.center,
                                 child: const Icon(
                                   Icons.play_circle_fill_rounded,
@@ -1155,11 +1155,11 @@ class _SettingsHistoryScreenState extends State<SettingsHistoryScreen>
           border: Border.all(
             color: isRecent
                 ? (isLight
-                    ? const Color(0xFFA9C3FF).withValues(alpha: 0.9)
-                    : const Color(0xFF7FD8FF).withValues(alpha: 0.68))
+                    ? const Color(0xFFA9C3FF).withOpacity( 0.9)
+                    : const Color(0xFF7FD8FF).withOpacity( 0.68))
                 : (isLight
                     ? const Color(0xFFA9C3FF)
-                    : _accentCyan.withValues(alpha: 0.16)),
+                    : _accentCyan.withOpacity( 0.16)),
           ),
         ),
         padding: const EdgeInsets.all(10),
@@ -1179,7 +1179,7 @@ class _SettingsHistoryScreenState extends State<SettingsHistoryScreen>
                     end: Alignment.bottomRight,
                   ),
                   border: Border.all(
-                    color: const Color(0xFFA9C3FF).withValues(alpha: 0.45),
+                    color: const Color(0xFFA9C3FF).withOpacity( 0.45),
                   ),
                 ),
                 child: Icon(
@@ -1335,7 +1335,7 @@ class _SettingsHistoryScreenState extends State<SettingsHistoryScreen>
                                         horizontal: 10, vertical: 6),
                                     decoration: BoxDecoration(
                                       color:
-                                          Colors.black.withValues(alpha: 0.42),
+                                          Colors.black.withOpacity( 0.42),
                                       borderRadius: BorderRadius.circular(999),
                                     ),
                                     child: Text(
@@ -1489,7 +1489,7 @@ class _SettingsHistoryScreenState extends State<SettingsHistoryScreen>
         border: Border.all(
           color: isLight
               ? const Color(0xFFA9C3FF)
-              : _accentCyan.withValues(alpha: 0.28),
+              : _accentCyan.withOpacity( 0.28),
         ),
       ),
       child: Row(
@@ -1580,7 +1580,7 @@ class _SettingsHistoryScreenState extends State<SettingsHistoryScreen>
             child: OutlinedButton(
               onPressed: onToggleShowAll,
               style: OutlinedButton.styleFrom(
-                side: BorderSide(color: _accentCyan.withValues(alpha: 0.45)),
+                side: BorderSide(color: _accentCyan.withOpacity( 0.45)),
               ),
               child: Text(showAll ? 'הצג פחות' : 'הצג עוד'),
             ),

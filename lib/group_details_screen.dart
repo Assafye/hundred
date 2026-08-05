@@ -703,7 +703,7 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
                               ),
                               filled: true,
                               fillColor: isLight
-                                  ? Colors.white.withValues(alpha: 0.72)
+                                  ? Colors.white.withOpacity( 0.72)
                                   : const Color(0xFF0B1019),
                               border: const OutlineInputBorder(
                                   borderSide: BorderSide.none),
@@ -739,7 +739,7 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
                                         decoration: BoxDecoration(
                                           color: isLight
                                               ? Colors.white
-                                                  .withValues(alpha: 0.8)
+                                                  .withOpacity( 0.8)
                                               : const Color(0xFF0B1019),
                                           borderRadius:
                                               BorderRadius.circular(14),
@@ -974,7 +974,7 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
     return Container(
       decoration: BoxDecoration(
         color: isLight
-            ? Colors.white.withValues(alpha: 0.8)
+            ? Colors.white.withOpacity( 0.8)
             : const Color(0xFF1E2632),
         borderRadius: BorderRadius.circular(18),
         border: Border.all(
@@ -1313,7 +1313,7 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
                           padding: const EdgeInsets.all(14),
                           decoration: BoxDecoration(
                             color: isLight
-                                ? Colors.white.withValues(alpha: 0.82)
+                                ? Colors.white.withOpacity( 0.82)
                                 : const Color(0xFF1E2632),
                             borderRadius: BorderRadius.circular(24),
                             border: Border.all(
@@ -1353,7 +1353,7 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
                                               decoration: BoxDecoration(
                                                 color: isLight
                                                     ? Colors.white
-                                                        .withValues(alpha: 0.94)
+                                                        .withOpacity( 0.94)
                                                     : const Color(0xFF1E2632),
                                                 shape: BoxShape.circle,
                                               ),
@@ -1585,7 +1585,7 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
                                         ? [
                                             BoxShadow(
                                               color: const Color(0xFF9EDBFF)
-                                                  .withValues(alpha: 0.14),
+                                                  .withOpacity( 0.14),
                                               blurRadius: 16,
                                               offset: const Offset(0, 8),
                                             ),
@@ -1653,7 +1653,7 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
                             padding: const EdgeInsets.all(16),
                             decoration: BoxDecoration(
                               color: isLight
-                                  ? Colors.white.withValues(alpha: 0.82)
+                                  ? Colors.white.withOpacity( 0.82)
                                   : const Color(0xFF1E2632),
                               borderRadius: BorderRadius.circular(20),
                               border: Border.all(
@@ -1757,7 +1757,7 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
                             color: isLight
-                                ? Colors.white.withValues(alpha: 0.96)
+                                ? Colors.white.withOpacity( 0.96)
                                 : const Color(0xFF1E2632),
                             borderRadius: BorderRadius.circular(20),
                             border: Border.all(
@@ -1769,7 +1769,7 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
                                 ? [
                                     BoxShadow(
                                       color: const Color(0xFF9EDBFF)
-                                          .withValues(alpha: 0.10),
+                                          .withOpacity( 0.10),
                                       blurRadius: 18,
                                       offset: const Offset(0, 8),
                                     ),
@@ -2022,7 +2022,7 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
                                             color: isLight
                                                 ? const Color(0xFFEDE7FF)
                                                 : const Color(0xFF9E7CFF)
-                                                    .withValues(alpha: 0.18),
+                                                    .withOpacity( 0.18),
                                             borderRadius:
                                                 BorderRadius.circular(999),
                                             border: Border.all(
@@ -2377,7 +2377,7 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
                         ? [
                             BoxShadow(
                               color: const Color(0xFF9EDBFF)
-                                  .withValues(alpha: 0.12),
+                                  .withOpacity( 0.12),
                               blurRadius: 16,
                               offset: const Offset(0, -2),
                             ),
@@ -2485,7 +2485,7 @@ class _ProfileTile extends StatelessWidget {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF9E7CFF).withValues(alpha: 0.2),
+                    color: const Color(0xFF9E7CFF).withOpacity( 0.2),
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(color: const Color(0xFF9E7CFF)),
                   ),

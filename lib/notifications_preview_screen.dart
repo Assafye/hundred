@@ -883,7 +883,7 @@ class _NotificationsPreviewScreenState
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.12),
+                    color: Colors.black.withOpacity( 0.12),
                     blurRadius: 6,
                     offset: const Offset(0, 2),
                   ),
@@ -998,18 +998,18 @@ class _NotificationsPreviewScreenState
         padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(24),
-          color: isLight ? Colors.white.withValues(alpha: 0.62) : null,
+          color: isLight ? Colors.white.withOpacity( 0.62) : null,
           gradient: isLight
               ? null
               : LinearGradient(
                   colors: isNew
                       ? [
-                          const Color(0xFF18263D).withValues(alpha: 0.98),
-                          const Color(0xFF261D44).withValues(alpha: 0.98),
+                          const Color(0xFF18263D).withOpacity( 0.98),
+                          const Color(0xFF261D44).withOpacity( 0.98),
                         ]
                       : [
-                          const Color(0xFF111A2A).withValues(alpha: 0.92),
-                          const Color(0xFF161D2C).withValues(alpha: 0.92),
+                          const Color(0xFF111A2A).withOpacity( 0.92),
+                          const Color(0xFF161D2C).withOpacity( 0.92),
                         ],
                   begin: Alignment.topRight,
                   end: Alignment.bottomLeft,
@@ -1019,16 +1019,16 @@ class _NotificationsPreviewScreenState
                 ? dynamicNewBorder
                 : (isLight
                     ? const Color(0xFFA9C3FF)
-                    : Colors.white.withValues(alpha: 0.06)),
+                    : Colors.white.withOpacity( 0.06)),
             width: isNew ? 1.45 : 0.9,
           ),
           boxShadow: [
             BoxShadow(
               color: isLight
-                  ? const Color(0xFF53C1F9).withValues(alpha: 0.08)
+                  ? const Color(0xFF53C1F9).withOpacity( 0.08)
                   : isNew
-                      ? dynamicNewBorder.withValues(alpha: 0.22)
-                      : Colors.black.withValues(alpha: 0.12),
+                      ? dynamicNewBorder.withOpacity( 0.22)
+                      : Colors.black.withOpacity( 0.12),
               blurRadius: 18,
               offset: const Offset(0, 8),
             ),
@@ -1075,7 +1075,7 @@ class _NotificationsPreviewScreenState
                               horizontal: 8, vertical: 4),
                           decoration: BoxDecoration(
                             borderRadius: BorderRadius.circular(999),
-                            color: accent.withValues(alpha: 0.18),
+                            color: accent.withOpacity( 0.18),
                           ),
                           child: Text(
                             likeCount > 9 ? '9+' : likeCount.toString(),
@@ -1096,7 +1096,7 @@ class _NotificationsPreviewScreenState
                       style: TextStyle(
                         color: isLight
                             ? Colors.black87
-                            : Colors.white.withValues(alpha: 0.72),
+                            : Colors.white.withOpacity( 0.72),
                         fontSize: 12,
                         fontWeight: FontWeight.w400,
                         height: 1.25,
@@ -1111,7 +1111,7 @@ class _NotificationsPreviewScreenState
                         style: TextStyle(
                           color: isLight
                               ? Colors.black54
-                              : Colors.white.withValues(alpha: 0.45),
+                              : Colors.white.withOpacity( 0.45),
                           fontSize: 11.5,
                           fontWeight: FontWeight.w400,
                         ),
@@ -1123,7 +1123,7 @@ class _NotificationsPreviewScreenState
                               horizontal: 8, vertical: 4),
                           decoration: BoxDecoration(
                             borderRadius: BorderRadius.circular(999),
-                            color: const Color(0xFF53C1F9).withValues(alpha: 0.14),
+                            color: const Color(0xFF53C1F9).withOpacity( 0.14),
                           ),
                           child: const Text(
                             'אתגר השבוע',
@@ -1188,7 +1188,7 @@ class _NotificationsPreviewScreenState
                     height: orbSizeA,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: const Color(0xFFB9A9FF).withValues(alpha: 0.12),
+                      color: const Color(0xFFB9A9FF).withOpacity( 0.12),
                     ),
                   ),
                 ),
@@ -1203,7 +1203,7 @@ class _NotificationsPreviewScreenState
                     height: orbSizeB,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: const Color(0xFF9EEBFF).withValues(alpha: 0.12),
+                      color: const Color(0xFF9EEBFF).withOpacity( 0.12),
                     ),
                   ),
                 ),

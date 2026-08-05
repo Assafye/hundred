@@ -106,8 +106,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               borderRadius: BorderRadius.circular(24),
               side: BorderSide(
                 color: isLight
-                    ? accentColor.withValues(alpha: 0.32)
-                    : accentColor.withValues(alpha: 0.22),
+                    ? accentColor.withOpacity( 0.32)
+                    : accentColor.withOpacity( 0.22),
               ),
             ),
             titlePadding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
@@ -121,8 +121,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: isLight
-                        ? accentColor.withValues(alpha: 0.14)
-                        : accentColor.withValues(alpha: 0.18),
+                        ? accentColor.withOpacity( 0.14)
+                        : accentColor.withOpacity( 0.18),
                   ),
                   child: Icon(
                     Icons.help_outline_rounded,
@@ -215,19 +215,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ? null
             : LinearGradient(
                 colors: [
-                  _darkCardTop.withValues(alpha: 0.95),
-                  _darkCardBottom.withValues(alpha: 0.95),
+                  _darkCardTop.withOpacity( 0.95),
+                  _darkCardBottom.withOpacity( 0.95),
                 ],
                 begin: Alignment.topRight,
                 end: Alignment.bottomLeft,
               ),
         border: Border.all(
-            color: _accentCyan.withValues(alpha: isLight ? 0.25 : 0.2)),
+            color: _accentCyan.withOpacity( isLight ? 0.25 : 0.2)),
         boxShadow: [
           BoxShadow(
             color: isLight
-                ? _accentCyan.withValues(alpha: 0.08)
-                : Colors.black.withValues(alpha: 0.2),
+                ? _accentCyan.withOpacity( 0.08)
+                : Colors.black.withOpacity( 0.2),
             blurRadius: isLight ? 18 : 16,
             offset: Offset(0, isLight ? 6 : 8),
           ),
@@ -251,11 +251,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           color: isLight
-              ? Colors.white.withValues(alpha: 0.6)
+              ? Colors.white.withOpacity( 0.6)
               : const Color(0xFF1A2435),
           borderRadius: BorderRadius.circular(18),
           border: Border.all(
-              color: _accentCyan.withValues(alpha: isLight ? 0.2 : 0.14)),
+              color: _accentCyan.withOpacity( isLight ? 0.2 : 0.14)),
         ),
         child: Row(
           children: [
@@ -367,7 +367,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
                           color:
-                              const Color(0xFFB9A9FF).withValues(alpha: 0.14),
+                              const Color(0xFFB9A9FF).withOpacity( 0.14),
                         ),
                       ),
                     ),
@@ -383,7 +383,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
                           color:
-                              const Color(0xFF9EEBFF).withValues(alpha: 0.14),
+                              const Color(0xFF9EEBFF).withOpacity( 0.14),
                         ),
                       ),
                     ),
@@ -547,20 +547,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                           if (states
                                               .contains(WidgetState.selected)) {
                                             return isLight
-                                                ? _accentPurple.withValues(
-                                                    alpha: 0.75)
-                                                : _accentPurple.withValues(
-                                                    alpha: 0.72);
+                                                ? _accentPurple.withOpacity( 0.75)
+                                                : _accentPurple.withOpacity( 0.72);
                                           }
                                           return isLight
                                               ? Colors.white
-                                                  .withValues(alpha: 0.65)
+                                                  .withOpacity( 0.65)
                                               : const Color(0xFF1A2435);
                                         }),
                                         side: WidgetStatePropertyAll(
                                           BorderSide(
-                                            color: _accentCyan.withValues(
-                                                alpha: isLight ? 0.35 : 0.2),
+                                            color: _accentCyan.withOpacity( isLight ? 0.35 : 0.2),
                                           ),
                                         ),
                                       ),
@@ -621,12 +618,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                       contentPadding: EdgeInsets.zero,
                                       value: isPrivate,
                                       onChanged: _togglePrivacy,
-                                      activeThumbColor:
+                                      activeColor:
                                           isLight ? _accentPurple : _accentCyan,
                                       activeTrackColor: isLight
-                                          ? _accentCyan.withValues(alpha: 0.8)
-                                          : _accentPurple.withValues(
-                                              alpha: 0.55),
+                                          ? _accentCyan.withOpacity( 0.8)
+                                          : _accentPurple.withOpacity( 0.55),
                                       title: Text(
                                         'הפוך את החשבון לפרטי',
                                         style: TextStyle(
@@ -749,8 +745,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                           backgroundColor: Colors.white,
                                           foregroundColor: _accentPurple,
                                           side: BorderSide(
-                                              color: _accentPurple.withValues(
-                                                  alpha: 0.9),
+                                              color: _accentPurple.withOpacity( 0.9),
                                               width: 1.1),
                                           padding: const EdgeInsets.symmetric(
                                               vertical: 14),
@@ -787,7 +782,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                           foregroundColor: Colors.white,
                                           side: BorderSide(
                                               color: Colors.redAccent
-                                                  .withValues(alpha: 0.8)),
+                                                  .withOpacity( 0.8)),
                                           padding: const EdgeInsets.symmetric(
                                               vertical: 14),
                                           shape: RoundedRectangleBorder(

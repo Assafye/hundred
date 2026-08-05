@@ -275,10 +275,10 @@ class _CategoryScreenState extends State<CategoryScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10),
       decoration: BoxDecoration(
-        color: isLight ? Colors.white.withValues(alpha: 0.8) : _panel,
+        color: isLight ? Colors.white.withOpacity( 0.8) : _panel,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
-          color: isLight ? const Color(0xFFA9C3FF) : _cyan.withValues(alpha: 0.22),
+          color: isLight ? const Color(0xFFA9C3FF) : _cyan.withOpacity( 0.22),
         ),
       ),
       child: DropdownButtonHideUnderline(
@@ -322,7 +322,7 @@ class _CategoryScreenState extends State<CategoryScreen> {
       child: Container(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(18),
-          color: isLight ? Colors.white.withValues(alpha: 0.76) : null,
+          color: isLight ? Colors.white.withOpacity( 0.76) : null,
           gradient: isLight
               ? null
               : const LinearGradient(
@@ -331,11 +331,11 @@ class _CategoryScreenState extends State<CategoryScreen> {
                   end: Alignment.bottomLeft,
                 ),
           border: Border.all(
-            color: isLight ? const Color(0xFFA9C3FF) : _cyan.withValues(alpha: 0.18),
+            color: isLight ? const Color(0xFFA9C3FF) : _cyan.withOpacity( 0.18),
           ),
           boxShadow: [
             BoxShadow(
-              color: _cyan.withValues(alpha: 0.07),
+              color: _cyan.withOpacity( 0.07),
               blurRadius: 10,
               offset: const Offset(0, 5),
             ),
@@ -406,9 +406,9 @@ class _CategoryScreenState extends State<CategoryScreen> {
                       begin: Alignment.topCenter,
                       end: Alignment.bottomCenter,
                       colors: [
-                        Colors.black.withValues(alpha: 0.1),
+                        Colors.black.withOpacity( 0.1),
                         Colors.transparent,
-                        Colors.black.withValues(alpha: 0.58),
+                        Colors.black.withOpacity( 0.58),
                       ],
                       stops: const [0.0, 0.45, 1.0],
                     ),
@@ -423,13 +423,13 @@ class _CategoryScreenState extends State<CategoryScreen> {
                       const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
                   decoration: BoxDecoration(
                     color: isLight
-                        ? const Color(0xFF4A5E92).withValues(alpha: 0.78)
-                        : const Color(0xFF101A2C).withValues(alpha: 0.88),
+                        ? const Color(0xFF4A5E92).withOpacity( 0.78)
+                        : const Color(0xFF101A2C).withOpacity( 0.88),
                     borderRadius: BorderRadius.circular(999),
                     border: Border.all(
                       color: isLight
-                          ? Colors.white.withValues(alpha: 0.72)
-                          : _cyan.withValues(alpha: 0.24),
+                          ? Colors.white.withOpacity( 0.72)
+                          : _cyan.withOpacity( 0.24),
                     ),
                   ),
                   child: Row(
@@ -463,13 +463,13 @@ class _CategoryScreenState extends State<CategoryScreen> {
                         const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
                     decoration: BoxDecoration(
                       color: isLight
-                          ? const Color(0xFF6C5CB4).withValues(alpha: 0.78)
-                          : const Color(0xFF201B38).withValues(alpha: 0.9),
+                          ? const Color(0xFF6C5CB4).withOpacity( 0.78)
+                          : const Color(0xFF201B38).withOpacity( 0.9),
                       borderRadius: BorderRadius.circular(999),
                       border: Border.all(
                         color: isLight
-                            ? Colors.white.withValues(alpha: 0.72)
-                            : _purple.withValues(alpha: 0.28),
+                            ? Colors.white.withOpacity( 0.72)
+                            : _purple.withOpacity( 0.28),
                       ),
                     ),
                     child: Row(
@@ -602,7 +602,7 @@ class _CategoryScreenState extends State<CategoryScreen> {
                         height: orbSizeA,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: _cyan.withValues(alpha: 0.07),
+                          color: _cyan.withOpacity( 0.07),
                         ),
                       ),
                     ),
@@ -614,7 +614,7 @@ class _CategoryScreenState extends State<CategoryScreen> {
                         height: orbSizeB,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: _purple.withValues(alpha: 0.08),
+                          color: _purple.withOpacity( 0.08),
                         ),
                       ),
                     ),

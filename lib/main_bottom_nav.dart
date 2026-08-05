@@ -113,7 +113,7 @@ class MainBottomNav extends StatelessWidget {
                   color: (isLight
                           ? const Color(0xFF53C1F9)
                           : const Color(0xFF53C1F9))
-                      .withValues(alpha: isLight ? 0.22 : 0.18),
+                      .withOpacity( isLight ? 0.22 : 0.18),
                   blurRadius: isLight ? 14 : 12,
                   spreadRadius: 0.4,
                 ),
@@ -144,13 +144,13 @@ class MainBottomNav extends StatelessWidget {
         ),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF53C1F9).withValues(alpha: 0.25),
+            color: const Color(0xFF53C1F9).withOpacity( 0.25),
             blurRadius: 16,
             spreadRadius: 1.1,
             offset: const Offset(0, 4),
           ),
           BoxShadow(
-            color: const Color(0xFF9E7CFF).withValues(alpha: 0.28),
+            color: const Color(0xFF9E7CFF).withOpacity( 0.28),
             blurRadius: 20,
             spreadRadius: 0.6,
             offset: const Offset(0, 6),
@@ -164,10 +164,10 @@ class MainBottomNav extends StatelessWidget {
         decoration: BoxDecoration(
           shape: BoxShape.circle,
             color: isLight
-                ? const Color(0xFFFFFFFF).withValues(alpha: 0.36)
-                : const Color(0xFF101827).withValues(alpha: 0.22),
+                ? const Color(0xFFFFFFFF).withOpacity( 0.36)
+                : const Color(0xFF101827).withOpacity( 0.22),
             border:
-                Border.all(color: Colors.white.withValues(alpha: 0.34), width: 0.9),
+                Border.all(color: Colors.white.withOpacity( 0.34), width: 0.9),
           ),
           child: Icon(
             Icons.add_rounded,
@@ -320,14 +320,14 @@ class MainBottomNav extends StatelessWidget {
         border: Border(
           top: BorderSide(
             color: (isLight ? const Color(0xFFC9B4FF) : const Color(0xFFB39DFF))
-                .withValues(alpha: isLight ? 0.56 : 0.28),
+                .withOpacity( isLight ? 0.56 : 0.28),
             width: 0.9,
           ),
         ),
         boxShadow: [
           BoxShadow(
             color: (isLight ? const Color(0xFF7D8FB2) : const Color(0xFF080611))
-                .withValues(alpha: isLight ? 0.2 : 0.34),
+                .withOpacity( isLight ? 0.2 : 0.34),
             blurRadius: isLight ? 18 : 20,
             offset: Offset(0, isLight ? -5 : -7),
           ),

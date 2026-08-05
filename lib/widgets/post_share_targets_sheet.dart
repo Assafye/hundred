@@ -267,7 +267,7 @@ class _PostShareTargetsSheetState extends State<PostShareTargetsSheet> {
                     color: (isLight
                             ? const Color(0xFF8FB7FF)
                             : const Color(0xFF46D3FF))
-                        .withValues(alpha: 0.28),
+                        .withOpacity( 0.28),
                   ),
                 ),
                 enabledBorder: OutlineInputBorder(
@@ -276,7 +276,7 @@ class _PostShareTargetsSheetState extends State<PostShareTargetsSheet> {
                     color: (isLight
                             ? const Color(0xFF8FB7FF)
                             : const Color(0xFF46D3FF))
-                        .withValues(alpha: 0.28),
+                        .withOpacity( 0.28),
                   ),
                 ),
                 focusedBorder: OutlineInputBorder(
@@ -373,8 +373,8 @@ class _PostShareTargetsSheetState extends State<PostShareTargetsSheet> {
         ),
       ),
       tileColor: isLight
-          ? const Color(0xFFF0F6FF).withValues(alpha: 0.95)
-          : const Color(0xFF1A2438).withValues(alpha: 0.72),
+          ? const Color(0xFFF0F6FF).withOpacity( 0.95)
+          : const Color(0xFF1A2438).withOpacity( 0.72),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       trailing: Icon(
         Icons.chevron_right_rounded,
@@ -403,8 +403,8 @@ class _PostShareTargetsSheetState extends State<PostShareTargetsSheet> {
             colors: isLight
                 ? const [Color(0xFFFAFCFF), Color(0xFFECF3FF)]
                 : [
-                    const Color(0xFF0D172A).withValues(alpha: 0.98),
-                    const Color(0xFF1B1635).withValues(alpha: 0.98),
+                    const Color(0xFF0D172A).withOpacity( 0.98),
+                    const Color(0xFF1B1635).withOpacity( 0.98),
                   ],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
@@ -421,7 +421,7 @@ class _PostShareTargetsSheetState extends State<PostShareTargetsSheet> {
                 color: (isLight
                         ? const Color(0xFF8FB7FF)
                         : const Color(0xFF9EDBFF))
-                    .withValues(alpha: 0.55),
+                    .withOpacity( 0.55),
                 borderRadius: BorderRadius.circular(999),
               ),
             ),
@@ -465,7 +465,7 @@ class _PostShareTargetsSheetState extends State<PostShareTargetsSheet> {
                       color: (isLight
                               ? const Color(0xFF8FB7FF)
                               : const Color(0xFF46D3FF))
-                          .withValues(alpha: 0.28),
+                          .withOpacity( 0.28),
                     ),
                   ),
                   enabledBorder: OutlineInputBorder(
@@ -474,7 +474,7 @@ class _PostShareTargetsSheetState extends State<PostShareTargetsSheet> {
                       color: (isLight
                               ? const Color(0xFF8FB7FF)
                               : const Color(0xFF46D3FF))
-                          .withValues(alpha: 0.28),
+                          .withOpacity( 0.28),
                     ),
                   ),
                   focusedBorder: OutlineInputBorder(
