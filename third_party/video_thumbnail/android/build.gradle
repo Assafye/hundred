@@ -1,0 +1,20 @@
+plugins {
+    id 'com.android.library'
+}
+
+group 'xyz.justsoft.video_thumbnail'
+version '1.0-SNAPSHOT'
+
+android {
+    compileSdkVersion 34
+    namespace 'xyz.justsoft.video_thumbnail'
+
+    defaultConfig {
+        minSdkVersion 16
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    lint {
+        disable += ['InvalidPackage']
+    }
+}
