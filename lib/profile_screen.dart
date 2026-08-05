@@ -1891,6 +1891,78 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
     );
   }
 
+  Future<void> _openSyncTestPage() async {
+    if (!mounted) return;
+
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => Scaffold(
+          backgroundColor: Theme.of(context).brightness == Brightness.light
+              ? Colors.white
+              : const Color(0xFF0B1019),
+          appBar: AppBar(title: const Text('בדיקת סנכרון')),
+          body: const Center(
+            child: Text(
+              'זה עבד!!',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSyncTestButton(BuildContext context) {
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    return Padding(
+      padding: const EdgeInsetsDirectional.only(end: 12),
+      child: GestureDetector(
+        onTap: _openSyncTestPage,
+        child: Container(
+          width: 48,
+          height: 48,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            gradient: isLight
+                ? null
+                : const LinearGradient(
+                    colors: [Color(0xFF182336), Color(0xFF111B2B)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+            color: isLight ? Colors.white : null,
+            boxShadow: [
+              BoxShadow(
+                color: (isLight
+                        ? const Color(0xFF53C1F9)
+                        : Colors.black)
+                    .withValues(alpha: isLight ? 0.12 : 0.18),
+                blurRadius: isLight ? 10 : 12,
+                offset: const Offset(0, 6),
+              ),
+            ],
+            border: Border.all(
+              color: isLight
+                  ? const Color(0xFFA7BFFF)
+                  : const Color(0xFF53C1F9).withValues(alpha: 0.14),
+              width: 0.9,
+            ),
+          ),
+          child: Center(
+            child: Icon(
+              Icons.sync_alt_rounded,
+              color: isLight
+                  ? const Color(0xFF9AB0FF)
+                  : const Color(0xFF8EDEFF),
+              size: 22,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildSystemUpdatesButton(BuildContext context, int unreadCount) {
     final hasUnread = unreadCount > 0;
     final displayCount = unreadCount > 9 ? '9+' : unreadCount.toString();
@@ -3818,6 +3890,7 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     _buildSystemUpdatesButton(context, unreadCount),
+                    _buildSyncTestButton(context),
                     if (isPrivateProfile) ...[
                       const SizedBox(width: 8),
                       _buildFollowRequestsButton(context),
