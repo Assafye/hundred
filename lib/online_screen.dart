@@ -47,8 +47,6 @@ class _OnlineScreenState extends State<OnlineScreen>
   late final ValueNotifier<int> _sectionRefreshTick;
   late final TextEditingController _meetTitleController;
   late final TextEditingController _meetDetailsController;
-  late final TextEditingController _meetLocationController;
-  late final TextEditingController _meetParticipantsController;
 
   Timer? _meetNowRefreshTimer;
 
@@ -82,8 +80,6 @@ class _OnlineScreenState extends State<OnlineScreen>
     _upcomingGroupsScrollController = ScrollController();
     _meetTitleController = TextEditingController();
     _meetDetailsController = TextEditingController();
-    _meetLocationController = TextEditingController();
-    _meetParticipantsController = TextEditingController();
     _meetNowRefreshTimer = Timer.periodic(_meetNowRefreshInterval, (_) {
       if (!mounted) {
         return;
@@ -101,8 +97,6 @@ class _OnlineScreenState extends State<OnlineScreen>
     _sectionRefreshTick.dispose();
     _meetTitleController.dispose();
     _meetDetailsController.dispose();
-    _meetLocationController.dispose();
-    _meetParticipantsController.dispose();
     super.dispose();
   }
 
@@ -920,6 +914,319 @@ class _OnlineScreenState extends State<OnlineScreen>
     );
   }
 
+  Future<String?> _showMeetTimePreferenceClockSheet({
+    required String selectedValue,
+  }) async {
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    const options = <String>[
+      'עכשיו',
+      'עוד מעט',
+      'בערב',
+      'מחר',
+      'שבוע הבא',
+      'לא אכפת לי מתי',
+    ];
+
+    final initialIndex = options.indexOf(selectedValue);
+    final fallbackIndex = initialIndex >= 0 ? initialIndex : 0;
+
+    return showGeneralDialog<String>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'בחירת זמן למפגש',
+      barrierColor: Colors.black54,
+      transitionDuration: const Duration(milliseconds: 190),
+      pageBuilder: (sheetContext, _, __) {
+        var draftIndex = fallbackIndex;
+        var handAngle =
+            (-math.pi / 2) + (2 * math.pi * (fallbackIndex / options.length));
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            final size = MediaQuery.of(sheetContext).size;
+            final dialSize = math.min(size.width * 0.78, 330.0);
+            final center = dialSize / 2;
+            final ringRadius = dialSize * 0.39;
+            final cellWidth = math.max(84.0, dialSize * 0.3);
+            const cellHeight = 40.0;
+            final handLength = ringRadius;
+            final handRotationAngle = handAngle + (math.pi / 2);
+
+            return Material(
+              color: Colors.transparent,
+              child: SafeArea(
+                child: Directionality(
+                  textDirection: TextDirection.rtl,
+                  child: Center(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxWidth: math.min(size.width - 18, 430),
+                        ),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(30),
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFF53C1F9), Color(0xFF9E7CFF)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                          ),
+                          padding: const EdgeInsets.all(1.8),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: isLight
+                                  ? const Color(0xFFF8FBFF)
+                                  : const Color(0xFF101826),
+                              borderRadius: BorderRadius.circular(28),
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Row(
+                                    children: [
+                                      IconButton(
+                                        onPressed: () =>
+                                            Navigator.of(sheetContext).pop(),
+                                        icon: Icon(
+                                          Icons.close_rounded,
+                                          color: isLight
+                                              ? const Color(0xFF33405B)
+                                              : Colors.white70,
+                                        ),
+                                      ),
+                                      Expanded(
+                                        child: Text(
+                                          'בחירת זמן למפגש',
+                                          textAlign: TextAlign.center,
+                                          style: TextStyle(
+                                            color: isLight
+                                                ? const Color(0xFF1E2A45)
+                                                : Colors.white,
+                                            fontSize: 22,
+                                            fontWeight: FontWeight.w900,
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 46),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 4),
+                                  SizedBox(
+                                    width: dialSize,
+                                    height: dialSize,
+                                    child: Stack(
+                                      clipBehavior: Clip.none,
+                                      children: [
+                                        Positioned(
+                                          left: center - 2,
+                                          top: center - handLength,
+                                          child: AnimatedRotation(
+                                            turns: handRotationAngle /
+                                                (2 * math.pi),
+                                            duration:
+                                                const Duration(milliseconds: 230),
+                                            curve: Curves.easeOutCubic,
+                                            alignment: Alignment.bottomCenter,
+                                            child: Container(
+                                              width: 4,
+                                              height: handLength,
+                                              decoration: BoxDecoration(
+                                                gradient: const LinearGradient(
+                                                  colors: [
+                                                    Color(0xFFC9B5FF),
+                                                    Color(0xFF8DE8FF),
+                                                  ],
+                                                  begin: Alignment.bottomCenter,
+                                                  end: Alignment.topCenter,
+                                                ),
+                                                borderRadius:
+                                                    BorderRadius.circular(999),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                        ...List<Widget>.generate(options.length,
+                                            (index) {
+                                          final angle = (-math.pi / 2) +
+                                              (2 * math.pi *
+                                                  (index / options.length));
+                                          final cx = center +
+                                              (ringRadius * math.cos(angle));
+                                          final cy = center +
+                                              (ringRadius * math.sin(angle));
+                                          final isSelected = draftIndex == index;
+                                          return Positioned(
+                                            left: cx - (cellWidth / 2),
+                                            top: cy - (cellHeight / 2),
+                                            child: GestureDetector(
+                                              onTap: () {
+                                                setSheetState(() {
+                                                  draftIndex = index;
+                                                  final targetAngle =
+                                                      (-math.pi / 2) +
+                                                          (2 * math.pi *
+                                                              (index /
+                                                                  options
+                                                                      .length));
+                                                  var nextClockwise =
+                                                      targetAngle;
+                                                  while (nextClockwise <=
+                                                      handAngle) {
+                                                    nextClockwise +=
+                                                        2 * math.pi;
+                                                  }
+                                                  handAngle = nextClockwise;
+                                                });
+                                              },
+                                              child: Container(
+                                                width: cellWidth,
+                                                height: cellHeight,
+                                                alignment: Alignment.center,
+                                                decoration: BoxDecoration(
+                                                  borderRadius:
+                                                      BorderRadius.circular(999),
+                                                  gradient: isSelected
+                                                      ? const LinearGradient(
+                                                          colors: [
+                                                            Color(0xFF8DE8FF),
+                                                            Color(0xFFC9B5FF),
+                                                          ],
+                                                          begin:
+                                                              Alignment.topLeft,
+                                                          end: Alignment
+                                                              .bottomRight,
+                                                        )
+                                                      : null,
+                                                  color: isSelected
+                                                      ? null
+                                                      : (isLight
+                                                          ? Colors.white
+                                                          : const Color(
+                                                              0xFF1F2B42)),
+                                                  border: Border.all(
+                                                    color: isSelected
+                                                        ? Colors.white
+                                                            .withValues(
+                                                                alpha: 0.84)
+                                                        : (isLight
+                                                            ? const Color(
+                                                                    0xFFCAD8F3)
+                                                                .withValues(
+                                                                    alpha: 0.92)
+                                                            : Colors.white
+                                                                .withValues(
+                                                                    alpha:
+                                                                        0.18)),
+                                                    width: isSelected ? 1.6 : 1.0,
+                                                  ),
+                                                ),
+                                                child: Text(
+                                                  options[index],
+                                                  maxLines: 1,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                  style: TextStyle(
+                                                    color: isSelected
+                                                        ? const Color(0xFF2A2361)
+                                                        : (isLight
+                                                            ? const Color(
+                                                                0xFF2B3758)
+                                                            : Colors.white70),
+                                                    fontWeight: isSelected
+                                                        ? FontWeight.w900
+                                                        : FontWeight.w700,
+                                                    fontSize: 12.3,
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                          );
+                                        }),
+                                        Align(
+                                          alignment: Alignment.center,
+                                          child: Container(
+                                            width: 74,
+                                            height: 74,
+                                            decoration: BoxDecoration(
+                                              shape: BoxShape.circle,
+                                              gradient: const LinearGradient(
+                                                colors: [
+                                                  Color(0xFF8DE8FF),
+                                                  Color(0xFFC9B5FF),
+                                                ],
+                                                begin: Alignment.topLeft,
+                                                end: Alignment.bottomRight,
+                                              ),
+                                              border: Border.all(
+                                                color: Colors.white
+                                                    .withValues(alpha: 0.9),
+                                              ),
+                                            ),
+                                            child: Center(
+                                              child: Text(
+                                                options[draftIndex],
+                                                textAlign: TextAlign.center,
+                                                maxLines: 2,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(
+                                                  color: Color(0xFF2A2361),
+                                                  fontWeight: FontWeight.w900,
+                                                  fontSize: 11,
+                                                  height: 1.1,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(height: 10),
+                                  SizedBox(
+                                    width: double.infinity,
+                                    child: ElevatedButton(
+                                      onPressed: () => Navigator.of(sheetContext)
+                                          .pop(options[draftIndex]),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: _purple,
+                                        foregroundColor:
+                                            isLight ? Colors.black : Colors.white,
+                                        padding:
+                                            const EdgeInsets.symmetric(vertical: 13),
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(16),
+                                        ),
+                                      ),
+                                      child: const Text(
+                                        'אישור',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w800,
+                                          fontSize: 15,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   Widget _buildMeetFilterPickerTile({
     required IconData icon,
     required String title,
@@ -1024,6 +1331,186 @@ class _OnlineScreenState extends State<OnlineScreen>
     );
   }
 
+  Widget _buildMeetParticipantsSelector({
+    required bool isLight,
+    required int? selected,
+    required ValueChanged<int> onSelect,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          'כמות משתתפים רצויה',
+          textAlign: TextAlign.right,
+          style: TextStyle(
+            color: isLight ? Colors.black : Colors.white,
+            fontWeight: FontWeight.w800,
+            fontSize: 15,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          alignment: WrapAlignment.end,
+          spacing: 8,
+          runSpacing: 8,
+          children: List<Widget>.generate(8, (index) {
+            final value = index + 2;
+            final isSelected = selected == value;
+            return Material(
+              color: Colors.transparent,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(999),
+                onTap: () => onSelect(value),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 160),
+                  curve: Curves.easeOut,
+                  width: 38,
+                  height: 38,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: isSelected
+                        ? const LinearGradient(
+                            colors: [Color(0xFF8DE8FF), Color(0xFFC9B5FF)],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          )
+                        : null,
+                    color: isSelected
+                        ? null
+                        : (isLight
+                            ? const Color(0xFFE7EEFB)
+                            : const Color(0xFF253042)),
+                    border: Border.all(
+                      color: isSelected
+                          ? Colors.white.withValues(alpha: 0.82)
+                          : (isLight
+                              ? const Color(0xFFCCD9EE)
+                              : Colors.white.withValues(alpha: 0.16)),
+                    ),
+                  ),
+                  child: Text(
+                    value == 9 ? '9+' : '$value',
+                    style: TextStyle(
+                      color: isSelected
+                          ? const Color(0xFF2A2361)
+                          : (isLight ? const Color(0xFF34425E) : Colors.white),
+                      fontWeight:
+                          isSelected ? FontWeight.w900 : FontWeight.w700,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMeetComposerAgeRange({
+    required bool isLight,
+    required RangeValues ageRange,
+    required ValueChanged<RangeValues> onChanged,
+  }) {
+    return Row(
+      children: [
+        Text(
+          'טווח גילאים',
+          style: TextStyle(color: isLight ? Colors.black : Colors.white),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final minAge = ageRange.start.round();
+              final maxAge = ageRange.end.round();
+              final isRtl = Directionality.of(context) == TextDirection.rtl;
+              const bubbleWidth = 42.0;
+              const thumbRadius = 10.0;
+              final trackWidth = constraints.maxWidth > thumbRadius * 2
+                  ? constraints.maxWidth - thumbRadius * 2
+                  : 0.0;
+              final maxBubbleLeft =
+                  (constraints.maxWidth - bubbleWidth).clamp(0.0, double.infinity);
+
+              double thumbOffsetFor(int value) {
+                final normalized =
+                    (value - minimumUserAge) / (maximumAgeRange - minimumUserAge);
+                final adjusted = isRtl ? 1 - normalized : normalized;
+                final thumbCenter =
+                    thumbRadius + trackWidth * adjusted.clamp(0.0, 1.0);
+                return thumbCenter - (bubbleWidth / 2);
+              }
+
+              double bubbleLeftFor(int value) {
+                return thumbOffsetFor(value).clamp(0.0, maxBubbleLeft);
+              }
+
+              Widget valueBubble(int value) {
+                return Container(
+                  width: bubbleWidth,
+                  alignment: Alignment.center,
+                  padding: const EdgeInsets.symmetric(vertical: 5),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF8DE8FF), Color(0xFFC6B2FF)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.7),
+                    ),
+                  ),
+                  child: Text(
+                    value.toString(),
+                    style: const TextStyle(
+                      color: Color(0xFF2A2C5A),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                );
+              }
+
+              return Column(
+                children: [
+                  SizedBox(
+                    height: 32,
+                    child: Stack(
+                      children: [
+                        Positioned(
+                          left: bubbleLeftFor(minAge),
+                          child: valueBubble(minAge),
+                        ),
+                        Positioned(
+                          left: bubbleLeftFor(maxAge),
+                          child: valueBubble(maxAge),
+                        ),
+                      ],
+                    ),
+                  ),
+                  RangeSlider(
+                    values: ageRange,
+                    min: minimumUserAge.toDouble(),
+                    max: maximumAgeRange.toDouble(),
+                    divisions: maximumAgeRange - minimumUserAge,
+                    activeColor: _purple,
+                    inactiveColor:
+                        isLight ? const Color(0xFFD8E6FF) : Colors.white12,
+                    onChanged: onChanged,
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
   Future<void> _openMeetComposerSheet() async {
     final canPublish = await _homeService.canPublishMeetNowPost();
     if (!mounted) {
@@ -1037,8 +1524,6 @@ class _OnlineScreenState extends State<OnlineScreen>
     final isLight = Theme.of(context).brightness == Brightness.light;
     _meetTitleController.clear();
     _meetDetailsController.clear();
-    _meetLocationController.clear();
-    _meetParticipantsController.clear();
     bool useAgeRange = false;
     RangeValues ageRange = RangeValues(
       minimumUserAge.toDouble(),
@@ -1047,6 +1532,7 @@ class _OnlineScreenState extends State<OnlineScreen>
     String? category;
     String? subCategory;
     String timePreference = 'עכשיו';
+    int? desiredParticipants = 2;
 
     await showModalBottomSheet<void>(
       context: context,
@@ -1108,13 +1594,13 @@ class _OnlineScreenState extends State<OnlineScreen>
                                 TextField(
                                   controller: _meetTitleController,
                                   maxLength: 36,
+                                  textAlign: TextAlign.right,
                                   style: TextStyle(
-                                      color: isLight
-                                          ? Colors.black
-                                          : Colors.white),
+                                    color: isLight ? Colors.black : Colors.white,
+                                  ),
                                   decoration: InputDecoration(
-                                    labelText: 'מה בא לך לעשות? (עד 36 תווים)',
-                                    labelStyle: TextStyle(
+                                    hintText: 'מה בא לך לעשות? (עד 36 תווים)',
+                                    hintStyle: TextStyle(
                                       color: isLight
                                           ? Colors.black54
                                           : Colors.white70,
@@ -1124,160 +1610,167 @@ class _OnlineScreenState extends State<OnlineScreen>
                                           ? Colors.black45
                                           : Colors.white54,
                                     ),
+                                    filled: true,
+                                    fillColor: Colors.transparent,
+                                    contentPadding: const EdgeInsets.symmetric(
+                                      horizontal: 14,
+                                      vertical: 13,
+                                    ),
+                                    enabledBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(18),
+                                      borderSide: BorderSide(
+                                        color: (isLight
+                                                ? const Color(0xFF8FB7FF)
+                                                : const Color(0xFF46D3FF))
+                                            .withValues(alpha: 0.55),
+                                        width: 1.1,
+                                      ),
+                                    ),
+                                    focusedBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(18),
+                                      borderSide: BorderSide(
+                                        color: (isLight
+                                                ? const Color(0xFF7A9BFF)
+                                                : const Color(0xFF8DE8FF))
+                                            .withValues(alpha: 0.95),
+                                        width: 1.35,
+                                      ),
+                                    ),
                                   ),
                                 ),
                                 const SizedBox(height: 10),
                                 TextField(
                                   controller: _meetDetailsController,
                                   maxLines: 3,
+                                  textAlign: TextAlign.right,
                                   style: TextStyle(
-                                      color: isLight
-                                          ? Colors.black
-                                          : Colors.white),
+                                    color: isLight ? Colors.black : Colors.white,
+                                  ),
                                   decoration: InputDecoration(
-                                    labelText: 'פרטים נוספים',
-                                    labelStyle: TextStyle(
+                                    hintText: 'הוסף פרטים שיעזרו לאחרים להצטרף',
+                                    hintStyle: TextStyle(
                                       color: isLight
                                           ? Colors.black54
                                           : Colors.white70,
                                     ),
-                                  ),
-                                ),
-                                const SizedBox(height: 10),
-                                TextField(
-                                  controller: _meetLocationController,
-                                  style: TextStyle(
-                                      color: isLight
-                                          ? Colors.black
-                                          : Colors.white),
-                                  decoration: InputDecoration(
-                                    labelText: 'מקום מפגש',
-                                    labelStyle: TextStyle(
-                                      color: isLight
-                                          ? Colors.black54
-                                          : Colors.white70,
+                                    filled: true,
+                                    fillColor: Colors.transparent,
+                                    contentPadding: const EdgeInsets.symmetric(
+                                      horizontal: 14,
+                                      vertical: 13,
                                     ),
-                                  ),
-                                ),
-                                const SizedBox(height: 10),
-                                TextField(
-                                  controller: _meetParticipantsController,
-                                  keyboardType: TextInputType.number,
-                                  style: TextStyle(
-                                      color: isLight
-                                          ? Colors.black
-                                          : Colors.white),
-                                  decoration: InputDecoration(
-                                    labelText: 'כמות משתתפים רצויה',
-                                    labelStyle: TextStyle(
-                                      color: isLight
-                                          ? Colors.black54
-                                          : Colors.white70,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: 10),
-                                DropdownButtonFormField<String>(
-                                  initialValue: category,
-                                  dropdownColor: isLight
-                                      ? Colors.white
-                                      : const Color(0xFF1E2632),
-                                  decoration: InputDecoration(
-                                    labelText: 'קטגוריה',
-                                    labelStyle: TextStyle(
-                                      color: isLight
-                                          ? Colors.black54
-                                          : Colors.white70,
-                                    ),
-                                  ),
-                                  items: [
-                                    const DropdownMenuItem<String>(
-                                      value: null,
-                                      child: Text('ללא קטגוריה'),
-                                    ),
-                                    ...appMainCategories.map(
-                                      (item) => DropdownMenuItem<String>(
-                                        value: item,
-                                        child: Text(item),
+                                    enabledBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(18),
+                                      borderSide: BorderSide(
+                                        color: (isLight
+                                                ? const Color(0xFF8FB7FF)
+                                                : const Color(0xFF46D3FF))
+                                            .withValues(alpha: 0.55),
+                                        width: 1.1,
                                       ),
                                     ),
-                                  ],
-                                  onChanged: (value) {
+                                    focusedBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(18),
+                                      borderSide: BorderSide(
+                                        color: (isLight
+                                                ? const Color(0xFF7A9BFF)
+                                                : const Color(0xFF8DE8FF))
+                                            .withValues(alpha: 0.95),
+                                        width: 1.35,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 10),
+                                _buildMeetParticipantsSelector(
+                                  isLight: isLight,
+                                  selected: desiredParticipants,
+                                  onSelect: (value) {
                                     setSheetState(() {
-                                      category = value;
-                                      if (!appSubCategories(value)
-                                          .contains(subCategory)) {
+                                      desiredParticipants = value;
+                                    });
+                                  },
+                                ),
+                                const SizedBox(height: 12),
+                                _buildMeetFilterPickerTile(
+                                  icon: Icons.category_rounded,
+                                  title: 'קטגוריה',
+                                  value: category ?? '',
+                                  hint: 'ללא קטגוריה',
+                                  onTap: () async {
+                                    final selected =
+                                        await _showMeetFilterChoiceSheet(
+                                      title: 'בחירת קטגוריה',
+                                      options: appMainCategories,
+                                      selectedValue: category,
+                                      includeEmptyOption: true,
+                                      emptyOptionLabel: 'ללא קטגוריה',
+                                      useCategoryIcons: true,
+                                    );
+                                    if (!context.mounted) return;
+                                    setSheetState(() {
+                                      category = selected;
+                                      final subCategories =
+                                          appSubCategories(selected);
+                                      if (!subCategories.contains(subCategory)) {
                                         subCategory = null;
                                       }
                                     });
                                   },
                                 ),
-                                const SizedBox(height: 10),
-                                DropdownButtonFormField<String>(
-                                  initialValue: subCategory,
-                                  dropdownColor: isLight
-                                      ? Colors.white
-                                      : const Color(0xFF1E2632),
-                                  decoration: InputDecoration(
-                                    labelText: 'תת קטגוריה',
-                                    labelStyle: TextStyle(
-                                      color: isLight
-                                          ? Colors.black54
-                                          : Colors.white70,
-                                    ),
-                                  ),
-                                  items: [
-                                    const DropdownMenuItem<String>(
-                                      value: null,
-                                      child: Text('ללא תת קטגוריה'),
-                                    ),
-                                    ...subCategoryOptions.map(
-                                      (item) => DropdownMenuItem<String>(
-                                        value: item,
-                                        child: Text(item),
-                                      ),
-                                    ),
-                                  ],
-                                  onChanged: (value) {
+                                const SizedBox(height: 12),
+                                _buildMeetFilterPickerTile(
+                                  icon: Icons.grid_view_rounded,
+                                  title: 'תת קטגוריה',
+                                  value: subCategory ?? '',
+                                  hint: category == null
+                                      ? 'בחר קטגוריה קודם'
+                                      : 'ללא תת קטגוריה',
+                                  onTap: () async {
+                                    if (category == null ||
+                                        category!.trim().isEmpty) {
+                                      if (!mounted) return;
+                                      ScaffoldMessenger.of(this.context)
+                                          .showSnackBar(
+                                        const SnackBar(
+                                          content: Text(
+                                              'בחר קטגוריה לפני תת קטגוריה'),
+                                        ),
+                                      );
+                                      return;
+                                    }
+
+                                    final selected =
+                                        await _showMeetFilterChoiceSheet(
+                                      title: 'בחירת תת קטגוריה',
+                                      options: subCategoryOptions,
+                                      selectedValue: subCategory,
+                                      includeEmptyOption: true,
+                                      emptyOptionLabel: 'ללא תת קטגוריה',
+                                      useCategoryIcons: false,
+                                    );
+                                    if (!context.mounted) return;
                                     setSheetState(() {
-                                      subCategory = value;
+                                      subCategory = selected;
                                     });
                                   },
                                 ),
-                                const SizedBox(height: 10),
-                                DropdownButtonFormField<String>(
-                                  initialValue: timePreference,
-                                  dropdownColor: isLight
-                                      ? Colors.white
-                                      : const Color(0xFF1E2632),
-                                  decoration: InputDecoration(
-                                    labelText: 'זמן למפגש',
-                                    labelStyle: TextStyle(
-                                      color: isLight
-                                          ? Colors.black54
-                                          : Colors.white70,
-                                    ),
-                                  ),
-                                  items: const [
-                                    DropdownMenuItem(
-                                        value: 'עכשיו', child: Text('עכשיו')),
-                                    DropdownMenuItem(
-                                        value: 'עוד מעט',
-                                        child: Text('עוד מעט')),
-                                    DropdownMenuItem(
-                                        value: 'בערב', child: Text('בערב')),
-                                    DropdownMenuItem(
-                                        value: 'מחר', child: Text('מחר')),
-                                    DropdownMenuItem(
-                                        value: 'שבוע הבא',
-                                        child: Text('שבוע הבא')),
-                                    DropdownMenuItem(
-                                        value: 'לא אכפת לי מתי',
-                                        child: Text('לא אכפת לי מתי')),
-                                  ],
-                                  onChanged: (value) {
+                                const SizedBox(height: 12),
+                                _buildMeetFilterPickerTile(
+                                  icon: Icons.schedule_rounded,
+                                  title: 'זמן למפגש',
+                                  value: timePreference,
+                                  hint: 'בחר זמן',
+                                  onTap: () async {
+                                    final selected =
+                                        await _showMeetTimePreferenceClockSheet(
+                                      selectedValue: timePreference,
+                                    );
+                                    if (!context.mounted || selected == null) {
+                                      return;
+                                    }
                                     setSheetState(() {
-                                      timePreference = value ?? 'עכשיו';
+                                      timePreference = selected;
                                     });
                                   },
                                 ),
@@ -1300,24 +1793,9 @@ class _OnlineScreenState extends State<OnlineScreen>
                                   },
                                 ),
                                 if (useAgeRange) ...[
-                                  Text(
-                                    'גילאים: ${ageRange.start.round()}-${ageRange.end.round()}',
-                                    style: TextStyle(
-                                      color: isLight
-                                          ? Colors.black54
-                                          : Colors.white70,
-                                    ),
-                                  ),
-                                  RangeSlider(
-                                    values: ageRange,
-                                    min: minimumUserAge.toDouble(),
-                                    max: maximumAgeRange.toDouble(),
-                                    divisions: maximumAgeRange - minimumUserAge,
-                                    activeColor: _purple,
-                                    labels: RangeLabels(
-                                      '${ageRange.start.round()}',
-                                      '${ageRange.end.round()}',
-                                    ),
+                                  _buildMeetComposerAgeRange(
+                                    isLight: isLight,
+                                    ageRange: ageRange,
                                     onChanged: (value) {
                                       setSheetState(() {
                                         ageRange = value;
@@ -1337,9 +1815,8 @@ class _OnlineScreenState extends State<OnlineScreen>
                                 ScaffoldMessenger.of(this.context);
                             final title = _meetTitleController.text.trim();
                             if (title.isEmpty) {
-                              messenger.showSnackBar(
-                                const SnackBar(
-                                    content: Text('חייבים כותרת לפופ')),
+                              _showMeetComposerCenterNotice(
+                                'חייבים כותרת לפופ',
                               );
                               return;
                             }
@@ -1350,11 +1827,8 @@ class _OnlineScreenState extends State<OnlineScreen>
                                 details: _meetDetailsController.text.trim(),
                                 category: category ?? '',
                                 subCategory: subCategory ?? '',
-                                meetingLocation:
-                                    _meetLocationController.text.trim(),
-                                desiredParticipants: int.tryParse(
-                                  _meetParticipantsController.text.trim(),
-                                ),
+                                meetingLocation: '',
+                                desiredParticipants: desiredParticipants,
                                 timePreference: timePreference,
                                 minAge:
                                     useAgeRange ? ageRange.start.round() : null,
@@ -1401,6 +1875,82 @@ class _OnlineScreenState extends State<OnlineScreen>
         );
       },
     );
+  }
+
+  void _showMeetComposerCenterNotice(String message) {
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final overlay = Overlay.maybeOf(context, rootOverlay: true);
+    if (overlay == null) {
+      return;
+    }
+
+    late final OverlayEntry entry;
+    var removed = false;
+
+    void dismissNotice() {
+      if (removed) {
+        return;
+      }
+      removed = true;
+      entry.remove();
+    }
+
+    entry = OverlayEntry(
+      builder: (_) => Positioned.fill(
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: dismissNotice,
+          child: Center(
+            child: Container(
+              constraints: const BoxConstraints(maxWidth: 330),
+              margin: const EdgeInsets.symmetric(horizontal: 24),
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(20),
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF8DE8FF), Color(0xFFC9B5FF)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                border: isLight
+                    ? null
+                    : Border.all(
+                        color: Colors.black,
+                        width: 1.2,
+                      ),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF8E7DFF).withValues(alpha: 0.26),
+                    blurRadius: 18,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: Directionality(
+                textDirection: TextDirection.rtl,
+                child: Text(
+                  message,
+                  textAlign: TextAlign.center,
+                  softWrap: true,
+                  style: const TextStyle(
+                    color: Colors.black,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w900,
+                    height: 1.3,
+                    decoration: TextDecoration.none,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    overlay.insert(entry);
+    Future<void>.delayed(const Duration(seconds: 2), () {
+      dismissNotice();
+    });
   }
 
   void _showMeetPublishLimitNotice() {

@@ -156,6 +156,7 @@ class _PostDetailViewState extends State<PostDetailView> {
                     color: Colors.white,
                     fontSize: 14,
                     fontWeight: FontWeight.w900,
+                    decoration: TextDecoration.none,
                     height: 1.25,
                   ),
                 ),

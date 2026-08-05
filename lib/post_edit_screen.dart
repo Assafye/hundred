@@ -17,6 +17,7 @@ import 'post_model.dart';
 import 'profile_screen.dart';
 import 'services/post_service.dart';
 import 'services/public_user_profile_service.dart';
+import 'widgets/post_media_viewer.dart';
 import 'widgets/swipe_back_wrapper.dart';
 import 'video_preview_utils.dart';
 
@@ -2709,89 +2710,92 @@ class _PostEditScreenState extends State<PostEditScreen> {
                     final mediaUrl = mediaItem.url.trim();
                     final isVideo =
                         mediaItem.isVideo || _looksLikeVideoUrl(mediaUrl);
-                    return ClipRRect(
-                      borderRadius: BorderRadius.circular(14),
-                      child: Container(
-                        width: 92,
-                        color: isLight
-                            ? const Color(0xFFF7FAFF)
-                            : const Color(0xFF1A2334),
-                        child: Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            if (isVideo)
-                              FutureBuilder<String?>(
-                                future: _resolvedPreviewUrlFuture(mediaUrl),
-                                builder: (context, resolvedSnapshot) {
-                                  final resolvedUrl =
-                                      resolvedSnapshot.data ?? mediaUrl;
-                                  return FutureBuilder<Uint8List?>(
-                                    future:
-                                        _videoPreviewFutureByUrl.putIfAbsent(
-                                      resolvedUrl,
-                                      () => buildVideoPreviewBytesFromSource(
+                    return GestureDetector(
+                      onTap: () => _openExistingMediaFullscreen(mediaItem),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(14),
+                        child: Container(
+                          width: 92,
+                          color: isLight
+                              ? const Color(0xFFF7FAFF)
+                              : const Color(0xFF1A2334),
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              if (isVideo)
+                                FutureBuilder<String?>(
+                                  future: _resolvedPreviewUrlFuture(mediaUrl),
+                                  builder: (context, resolvedSnapshot) {
+                                    final resolvedUrl =
+                                        resolvedSnapshot.data ?? mediaUrl;
+                                    return FutureBuilder<Uint8List?>(
+                                      future:
+                                          _videoPreviewFutureByUrl.putIfAbsent(
                                         resolvedUrl,
+                                        () => buildVideoPreviewBytesFromSource(
+                                          resolvedUrl,
+                                        ),
                                       ),
-                                    ),
-                                    builder: (context, snapshot) {
-                                      final bytes = snapshot.data;
-                                      if (bytes != null && bytes.isNotEmpty) {
-                                        return Image.memory(
-                                          bytes,
-                                          fit: BoxFit.cover,
-                                        );
-                                      }
+                                      builder: (context, snapshot) {
+                                        final bytes = snapshot.data;
+                                        if (bytes != null && bytes.isNotEmpty) {
+                                          return Image.memory(
+                                            bytes,
+                                            fit: BoxFit.cover,
+                                          );
+                                        }
 
-                                      return Container(
-                                        color: isLight
-                                            ? const Color(0xFFE9F1FF)
-                                            : const Color(0xFF121B2B),
-                                        child: Icon(
-                                          Icons.play_circle_fill_rounded,
+                                        return Container(
                                           color: isLight
-                                              ? const Color(0xFF6A7A99)
-                                              : Colors.white54,
-                                          size: 30,
-                                        ),
-                                      );
-                                    },
-                                  );
-                                },
-                              )
-                            else
-                              FutureBuilder<String?>(
-                                future: _resolvedPreviewUrlFuture(mediaUrl),
-                                builder: (context, resolvedSnapshot) {
-                                  final resolvedUrl =
-                                      resolvedSnapshot.data ?? mediaUrl;
-                                  return Image.network(
-                                    resolvedUrl,
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (context, error, stackTrace) {
-                                      return Container(
-                                        color: isLight
-                                            ? const Color(0xFFE9F1FF)
-                                            : const Color(0xFF121B2B),
-                                        child: Icon(
-                                          Icons.broken_image_rounded,
+                                              ? const Color(0xFFE9F1FF)
+                                              : const Color(0xFF121B2B),
+                                          child: Icon(
+                                            Icons.play_circle_fill_rounded,
+                                            color: isLight
+                                                ? const Color(0xFF6A7A99)
+                                                : Colors.white54,
+                                            size: 30,
+                                          ),
+                                        );
+                                      },
+                                    );
+                                  },
+                                )
+                              else
+                                FutureBuilder<String?>(
+                                  future: _resolvedPreviewUrlFuture(mediaUrl),
+                                  builder: (context, resolvedSnapshot) {
+                                    final resolvedUrl =
+                                        resolvedSnapshot.data ?? mediaUrl;
+                                    return Image.network(
+                                      resolvedUrl,
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (context, error, stackTrace) {
+                                        return Container(
                                           color: isLight
-                                              ? const Color(0xFF6A7A99)
-                                              : Colors.white54,
-                                        ),
-                                      );
-                                    },
-                                  );
-                                },
-                              ),
-                            if (isVideo)
-                              const Center(
-                                child: Icon(
-                                  Icons.play_circle_fill_rounded,
-                                  color: Colors.white,
-                                  size: 28,
+                                              ? const Color(0xFFE9F1FF)
+                                              : const Color(0xFF121B2B),
+                                          child: Icon(
+                                            Icons.broken_image_rounded,
+                                            color: isLight
+                                                ? const Color(0xFF6A7A99)
+                                                : Colors.white54,
+                                          ),
+                                        );
+                                      },
+                                    );
+                                  },
                                 ),
-                              ),
-                          ],
+                              if (isVideo)
+                                const Center(
+                                  child: Icon(
+                                    Icons.play_circle_fill_rounded,
+                                    color: Colors.white,
+                                    size: 28,
+                                  ),
+                                ),
+                            ],
+                          ),
                         ),
                       ),
                     );
@@ -2843,6 +2847,70 @@ class _PostEditScreenState extends State<PostEditScreen> {
     );
   }
 
+  Widget _buildFullscreenDraftMedia(PostUploadMediaItem item) {
+    if (item.isVideo) {
+      return SizedBox.expand(
+        child: _InlineEditableVideoPlayer(
+          source: item.file.path.isNotEmpty ? item.file.path : item.file.name,
+          previewBytes: item.previewBytes,
+          showPlayOverlay: true,
+          autoplay: true,
+        ),
+      );
+    }
+
+    final bytes = item.previewBytes;
+    if (bytes == null) {
+      return Container(
+        color: Colors.black,
+        alignment: Alignment.center,
+        child: const Icon(
+          Icons.broken_image_outlined,
+          color: Colors.white54,
+          size: 44,
+        ),
+      );
+    }
+
+    return Center(
+      child: Image.memory(
+        bytes,
+        fit: BoxFit.contain,
+      ),
+    );
+  }
+
+  void _openDraftMediaFullscreen(int index) {
+    if (index < 0 || index >= _draftMediaItems.length) {
+      return;
+    }
+
+    final item = _draftMediaItems[index];
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => _PostEditMediaFullscreenPage(
+          child: _buildFullscreenDraftMedia(item),
+        ),
+      ),
+    );
+  }
+
+  void _openExistingMediaFullscreen(PostMediaItem mediaItem) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => _PostEditMediaFullscreenPage(
+          child: PostMediaViewer(
+            mediaItems: <PostMediaItem>[mediaItem],
+            aspectRatio: null,
+            showIndicators: false,
+            showDesktopNavigationArrows: false,
+            isActive: true,
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildMediaEditor({required double previewHeight}) {
     if (_draftMediaItems.isEmpty) {
       return _buildExistingMediaFallback(previewHeight: previewHeight);
@@ -2850,9 +2918,12 @@ class _PostEditScreenState extends State<PostEditScreen> {
 
     return Column(
       children: [
-        SizedBox(
-          height: previewHeight,
-          child: Stack(
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => _openDraftMediaFullscreen(_currentMediaIndex),
+          child: SizedBox(
+            height: previewHeight,
+            child: Stack(
             children: [
               PageView.builder(
                 controller: _mediaPageController,
@@ -2955,6 +3026,7 @@ class _PostEditScreenState extends State<PostEditScreen> {
               ),
             ],
           ),
+          ),
         ),
         const SizedBox(height: 10),
         SizedBox(
@@ -3013,43 +3085,24 @@ class _PostEditScreenState extends State<PostEditScreen> {
                                     color: const Color(0xFF121926),
                                     child: const Icon(
                                       Icons.image_not_supported_rounded,
-                                      color: Colors.white,
+                                      color: Colors.white54,
                                     ),
                                   )),
                       ),
-                      if (item.isVideo)
-                        Positioned(
-                          right: 6,
-                          bottom: 6,
-                          child: Container(
-                            padding: const EdgeInsets.all(4),
-                            decoration: BoxDecoration(
-                              color: Colors.black.withValues(alpha: 0.62),
-                              borderRadius: BorderRadius.circular(999),
-                            ),
-                            child: const Icon(
-                              Icons.videocam_rounded,
-                              color: Colors.white,
-                              size: 14,
-                            ),
-                          ),
-                        ),
                       Positioned(
-                        top: 4,
-                        left: 4,
-                        child: ReorderableDragStartListener(
-                          index: index,
-                          child: Container(
-                            padding: const EdgeInsets.all(4),
-                            decoration: BoxDecoration(
-                              color: Colors.black.withValues(alpha: 0.6),
-                              borderRadius: BorderRadius.circular(999),
-                            ),
-                            child: const Icon(
-                              Icons.drag_indicator_rounded,
-                              color: Colors.white,
-                              size: 16,
-                            ),
+                        top: 6,
+                        right: 6,
+                        child: Container(
+                          width: 22,
+                          height: 22,
+                          decoration: BoxDecoration(
+                            color: Colors.black54,
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: const Icon(
+                            Icons.drag_indicator_rounded,
+                            color: Colors.white,
+                            size: 16,
                           ),
                         ),
                       ),
@@ -3187,29 +3240,13 @@ class _PostEditScreenState extends State<PostEditScreen> {
             style: TextStyle(color: _primaryTextColor(context)),
           ),
           iconTheme: IconThemeData(color: _primaryTextColor(context)),
-          actions: [
-            if (widget.isEdit)
-              IconButton(
-                tooltip: 'מחיקת פוסט',
-                onPressed: (_isPublishing || _isDeleting)
-                    ? null
-                    : _confirmAndDeletePost,
-                icon: _isDeleting
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.delete_outline_rounded),
-              ),
-          ],
         ),
         body: SafeArea(
           child: LayoutBuilder(
             builder: (context, constraints) {
               final screenHeight = MediaQuery.of(context).size.height;
               final mediaPreviewHeight =
-                  (screenHeight * 0.38).clamp(228.0, 360.0);
+                  (screenHeight * 0.31).clamp(210.0, 320.0);
               final keyboardInset = MediaQuery.of(context).viewInsets.bottom;
 
               return AnimatedPadding(
@@ -3417,6 +3454,44 @@ class _PostEditScreenState extends State<PostEditScreen> {
                 ),
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PostEditMediaFullscreenPage extends StatelessWidget {
+  const _PostEditMediaFullscreenPage({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: SwipeBackWrapper(
+        child: SafeArea(
+          child: Stack(
+            children: [
+              Positioned.fill(child: child),
+              Positioned(
+                top: 10,
+                right: 10,
+                child: Material(
+                  color: Colors.black.withValues(alpha: 0.42),
+                  shape: const CircleBorder(),
+                  child: IconButton(
+                    tooltip: 'סגירה',
+                    icon: const Icon(
+                      Icons.close_rounded,
+                      color: Colors.white,
+                    ),
+                    onPressed: () => Navigator.of(context).maybePop(),
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ),
