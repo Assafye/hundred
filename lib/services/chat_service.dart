@@ -444,22 +444,30 @@ class ChatService {
     });
 
     final preview = uploadedItems.length == 1 ? 'שלח מדיה' : 'שלח ${uploadedItems.length} פריטי מדיה';
-    await chatRef.set({
-      'lastMessage': preview,
-      'lastMessageType': 'media',
-      'lastMessageSenderName': senderName,
-      'lastMessageSenderId': uid,
-      'lastMessageAt': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    try {
+      await chatRef.set({
+        'lastMessage': preview,
+        'lastMessageType': 'media',
+        'lastMessageSenderName': senderName,
+        'lastMessageSenderId': uid,
+        'lastMessageAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } catch (_) {
+      // Best effort only. The media message already exists even if metadata writes are blocked.
+    }
 
-    await _notificationService.sendNewMessageNotification(
-      recipientUids: participants,
-      chatId: chatRef.id,
-      chatName: chatName,
-      messageText: preview,
-      senderUid: uid,
-    );
+    try {
+      await _notificationService.sendNewMessageNotification(
+        recipientUids: participants,
+        chatId: chatRef.id,
+        chatName: chatName,
+        messageText: preview,
+        senderUid: uid,
+      );
+    } catch (_) {
+      // Best effort only. Do not fail the media send if notification writes are blocked.
+    }
   }
 
   Future<void> sendAudioMessage({

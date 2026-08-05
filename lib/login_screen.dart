@@ -66,10 +66,10 @@ class _LoginScreenState extends State<LoginScreen> {
     if (emailOrUsername.isEmpty || password.isEmpty) {
       setState(() {
         _showError = true;
-        _errorMessage = '�� ����� ������ ������.';
+        _errorMessage = 'נא למלא אימייל/שם משתמש וסיסמה.';
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('�� ����� ������ ������.')),
+        const SnackBar(content: Text('נא למלא אימייל/שם משתמש וסיסמה.')),
       );
       return;
     }
@@ -96,10 +96,10 @@ class _LoginScreenState extends State<LoginScreen> {
     } on FirebaseAuthException catch (e) {
       if (!mounted) return;
       final message = e.code == AuthService.emailNotVerifiedCode
-          ? '����� ����� ����� �� �����. �� ���� �� ����� ����� ���� ���� ������.'
+          ? 'האימייל שלך עדיין לא אומת. נא לאשר את המייל ולהתחבר שוב.'
           : (e.code == AuthService.registrationIncompleteCode
-              ? '����� ����� �����, ��� ������ ����� �� �������. �� ����� ���� ������ ������� �� �����, ���� �������.'
-              : '������/�� ����� �� ����� ������.');
+              ? 'החשבון שלך עדיין לא הושלם. נא להשלים את הפרטים האישיים לאחר ההתחברות.'
+              : 'שם המשתמש/האימייל או הסיסמה שגויים.');
       setState(() {
         _showError = true;
         _errorMessage = message;
@@ -113,10 +113,10 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!mounted) return;
       setState(() {
         _showError = true;
-        _errorMessage = '������� �����. ��� ��� ���� ���.';
+        _errorMessage = 'ההתחברות נכשלה. נסה שוב בעוד רגע.';
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('������� �����. ��� ��� ���� ���.')),
+        const SnackBar(content: Text('ההתחברות נכשלה. נסה שוב בעוד רגע.')),
       );
     }
   }
@@ -134,7 +134,7 @@ class _LoginScreenState extends State<LoginScreen> {
           child: AlertDialog(
             backgroundColor: isLight ? Colors.white : const Color(0xFF1A2435),
             title: Text(
-              '����� �����',
+              'איפוס סיסמה',
               style: TextStyle(color: isLight ? Colors.black : Colors.white),
             ),
             content: TextField(
@@ -142,18 +142,18 @@ class _LoginScreenState extends State<LoginScreen> {
               textAlign: TextAlign.right,
               textDirection: TextDirection.rtl,
               decoration: const InputDecoration(
-                hintText: '������ �� �� �����',
+                hintText: 'אימייל או שם משתמש',
               ),
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(dialogContext).pop(),
-                child: const Text('�����'),
+                child: const Text('ביטול'),
               ),
               ElevatedButton(
                 onPressed: () => Navigator.of(dialogContext)
                     .pop(controller.text.trim()),
-                child: const Text('��� ����� �����'),
+                child: const Text('שלח קישור איפוס'),
               ),
             ],
           ),
@@ -173,7 +173,8 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('���� ���� ������ �����. ���� �� ������� �����.'),
+          content:
+              Text('אם החשבון קיים, נשלח קישור לאיפוס סיסמה. בדוק גם בספאם.'),
         ),
       );
     } on FirebaseAuthException catch (e) {
@@ -181,20 +182,20 @@ class _LoginScreenState extends State<LoginScreen> {
       if (e.code == 'invalid-email') {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(e.message ?? '�� ����� ������ �� �� ����� ������.'),
+            content: Text(e.message ?? 'לא הצלחנו לזהות כתובת מייל תקינה.'),
           ),
         );
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('�� ������ ����, ����� ����� ���� �����.'),
+          content: Text('לא הצלחנו לשלוח כרגע, נסה שוב בעוד רגע.'),
         ),
       );
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('�� ������ ����, ����� ����� ���� �����.')),
+        const SnackBar(content: Text('לא הצלחנו לשלוח כרגע, נסה שוב בעוד רגע.')),
       );
     }
   }
@@ -214,15 +215,15 @@ class _LoginScreenState extends State<LoginScreen> {
       fillColor: _fieldFill,
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(20),
-        borderSide: BorderSide(color: _accent.withValues(alpha:  0.16), width: 0.9),
+        borderSide: BorderSide(color: _accent.withValues( alpha: 0.16), width: 0.9),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(20),
-        borderSide: BorderSide(color: _accent.withValues(alpha:  0.14), width: 0.9),
+        borderSide: BorderSide(color: _accent.withValues( alpha: 0.14), width: 0.9),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(20),
-        borderSide: BorderSide(color: _accent.withValues(alpha:  0.66), width: 1.0),
+        borderSide: BorderSide(color: _accent.withValues( alpha: 0.66), width: 1.0),
       ),
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
     );
@@ -316,10 +317,10 @@ class _LoginScreenState extends State<LoginScreen> {
                       color: const Color(0xD0121A2B),
                       borderRadius: BorderRadius.circular(30),
                       border: Border.all(
-                          color: _accent.withValues(alpha:  0.12), width: 0.8),
+                          color: _accent.withValues( alpha: 0.12), width: 0.8),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withValues(alpha:  0.24),
+                          color: Colors.black.withValues( alpha: 0.24),
                           blurRadius: 28,
                           offset: const Offset(0, 14),
                         ),
@@ -330,7 +331,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.stretch,
                                 children: [
                         const Text(
-                          '�������',
+                          'התחברות',
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             color: _textPrimary,
@@ -341,7 +342,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                         const SizedBox(height: 8),
                         const Text(
-                          '���� ���, ����� ��� ������',
+                          'איזה כיף, חיכינו לך בחזרה',
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             color: _textSecondary,
@@ -357,7 +358,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           textAlign: TextAlign.right,
                           style: const TextStyle(
                               color: _textPrimary, fontWeight: FontWeight.w500),
-                          decoration: _inputDecoration('������  '),
+                          decoration: _inputDecoration('אימייל או שם משתמש'),
                         ),
                         const SizedBox(height: 14),
                         TextField(
@@ -367,7 +368,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           textAlign: TextAlign.right,
                           style: const TextStyle(
                               color: _textPrimary, fontWeight: FontWeight.w500),
-                          decoration: _inputDecoration('�����').copyWith(
+                          decoration: _inputDecoration('סיסמה').copyWith(
                             suffixIcon: IconButton(
                               onPressed: () => setState(
                                   () => _hidePassword = !_hidePassword),
@@ -385,7 +386,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           child: TextButton(
                             onPressed: _onForgotPasswordPressed,
                             child: const Text(
-                              '����� �����',
+                              'שכחתי סיסמה',
                               style: TextStyle(
                                 color: _accent,
                                 fontWeight: FontWeight.w700,
@@ -398,7 +399,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             const Text(
-                              '�� ��� ����� �� ���� - ',
+                              'אין לך עדיין חשבון? - ',
                               style: TextStyle(
                                   color: _textSecondary, fontSize: 13),
                             ),
@@ -410,7 +411,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 );
                               },
                               child: const Text(
-                                '�����',
+                                'הרשמה',
                                 style: TextStyle(
                                   color: _accent,
                                   fontSize: 13,
@@ -437,7 +438,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             ),
                           ),
                           child: const Text(
-                            '�����',
+                            'כניסה',
                             style: TextStyle(
                                 fontWeight: FontWeight.bold, fontSize: 16),
                           ),
@@ -453,7 +454,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                       Flexible(
                                         child: Text(
                                           _errorMessage ??
-                                              '�� ����� �� ����� ������. ',
+                                              'לא הצלחנו להתחבר. נסה שוב.',
                                             style: const TextStyle(
                                               color: Colors.redAccent,
                                               fontSize: 13),
