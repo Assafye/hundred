@@ -15,6 +15,7 @@ node_modules/
 .pub-cache/
 .pub/
 build/
+.fvm/
 
 # Flutter platform generated
 android/.gradle/

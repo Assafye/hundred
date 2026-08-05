@@ -7,17 +7,18 @@ A new Flutter project.
 To keep analysis/build results identical across both computers:
 
 1. Use the same Flutter version on both machines: `3.22.0`.
-2. Always pull before starting work.
-3. Run `flutter pub get` after pulling.
-4. Run `flutter analyze lib` before committing.
-5. Do not commit desktop generated plugin files unless intentionally updating plugins.
+2. Use FVM/VS Code workspace settings, not the system Flutter install, so both machines analyze with the same SDK.
+3. Always pull before starting work.
+4. Run `fvm flutter pub get` after pulling.
+5. Run `fvm flutter analyze lib` before committing.
+6. Do not commit desktop generated plugin files unless intentionally updating plugins.
 
 Recommended start-of-day commands:
 
 ```bash
 git pull --ff-only origin main
-flutter pub get
-flutter analyze lib
+fvm flutter pub get
+fvm flutter analyze lib
 ```
 
 Recommended before push:

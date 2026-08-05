@@ -80,7 +80,7 @@ class _GroupAvatarPlaceholder extends StatelessWidget {
               width: radius * 0.42,
               height: radius * 0.42,
               decoration: BoxDecoration(
-                color: const Color(0xFFBFEAFF).withOpacity( 0.7),
+                color: const Color(0xFFBFEAFF).withValues(alpha:  0.7),
                 shape: BoxShape.circle,
               ),
             ),
@@ -92,7 +92,7 @@ class _GroupAvatarPlaceholder extends StatelessWidget {
               width: radius * 0.52,
               height: radius * 0.52,
               decoration: BoxDecoration(
-                color: const Color(0xFFDCCBFF).withOpacity( 0.8),
+                color: const Color(0xFFDCCBFF).withValues(alpha:  0.8),
                 shape: BoxShape.circle,
               ),
             ),

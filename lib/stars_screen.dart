@@ -452,7 +452,7 @@ class _StarsScreenState extends State<StarsScreen> {
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity( 0.25),
+              color: Colors.black.withValues(alpha:  0.25),
               blurRadius: 18,
               offset: const Offset(0, 10),
             ),
@@ -466,7 +466,7 @@ class _StarsScreenState extends State<StarsScreen> {
               textAlign: TextAlign.center,
               textDirection: TextDirection.rtl,
               style: TextStyle(
-                color: Colors.white.withOpacity( 0.95),
+                color: Colors.white.withValues(alpha:  0.95),
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
               ),
@@ -563,8 +563,8 @@ class _StarsScreenState extends State<StarsScreen> {
       alignment: Alignment.center,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: color.withOpacity( isLight ? 0.2 : 0.22),
-        border: Border.all(color: color.withOpacity( 0.95)),
+        color: color.withValues(alpha:  isLight ? 0.2 : 0.22),
+        border: Border.all(color: color.withValues(alpha:  0.95)),
       ),
       child: Text(
         _rankLabel(rank),
@@ -606,13 +606,13 @@ class _StarsScreenState extends State<StarsScreen> {
         margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: isLight ? Colors.white.withOpacity( 0.76) : null,
+          color: isLight ? Colors.white.withValues(alpha:  0.76) : null,
           gradient: isLight
               ? null
               : LinearGradient(
                   colors: [
-                    const Color(0xFF18263D).withOpacity( 0.96),
-                    const Color(0xFF2A2144).withOpacity( 0.96),
+                    const Color(0xFF18263D).withValues(alpha:  0.96),
+                    const Color(0xFF2A2144).withValues(alpha:  0.96),
                   ],
                   begin: Alignment.topRight,
                   end: Alignment.bottomLeft,
@@ -621,11 +621,11 @@ class _StarsScreenState extends State<StarsScreen> {
           border: Border.all(
             color: isLight
                 ? const Color(0xFFA9C3FF)
-                : const Color(0xFF53C1F9).withOpacity( 0.22),
+                : const Color(0xFF53C1F9).withValues(alpha:  0.22),
           ),
           boxShadow: [
             BoxShadow(
-              color: const Color(0xFF53C1F9).withOpacity( 0.08),
+              color: const Color(0xFF53C1F9).withValues(alpha:  0.08),
               blurRadius: 12,
               offset: const Offset(0, 5),
             ),
@@ -697,7 +697,7 @@ class _StarsScreenState extends State<StarsScreen> {
                             borderRadius: BorderRadius.circular(999),
                             border: Border.all(
                               color: const Color(0xFF53C1F9)
-                                  .withOpacity( 0.32),
+                                  .withValues(alpha:  0.32),
                             ),
                           ),
                           child: Text(
@@ -790,13 +790,13 @@ class _StarsScreenState extends State<StarsScreen> {
         margin: const EdgeInsets.fromLTRB(20, 0, 20, 14),
         padding: const EdgeInsets.fromLTRB(0, 18, 0, 14),
         decoration: BoxDecoration(
-          color: isLight ? Colors.white.withOpacity( 0.74) : null,
+          color: isLight ? Colors.white.withValues(alpha:  0.74) : null,
           gradient: isLight
               ? null
               : LinearGradient(
                   colors: [
-                    const Color(0xFF18263D).withOpacity( 0.97),
-                    const Color(0xFF261F41).withOpacity( 0.97),
+                    const Color(0xFF18263D).withValues(alpha:  0.97),
+                    const Color(0xFF261F41).withValues(alpha:  0.97),
                   ],
                   begin: Alignment.topRight,
                   end: Alignment.bottomLeft,
@@ -805,7 +805,7 @@ class _StarsScreenState extends State<StarsScreen> {
           border: Border.all(
             color: isLight
                 ? const Color(0xFFA9C3FF)
-                : const Color(0xFF53C1F9).withOpacity( 0.24),
+                : const Color(0xFF53C1F9).withValues(alpha:  0.24),
           ),
         ),
         child: Column(
@@ -948,12 +948,12 @@ class _StarsScreenState extends State<StarsScreen> {
         style: IconButton.styleFrom(
           padding: const EdgeInsets.all(8),
           backgroundColor: isLight
-              ? Colors.white.withOpacity( 0.82)
+              ? Colors.white.withValues(alpha:  0.82)
               : const Color(0x221D2D46),
           side: BorderSide(
             color: isLight
                 ? const Color(0xFFA9C3FF)
-                : const Color(0xFF53C1F9).withOpacity( 0.28),
+                : const Color(0xFF53C1F9).withValues(alpha:  0.28),
           ),
         ),
       ),
@@ -983,13 +983,13 @@ class _StarsScreenState extends State<StarsScreen> {
               ),
               boxShadow: [
                 BoxShadow(
-                  color: const Color(0xFF76CFFF).withOpacity( 0.4),
+                  color: const Color(0xFF76CFFF).withValues(alpha:  0.4),
                   blurRadius: 14,
                   offset: const Offset(0, 7),
                 ),
               ],
               border: Border.all(
-                color: Colors.white.withOpacity( 0.65),
+                color: Colors.white.withValues(alpha:  0.65),
                 width: 1.1,
               ),
             ),
@@ -1036,13 +1036,13 @@ class _StarsScreenState extends State<StarsScreen> {
               ),
               boxShadow: [
                 BoxShadow(
-                  color: const Color(0xFF76CFFF).withOpacity( 0.4),
+                  color: const Color(0xFF76CFFF).withValues(alpha:  0.4),
                   blurRadius: 14,
                   offset: const Offset(0, 7),
                 ),
               ],
               border: Border.all(
-                color: Colors.white.withOpacity( 0.65),
+                color: Colors.white.withValues(alpha:  0.65),
                 width: 1.1,
               ),
             ),
@@ -1095,13 +1095,13 @@ class _StarsScreenState extends State<StarsScreen> {
               ),
               boxShadow: [
                 BoxShadow(
-                  color: const Color(0xFF76CFFF).withOpacity( 0.4),
+                  color: const Color(0xFF76CFFF).withValues(alpha:  0.4),
                   blurRadius: 14,
                   offset: const Offset(0, 7),
                 ),
               ],
               border: Border.all(
-                color: Colors.white.withOpacity( 0.65),
+                color: Colors.white.withValues(alpha:  0.65),
                 width: 1.1,
               ),
             ),
@@ -1238,7 +1238,7 @@ class _StarsScreenState extends State<StarsScreen> {
                   height: 220,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: const Color(0xFF53C1F9).withOpacity( 0.08),
+                    color: const Color(0xFF53C1F9).withValues(alpha:  0.08),
                   ),
                 ),
               ),
@@ -1291,7 +1291,7 @@ class _StarsScreenState extends State<StarsScreen> {
                               style: TextStyle(
                                 color: isLight
                                     ? Colors.black
-                                    : Colors.white.withOpacity( 0.95),
+                                    : Colors.white.withValues(alpha:  0.95),
                                 fontSize: 18,
                                 fontWeight: FontWeight.bold,
                               ),
@@ -1571,11 +1571,11 @@ class _ActiveSpontaneousTaskDialogState
             end: Alignment.bottomRight,
           ),
           border: Border.all(
-            color: const Color(0xFF9BE2FF).withOpacity( 0.55),
+            color: const Color(0xFF9BE2FF).withValues(alpha:  0.55),
           ),
           boxShadow: [
             BoxShadow(
-              color: const Color(0xFF72D9FF).withOpacity( 0.24),
+              color: const Color(0xFF72D9FF).withValues(alpha:  0.24),
               blurRadius: 22,
               offset: const Offset(0, 10),
             ),
@@ -1642,7 +1642,7 @@ class _ActiveSpontaneousTaskDialogState
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: const Color(0xFF76CFFF).withOpacity( 0.35),
+                        color: const Color(0xFF76CFFF).withValues(alpha:  0.35),
                         blurRadius: 12,
                         offset: const Offset(0, 6),
                       ),
@@ -1784,10 +1784,10 @@ class _ActiveSpontaneousTaskDialogState
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(16),
         color: isLight
-            ? Colors.white.withOpacity( 0.82)
+            ? Colors.white.withValues(alpha:  0.82)
             : const Color(0xFF0F1728),
         border:
-            Border.all(color: const Color(0xFF9E7CFF).withOpacity( 0.24)),
+            Border.all(color: const Color(0xFF9E7CFF).withValues(alpha:  0.24)),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -2064,11 +2064,11 @@ class _SpontaneousChallengeDialogState
                   end: Alignment.bottomRight,
                 ),
                 border: Border.all(
-                  color: const Color(0xFF79D8FF).withOpacity( 0.35),
+                  color: const Color(0xFF79D8FF).withValues(alpha:  0.35),
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity( 0.26),
+                    color: Colors.black.withValues(alpha:  0.26),
                     blurRadius: 30,
                     offset: const Offset(0, 18),
                   ),
@@ -2251,13 +2251,13 @@ class _SpontaneousChallengeDialogState
                                           ).toColor(),
                                           border: Border.all(
                                             color: Colors.white
-                                                .withOpacity( 0.68),
+                                                .withValues(alpha:  0.68),
                                             width: 1.2,
                                           ),
                                           boxShadow: [
                                             BoxShadow(
                                               color: Colors.black
-                                                  .withOpacity( 0.2),
+                                                  .withValues(alpha:  0.2),
                                               blurRadius: 10,
                                               offset: const Offset(0, 5),
                                             ),
@@ -2289,9 +2289,9 @@ class _SpontaneousChallengeDialogState
                                       gradient: RadialGradient(
                                         colors: [
                                           const Color(0xFFFFE08A)
-                                              .withOpacity( 0.96),
+                                              .withValues(alpha:  0.96),
                                           const Color(0xFFFF8DA1)
-                                              .withOpacity( 0.35),
+                                              .withValues(alpha:  0.35),
                                           Colors.transparent,
                                         ],
                                       ),
@@ -2338,7 +2338,7 @@ class _SpontaneousChallengeDialogState
         ),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF53C1F9).withOpacity( 0.3),
+            color: const Color(0xFF53C1F9).withValues(alpha:  0.3),
             blurRadius: 16,
             offset: const Offset(0, 10),
           ),
@@ -2401,10 +2401,10 @@ class _SpontaneousChallengeDialogState
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(18),
         color: filled
-            ? const Color(0xFF53C1F9).withOpacity( isLight ? 0.16 : 0.24)
+            ? const Color(0xFF53C1F9).withValues(alpha:  isLight ? 0.16 : 0.24)
             : Colors.transparent,
         border: Border.all(
-          color: const Color(0xFF53C1F9).withOpacity( 0.3),
+          color: const Color(0xFF53C1F9).withValues(alpha:  0.3),
         ),
       ),
       child: Text(
@@ -2428,10 +2428,10 @@ class _SpontaneousChallengeDialogState
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(18),
         color: isLight
-            ? Colors.white.withOpacity( 0.8)
+            ? Colors.white.withValues(alpha:  0.8)
             : const Color(0xFF0F1728),
         border: Border.all(
-          color: const Color(0xFF9E7CFF).withOpacity( 0.25),
+          color: const Color(0xFF9E7CFF).withValues(alpha:  0.25),
         ),
       ),
       child: Column(

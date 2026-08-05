@@ -365,15 +365,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
       fillColor: _fieldFill,
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(20),
-        borderSide: BorderSide(color: _accent.withOpacity( 0.14), width: 0.9),
+        borderSide:
+            BorderSide(color: _accent.withValues(alpha: 0.14), width: 0.9),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(20),
-        borderSide: BorderSide(color: _accent.withOpacity( 0.14), width: 0.9),
+        borderSide:
+            BorderSide(color: _accent.withValues(alpha: 0.14), width: 0.9),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(20),
-        borderSide: BorderSide(color: _accent.withOpacity( 0.66), width: 1.0),
+        borderSide:
+            BorderSide(color: _accent.withValues(alpha: 0.66), width: 1.0),
       ),
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
       errorStyle: const TextStyle(color: Colors.redAccent),
@@ -433,7 +436,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               onSurface: _textPrimary,
             ),
             dialogTheme:
-                const DialogTheme(backgroundColor: Color(0xFF1A2247)),
+                const DialogThemeData(backgroundColor: Color(0xFF1A2247)),
           ),
           child: child!,
         );
@@ -877,7 +880,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           children: [
             Checkbox(
               value: _hasAcceptedPrivacyPolicy,
-              activeColor: _primary,
+              fillColor: const WidgetStatePropertyAll(_primary),
               checkColor: Colors.white,
               onChanged: (value) {
                 setState(() {
@@ -955,7 +958,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 boxShadow: isActive
                     ? [
                         BoxShadow(
-                          color: _accent.withOpacity( 0.24),
+                          color: _accent.withValues(alpha: 0.24),
                           blurRadius: 14,
                           spreadRadius: 0.6,
                         ),
@@ -1032,14 +1035,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
             color: isDefault
-                ? _accent.withOpacity( 0.5)
-                : _accent.withOpacity( 0.16),
+                ? _accent.withValues(alpha: 0.5)
+                : _accent.withValues(alpha: 0.16),
             width: isDefault ? 1.4 : 0.9,
           ),
           boxShadow: isDefault
               ? [
                   BoxShadow(
-                    color: _accent.withOpacity( 0.18),
+                    color: _accent.withValues(alpha: 0.18),
                     blurRadius: 14,
                     spreadRadius: 0.6,
                   ),
@@ -1336,8 +1339,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(
                       color: isDisabled
-                          ? _accent.withOpacity( 0.12)
-                          : _primary.withOpacity( 0.44),
+                          ? _accent.withValues(alpha: 0.12)
+                          : _primary.withValues(alpha: 0.44),
                       width: 0.9,
                     ),
                   ),
@@ -1484,10 +1487,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       color: const Color(0xD0121A2B),
                       borderRadius: BorderRadius.circular(30),
                       border: Border.all(
-                          color: _accent.withOpacity( 0.12), width: 0.8),
+                          color: _accent.withValues(alpha: 0.12), width: 0.8),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity( 0.24),
+                          color: Colors.black.withValues(alpha: 0.24),
                           blurRadius: 28,
                           offset: const Offset(0, 14),
                         ),

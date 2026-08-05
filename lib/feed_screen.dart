@@ -1427,7 +1427,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                                   borderRadius: BorderRadius.circular(14),
                                   border: Border.all(
                                       color: const Color(0xFF53C1F9)
-                                          .withOpacity( 0.22)),
+                                          .withValues(alpha:  0.22)),
                                 ),
                                 child: Row(
                                   children: [
@@ -2094,25 +2094,25 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                               (isLight
                                       ? const Color(0xFFFDFEFF)
                                       : const Color(0xFF15263F))
-                                  .withOpacity( isLight ? 0.96 : 0.94),
+                                  .withValues(alpha:  isLight ? 0.96 : 0.94),
                               (isLight
                                       ? const Color(0xFFE9F1FF)
                                       : const Color(0xFF2F1F54))
-                                  .withOpacity( isLight ? 0.96 : 0.94),
+                                  .withValues(alpha:  isLight ? 0.96 : 0.94),
                             ],
                           ),
                           border: Border.all(
                             color: (isLight
                                     ? const Color(0xFF7D8DFF)
                                     : const Color(0xFF46D3FF))
-                                .withOpacity( isLight ? 0.26 : 0.34),
+                                .withValues(alpha:  isLight ? 0.26 : 0.34),
                           ),
                           boxShadow: [
                             BoxShadow(
                               color: (isLight
                                       ? const Color(0xFF91BCFF)
                                       : const Color(0xFF46D3FF))
-                                  .withOpacity( isLight ? 0.24 : 0.24),
+                                  .withValues(alpha:  isLight ? 0.24 : 0.24),
                               blurRadius: 12,
                               spreadRadius: 0.5,
                             ),
@@ -2143,7 +2143,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                             borderRadius: BorderRadius.circular(999),
                             border: Border.all(
                               color: const Color(0xFFFF8A2A)
-                                  .withOpacity( 0.72),
+                                  .withValues(alpha:  0.72),
                             ),
                           ),
                           child: const Text(
@@ -2183,25 +2183,25 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                                     (isLight
                                             ? const Color(0xFFFDFEFF)
                                             : const Color(0xFF15263F))
-                                        .withOpacity( isLight ? 0.96 : 0.94),
+                                        .withValues(alpha:  isLight ? 0.96 : 0.94),
                                     (isLight
                                             ? const Color(0xFFE9F1FF)
                                             : const Color(0xFF2F1F54))
-                                        .withOpacity( isLight ? 0.96 : 0.94),
+                                        .withValues(alpha:  isLight ? 0.96 : 0.94),
                                   ],
                                 ),
                                 border: Border.all(
                                   color: (isLight
                                           ? const Color(0xFF7D8DFF)
                                           : const Color(0xFF46D3FF))
-                                      .withOpacity( isLight ? 0.26 : 0.34),
+                                      .withValues(alpha:  isLight ? 0.26 : 0.34),
                                 ),
                                 boxShadow: [
                                   BoxShadow(
                                     color: (isLight
                                             ? const Color(0xFF91BCFF)
                                             : const Color(0xFF46D3FF))
-                                        .withOpacity( isLight ? 0.24 : 0.24),
+                                        .withValues(alpha:  isLight ? 0.24 : 0.24),
                                     blurRadius: 12,
                                     spreadRadius: 0.5,
                                   ),
@@ -2316,7 +2316,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                               boxShadow: [
                                 BoxShadow(
                                   color: const Color(0xFF46D3FF)
-                                      .withOpacity( 0.35),
+                                      .withValues(alpha:  0.35),
                                   blurRadius: 16,
                                   spreadRadius: 1,
                                 ),
@@ -2356,7 +2356,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                               boxShadow: [
                                 BoxShadow(
                                   color: const Color(0xFF46D3FF)
-                                      .withOpacity( 0.35),
+                                      .withValues(alpha:  0.35),
                                   blurRadius: 16,
                                   spreadRadius: 1,
                                 ),
@@ -2411,7 +2411,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                               boxShadow: [
                                 BoxShadow(
                                   color: const Color(0xFF46D3FF)
-                                      .withOpacity( 0.35),
+                                      .withValues(alpha:  0.35),
                                   blurRadius: 16,
                                   spreadRadius: 1,
                                 ),
@@ -2617,19 +2617,19 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                   : (isLight
                           ? const Color(0xFFF8FBFF)
                           : const Color(0xFF121D2E))
-                      .withOpacity( isLight ? 0.92 : 0.84),
+                      .withValues(alpha:  isLight ? 0.92 : 0.84),
               border: Border.all(
                 color: isActiveLight
                     ? Colors.transparent
                     : (isLight
                             ? const Color(0xFF8A96FF)
                             : const Color(0xFF46D3FF))
-                        .withOpacity( isLight ? 0.26 : 0.35),
+                        .withValues(alpha:  isLight ? 0.26 : 0.35),
               ),
               boxShadow: isActiveLight
                   ? [
                       BoxShadow(
-                        color: const Color(0xFF6CCBFF).withOpacity( 0.36),
+                        color: const Color(0xFF6CCBFF).withValues(alpha:  0.36),
                         blurRadius: 14,
                         spreadRadius: 0.6,
                       ),
@@ -2649,7 +2649,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                         margin: const EdgeInsets.all(2.0),
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: Colors.white.withOpacity( 0.96),
+                          color: Colors.white.withValues(alpha:  0.96),
                         ),
                         child: Center(
                           child: ShaderMask(
@@ -2701,14 +2701,14 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
         gradient: LinearGradient(
           colors: [
             (isLight ? const Color(0xFFFFFFFF) : const Color(0xFF15263F))
-                .withOpacity( isLight ? 0.9 : 0.9),
+                .withValues(alpha:  isLight ? 0.9 : 0.9),
             (isLight ? const Color(0xFFE8EEFF) : const Color(0xFF2F1F54))
-                .withOpacity( isLight ? 0.9 : 0.9),
+                .withValues(alpha:  isLight ? 0.9 : 0.9),
           ],
         ),
         border: Border.all(
             color: (isLight ? const Color(0xFF8A96FF) : const Color(0xFF46D3FF))
-                .withOpacity( isLight ? 0.24 : 0.26)),
+                .withValues(alpha:  isLight ? 0.24 : 0.26)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -2804,19 +2804,19 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
           borderRadius: BorderRadius.circular(999),
           border: Border.all(
             color: selected
-                ? Colors.white.withOpacity( 0.8)
+                ? Colors.white.withValues(alpha:  0.8)
                 : const Color(0xFFB6EFFF),
             width: selected ? 1.55 : 1.1,
           ),
           boxShadow: [
             BoxShadow(
-              color: timerTopColor.withOpacity( selected ? 0.28 : 0.16),
+              color: timerTopColor.withValues(alpha:  selected ? 0.28 : 0.16),
               blurRadius: selected ? 16 : 10,
               offset: const Offset(0, 4),
             ),
             if (selected)
               BoxShadow(
-                color: timerBottomColor.withOpacity( 0.28),
+                color: timerBottomColor.withValues(alpha:  0.28),
                 blurRadius: 18,
                 spreadRadius: 0.3,
                 offset: const Offset(0, 7),
@@ -2874,12 +2874,12 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
         borderRadius: BorderRadius.circular(radius),
         boxShadow: [
           BoxShadow(
-            color: timerTopColor.withOpacity( 0.3),
+            color: timerTopColor.withValues(alpha:  0.3),
             blurRadius: 18,
             offset: const Offset(0, 6),
           ),
           BoxShadow(
-            color: timerBottomColor.withOpacity( 0.3),
+            color: timerBottomColor.withValues(alpha:  0.3),
             blurRadius: 22,
             offset: const Offset(0, 8),
           ),
@@ -2947,7 +2947,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                                     color: (isLight
                                             ? const Color(0xFF364565)
                                             : Colors.white)
-                                        .withOpacity( 0.96),
+                                        .withValues(alpha:  0.96),
                                     fontSize: 19,
                                     fontWeight: FontWeight.w800,
                                     letterSpacing: 3.2,
@@ -2955,11 +2955,11 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                                     shadows: [
                                       Shadow(
                                         color:
-                                            _themeCyan.withOpacity( 0.35),
+                                            _themeCyan.withValues(alpha:  0.35),
                                         blurRadius: 16,
                                       ),
                                       Shadow(
-                                        color: _themePurpleDeep.withOpacity( 0.35),
+                                        color: _themePurpleDeep.withValues(alpha:  0.35),
                                         blurRadius: 20,
                                       ),
                                     ],
@@ -2996,7 +2996,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                                           ),
                                           border: Border.all(
                                             color: Colors.white
-                                                .withOpacity( 0.65),
+                                                .withValues(alpha:  0.65),
                                             width: 1.1,
                                           ),
                                         ),
@@ -3094,7 +3094,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                                             color: isLight
                                                 ? const Color(0xFFEFF4FF)
                                                 : Colors.white
-                                                    .withOpacity( 0.1),
+                                                    .withValues(alpha:  0.1),
                                           ),
                                           child: const Icon(
                                             Icons.star_rounded,
@@ -3141,7 +3141,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                                                 ? (isLight ? null : null)
                                                 : (isLight
                                                     ? const Color(0xFFF4F7FF)
-                                                    : Colors.white.withOpacity( 0.08)),
+                                                    : Colors.white.withValues(alpha:  0.08)),
                                             border: Border.all(
                                               color: isLight
                                                   ? (isForYouFeed
@@ -3157,7 +3157,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                                                     BoxShadow(
                                                       color: const Color(
                                                         0xFF8C62FF,
-                                                      ).withOpacity( 0.34),
+                                                      ).withValues(alpha:  0.34),
                                                       blurRadius: 12,
                                                       spreadRadius: 0.4,
                                                       offset:
@@ -3217,7 +3217,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                                                 ? (isLight ? null : null)
                                                 : (isLight
                                                     ? const Color(0xFFF4F7FF)
-                                                    : Colors.white.withOpacity( 0.08)),
+                                                    : Colors.white.withValues(alpha:  0.08)),
                                             border: Border.all(
                                               color: isLight
                                                   ? (!isForYouFeed
@@ -3233,7 +3233,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                                                     BoxShadow(
                                                       color: const Color(
                                                         0xFF8C62FF,
-                                                      ).withOpacity( 0.34),
+                                                      ).withValues(alpha:  0.34),
                                                       blurRadius: 12,
                                                       spreadRadius: 0.4,
                                                       offset:
@@ -3581,16 +3581,16 @@ class AuthorInfoWidget extends StatelessWidget {
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(999),
                         color: isLight
-                            ? Colors.white.withOpacity( 0.92)
+                            ? Colors.white.withValues(alpha:  0.92)
                             : null,
                         gradient: isLight
                             ? null
                             : LinearGradient(
                                 colors: [
                                   const Color(0xFF14233A)
-                                      .withOpacity( 0.9),
+                                      .withValues(alpha:  0.9),
                                   const Color(0xFF281D49)
-                                      .withOpacity( 0.9),
+                                      .withValues(alpha:  0.9),
                                 ],
                                 begin: Alignment.centerLeft,
                                 end: Alignment.centerRight,
@@ -3598,7 +3598,7 @@ class AuthorInfoWidget extends StatelessWidget {
                         border: Border.all(
                           color: isLight
                               ? const Color(0xFFA9C3FF)
-                              : const Color(0xFF46D3FF).withOpacity( 0.35),
+                              : const Color(0xFF46D3FF).withValues(alpha:  0.35),
                         ),
                       ),
                       child: Text(

@@ -244,7 +244,7 @@ class _PostMediaViewerState extends State<PostMediaViewer> {
                       borderRadius: BorderRadius.circular(999),
                       color: isActive
                           ? Colors.white
-                          : Colors.white.withOpacity( 0.38),
+                          : Colors.white.withValues(alpha:  0.38),
                       boxShadow: isActive
                           ? const [
                               BoxShadow(
@@ -298,7 +298,7 @@ class _MediaNavArrow extends StatelessWidget {
         duration: const Duration(milliseconds: 160),
         opacity: onPressed == null ? 0.25 : 1,
         child: Material(
-          color: Colors.black.withOpacity( 0.36),
+          color: Colors.black.withValues(alpha:  0.36),
           shape: const CircleBorder(),
           child: InkWell(
             onTap: onPressed,

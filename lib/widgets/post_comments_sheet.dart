@@ -61,7 +61,7 @@ class _PostCommentsSheetState extends State<PostCommentsSheet> {
               margin: const EdgeInsets.symmetric(horizontal: 24),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity( 0.86),
+                color: Colors.white.withValues(alpha:  0.86),
                 borderRadius: BorderRadius.circular(18),
                 border: Border.all(
                   color: const Color(0xFFE25454),
@@ -69,7 +69,7 @@ class _PostCommentsSheetState extends State<PostCommentsSheet> {
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity( 0.1),
+                    color: Colors.black.withValues(alpha:  0.1),
                     blurRadius: 10,
                     offset: const Offset(0, 4),
                   ),
@@ -451,13 +451,13 @@ class _PostCommentsSheetState extends State<PostCommentsSheet> {
                         color: (isLight
                                 ? const Color(0xFFF5F9FF)
                                 : const Color(0xFF182336))
-                            .withOpacity( isLight ? 0.95 : 0.92),
+                            .withValues(alpha:  isLight ? 0.95 : 0.92),
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(
                             color: (isLight
                                     ? const Color(0xFF6F7ED8)
                                     : const Color(0xFF46D3FF))
-                                .withOpacity( isLight ? 0.44 : 0.24)),
+                                .withValues(alpha:  isLight ? 0.44 : 0.24)),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.end,
@@ -662,7 +662,7 @@ class _PostCommentsSheetState extends State<PostCommentsSheet> {
     final bottomSpacerHeight = keyboardInset > 0 ? 0.0 : composerBottomGap;
     final composerContainerColor =
         (isLight ? const Color(0xFFF7FAFF) : const Color(0xFF121C2D))
-            .withOpacity( 0.95);
+            .withValues(alpha:  0.95);
     return SafeArea(
       top: false,
       bottom: false,
@@ -688,7 +688,7 @@ class _PostCommentsSheetState extends State<PostCommentsSheet> {
                 color: (isLight
                         ? const Color(0xFF8EA3FF)
                         : const Color(0xFF9EDBFF))
-                    .withOpacity( 0.5),
+                    .withValues(alpha:  0.5),
                 borderRadius: BorderRadius.circular(99),
               ),
             ),
@@ -798,7 +798,7 @@ class _PostCommentsSheetState extends State<PostCommentsSheet> {
                             color: (isLight
                                     ? const Color(0xFF8D9AFF)
                                     : const Color(0xFF46D3FF))
-                                .withOpacity( 0.2)),
+                                .withValues(alpha:  0.2)),
                       ),
                     ),
                     child: Column(
@@ -875,14 +875,14 @@ class _PostCommentsSheetState extends State<PostCommentsSheet> {
                                     borderRadius: BorderRadius.circular(14),
                                     borderSide: BorderSide(
                                       color: const Color(0xFF46D3FF)
-                                          .withOpacity( 0.26),
+                                          .withValues(alpha:  0.26),
                                     ),
                                   ),
                                   enabledBorder: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(14),
                                     borderSide: BorderSide(
                                       color: const Color(0xFF46D3FF)
-                                          .withOpacity( 0.26),
+                                          .withValues(alpha:  0.26),
                                     ),
                                   ),
                                   focusedBorder: OutlineInputBorder(
