@@ -49,6 +49,9 @@ class _OnlineScreenState extends State<OnlineScreen>
   late final TextEditingController _meetDetailsController;
 
   Timer? _meetNowRefreshTimer;
+  StreamSubscription<Set<String>>? _joinedMeetPostsSub;
+  Set<String> _joinedMeetPostIds = <String>{};
+  final Set<String> _locallyHiddenMeetPostIds = <String>{};
 
   int? _meetFilterMinScore;
   String? _meetFilterCategory;
@@ -86,11 +89,22 @@ class _OnlineScreenState extends State<OnlineScreen>
       }
       _sectionRefreshTick.value = _sectionRefreshTick.value + 1;
     });
+    _joinedMeetPostsSub = _homeService.streamJoinedMeetNowPostIds().listen(
+      (ids) {
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          _joinedMeetPostIds = ids;
+        });
+      },
+    );
   }
 
   @override
   void dispose() {
     _meetNowRefreshTimer?.cancel();
+    _joinedMeetPostsSub?.cancel();
     _friendsLoopController.dispose();
     _upcomingGroupsScrollController.dispose();
     _spaceUsersController.dispose();
@@ -469,6 +483,13 @@ class _OnlineScreenState extends State<OnlineScreen>
 
     return entries.where((entry) {
       if (currentUid.isNotEmpty && entry.authorUid.trim() == currentUid) {
+        return false;
+      }
+
+      final postId = entry.id.trim();
+      if (postId.isNotEmpty &&
+          (_joinedMeetPostIds.contains(postId) ||
+              _locallyHiddenMeetPostIds.contains(postId))) {
         return false;
       }
 
@@ -981,7 +1002,8 @@ class _OnlineScreenState extends State<OnlineScreen>
                               borderRadius: BorderRadius.circular(28),
                             ),
                             child: Padding(
-                              padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
+                              padding:
+                                  const EdgeInsets.fromLTRB(16, 12, 16, 14),
                               child: Column(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
@@ -1026,8 +1048,8 @@ class _OnlineScreenState extends State<OnlineScreen>
                                           child: AnimatedRotation(
                                             turns: handRotationAngle /
                                                 (2 * math.pi),
-                                            duration:
-                                                const Duration(milliseconds: 230),
+                                            duration: const Duration(
+                                                milliseconds: 230),
                                             curve: Curves.easeOutCubic,
                                             alignment: Alignment.bottomCenter,
                                             child: Container(
@@ -1051,13 +1073,15 @@ class _OnlineScreenState extends State<OnlineScreen>
                                         ...List<Widget>.generate(options.length,
                                             (index) {
                                           final angle = (-math.pi / 2) +
-                                              (2 * math.pi *
+                                              (2 *
+                                                  math.pi *
                                                   (index / options.length));
                                           final cx = center +
                                               (ringRadius * math.cos(angle));
                                           final cy = center +
                                               (ringRadius * math.sin(angle));
-                                          final isSelected = draftIndex == index;
+                                          final isSelected =
+                                              draftIndex == index;
                                           return Positioned(
                                             left: cx - (cellWidth / 2),
                                             top: cy - (cellHeight / 2),
@@ -1067,7 +1091,8 @@ class _OnlineScreenState extends State<OnlineScreen>
                                                   draftIndex = index;
                                                   final targetAngle =
                                                       (-math.pi / 2) +
-                                                          (2 * math.pi *
+                                                          (2 *
+                                                              math.pi *
                                                               (index /
                                                                   options
                                                                       .length));
@@ -1087,7 +1112,8 @@ class _OnlineScreenState extends State<OnlineScreen>
                                                 alignment: Alignment.center,
                                                 decoration: BoxDecoration(
                                                   borderRadius:
-                                                      BorderRadius.circular(999),
+                                                      BorderRadius.circular(
+                                                          999),
                                                   gradient: isSelected
                                                       ? const LinearGradient(
                                                           colors: [
@@ -1120,7 +1146,8 @@ class _OnlineScreenState extends State<OnlineScreen>
                                                                 .withValues(
                                                                     alpha:
                                                                         0.18)),
-                                                    width: isSelected ? 1.6 : 1.0,
+                                                    width:
+                                                        isSelected ? 1.6 : 1.0,
                                                   ),
                                                 ),
                                                 child: Text(
@@ -1130,7 +1157,8 @@ class _OnlineScreenState extends State<OnlineScreen>
                                                       TextOverflow.ellipsis,
                                                   style: TextStyle(
                                                     color: isSelected
-                                                        ? const Color(0xFF2A2361)
+                                                        ? const Color(
+                                                            0xFF2A2361)
                                                         : (isLight
                                                             ? const Color(
                                                                 0xFF2B3758)
@@ -1188,14 +1216,16 @@ class _OnlineScreenState extends State<OnlineScreen>
                                   SizedBox(
                                     width: double.infinity,
                                     child: ElevatedButton(
-                                      onPressed: () => Navigator.of(sheetContext)
-                                          .pop(options[draftIndex]),
+                                      onPressed: () =>
+                                          Navigator.of(sheetContext)
+                                              .pop(options[draftIndex]),
                                       style: ElevatedButton.styleFrom(
                                         backgroundColor: _purple,
-                                        foregroundColor:
-                                            isLight ? Colors.black : Colors.white,
-                                        padding:
-                                            const EdgeInsets.symmetric(vertical: 13),
+                                        foregroundColor: isLight
+                                            ? Colors.black
+                                            : Colors.white,
+                                        padding: const EdgeInsets.symmetric(
+                                            vertical: 13),
                                         shape: RoundedRectangleBorder(
                                           borderRadius:
                                               BorderRadius.circular(16),
@@ -1432,12 +1462,12 @@ class _OnlineScreenState extends State<OnlineScreen>
               final trackWidth = constraints.maxWidth > thumbRadius * 2
                   ? constraints.maxWidth - thumbRadius * 2
                   : 0.0;
-              final maxBubbleLeft =
-                  (constraints.maxWidth - bubbleWidth).clamp(0.0, double.infinity);
+              final maxBubbleLeft = (constraints.maxWidth - bubbleWidth)
+                  .clamp(0.0, double.infinity);
 
               double thumbOffsetFor(int value) {
-                final normalized =
-                    (value - minimumUserAge) / (maximumAgeRange - minimumUserAge);
+                final normalized = (value - minimumUserAge) /
+                    (maximumAgeRange - minimumUserAge);
                 final adjusted = isRtl ? 1 - normalized : normalized;
                 final thumbCenter =
                     thumbRadius + trackWidth * adjusted.clamp(0.0, 1.0);
@@ -1596,7 +1626,8 @@ class _OnlineScreenState extends State<OnlineScreen>
                                   maxLength: 36,
                                   textAlign: TextAlign.right,
                                   style: TextStyle(
-                                    color: isLight ? Colors.black : Colors.white,
+                                    color:
+                                        isLight ? Colors.black : Colors.white,
                                   ),
                                   decoration: InputDecoration(
                                     hintText: 'מה בא לך לעשות? (עד 36 תווים)',
@@ -1644,7 +1675,8 @@ class _OnlineScreenState extends State<OnlineScreen>
                                   maxLines: 3,
                                   textAlign: TextAlign.right,
                                   style: TextStyle(
-                                    color: isLight ? Colors.black : Colors.white,
+                                    color:
+                                        isLight ? Colors.black : Colors.white,
                                   ),
                                   decoration: InputDecoration(
                                     hintText: 'הוסף פרטים שיעזרו לאחרים להצטרף',
@@ -1712,7 +1744,8 @@ class _OnlineScreenState extends State<OnlineScreen>
                                       category = selected;
                                       final subCategories =
                                           appSubCategories(selected);
-                                      if (!subCategories.contains(subCategory)) {
+                                      if (!subCategories
+                                          .contains(subCategory)) {
                                         subCategory = null;
                                       }
                                     });
@@ -2084,6 +2117,26 @@ class _OnlineScreenState extends State<OnlineScreen>
     return 'הפרסום נכשל. נסה שוב בעוד רגע.';
   }
 
+  String _distanceBucketText(double? meters) {
+    if (meters == null || meters.isNaN || meters.isInfinite || meters < 0) {
+      return 'מרחק לא זמין';
+    }
+    final km = meters / 1000;
+    if (km < 1) return 'פחות מ-1 ק"מ ממך';
+    if (km < 3) return '1-3 ק"מ ממך';
+    if (km < 5) return '3-5 ק"מ ממך';
+    if (km < 10) return '5-10 ק"מ ממך';
+    if (km < 20) return '10-20 ק"מ ממך';
+    if (km < 30) return '20-30 ק"מ ממך';
+    if (km < 40) return '30-40 ק"מ ממך';
+    if (km < 50) return '40-50 ק"מ ממך';
+    if (km < 60) return '50-60 ק"מ ממך';
+    if (km < 70) return '60-70 ק"מ ממך';
+    if (km < 80) return '70-80 ק"מ ממך';
+    if (km < 90) return '80-90 ק"מ ממך';
+    return 'מעל 90 ק"מ ממך';
+  }
+
   Future<void> _openMeetPostsViewer({
     required List<MeetNowPostEntry> entries,
     required int initialIndex,
@@ -2106,29 +2159,43 @@ class _OnlineScreenState extends State<OnlineScreen>
     );
   }
 
-  Future<void> _handleMeetJoinTap(MeetNowPostEntry entry) async {
+  Future<bool> _handleMeetJoinTap(MeetNowPostEntry entry) async {
     try {
+      late final String targetGroupId;
       if (entry.linkedGroupId.trim().isEmpty) {
-        final targetGroupId =
-            await _homeService.createGroupForMeetNowPost(entry);
+        targetGroupId = await _homeService.createGroupForMeetNowPost(entry);
         await _groupService.joinGroup(targetGroupId);
       } else {
-        await _groupService.joinGroup(entry.linkedGroupId);
+        targetGroupId = entry.linkedGroupId.trim();
+        await _groupService.joinGroup(targetGroupId);
       }
 
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('ההצטרפות בוצעה/נשלחה בהצלחה')),
+      await _homeService.registerMeetNowJoin(
+        entry: entry,
+        groupId: targetGroupId,
       );
+
+      if (!mounted) {
+        return true;
+      }
+      setState(() {
+        final postId = entry.id.trim();
+        if (postId.isNotEmpty) {
+          _locallyHiddenMeetPostIds.add(postId);
+        }
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('הצטרפת בהצלחה לפופ')),
+      );
+      return true;
     } catch (error) {
       if (!mounted) {
-        return;
+        return false;
       }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(_friendlyJoinErrorMessage(error))),
       );
+      return false;
     }
   }
 
@@ -2597,6 +2664,18 @@ class _OnlineScreenState extends State<OnlineScreen>
                       ),
                     ],
                   ),
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      _distanceBucketText(entry.distanceMetersFromCurrentUser),
+                      style: TextStyle(
+                        color: isLight ? const Color(0xFF23385A) : Colors.white,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
                   const SizedBox(height: 14),
                   Wrap(
                     spacing: 8,
@@ -2618,6 +2697,9 @@ class _OnlineScreenState extends State<OnlineScreen>
                       ),
                       _infoPill(
                           Icons.stars_rounded, '${entry.authorScore} נקודות'),
+                      if (entry.linkedGroupMembersCount > 0)
+                        _infoPill(Icons.people_alt_rounded,
+                            '${entry.linkedGroupMembersCount} חברים'),
                       if (entry.category.isNotEmpty ||
                           entry.subCategory.isNotEmpty)
                         _infoPill(
@@ -2656,9 +2738,19 @@ class _OnlineScreenState extends State<OnlineScreen>
                           final targetGroupId = await _homeService
                               .createGroupForMeetNowPost(entry);
                           await _groupService.joinGroup(targetGroupId);
+                          await _homeService.registerMeetNowJoin(
+                            entry: entry,
+                            groupId: targetGroupId,
+                          );
                           if (!mounted) {
                             return;
                           }
+                          setState(() {
+                            final postId = entry.id.trim();
+                            if (postId.isNotEmpty) {
+                              _locallyHiddenMeetPostIds.add(postId);
+                            }
+                          });
                           if (!dialogContext.mounted) {
                             return;
                           }
@@ -2727,9 +2819,19 @@ class _OnlineScreenState extends State<OnlineScreen>
                             try {
                               await _groupService
                                   .joinGroup(entry.linkedGroupId);
+                              await _homeService.registerMeetNowJoin(
+                                entry: entry,
+                                groupId: entry.linkedGroupId,
+                              );
                               if (!mounted) {
                                 return;
                               }
+                              setState(() {
+                                final postId = entry.id.trim();
+                                if (postId.isNotEmpty) {
+                                  _locallyHiddenMeetPostIds.add(postId);
+                                }
+                              });
                               ScaffoldMessenger.of(this.context).showSnackBar(
                                 const SnackBar(
                                     content: Text('בקשת ההצטרפות נשלחה/בוצעה')),
@@ -3764,20 +3866,57 @@ class _OnlineScreenState extends State<OnlineScreen>
                                       ),
                                     ),
                                   ),
-                                  if (entry.linkedGroupId.isNotEmpty)
-                                    Positioned(
-                                      top: 8,
-                                      right: 8,
-                                      child: StreamBuilder<int>(
-                                        stream:
-                                            _groupService.approvedMembersCount(
-                                                entry.linkedGroupId),
-                                        initialData:
-                                            entry.linkedGroupMembersCount,
-                                        builder: (context, memberSnapshot) {
-                                          final count = memberSnapshot.data ??
-                                              entry.linkedGroupMembersCount;
-                                          return Container(
+                                  Positioned(
+                                    top: 8,
+                                    right: 8,
+                                    child: entry.linkedGroupId.isNotEmpty
+                                        ? StreamBuilder<int>(
+                                            stream: _groupService
+                                                .approvedMembersCount(
+                                                    entry.linkedGroupId),
+                                            initialData:
+                                                entry.linkedGroupMembersCount,
+                                            builder: (context, memberSnapshot) {
+                                              final liveCount = memberSnapshot
+                                                      .data ??
+                                                  entry.linkedGroupMembersCount;
+                                              final count =
+                                                  math.max(1, liveCount);
+                                              final countLabel = count == 1
+                                                  ? '1 חבר'
+                                                  : '$count חברים';
+                                              return Container(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                  horizontal: 8,
+                                                  vertical: 5,
+                                                ),
+                                                decoration: BoxDecoration(
+                                                  color: isLight
+                                                      ? Colors.white.withValues(
+                                                          alpha: 0.9)
+                                                      : const Color(0xCC111A28),
+                                                  borderRadius:
+                                                      BorderRadius.circular(
+                                                          999),
+                                                  border: Border.all(
+                                                      color: _cyan.withValues(
+                                                          alpha: 0.45)),
+                                                ),
+                                                child: Text(
+                                                  countLabel,
+                                                  style: TextStyle(
+                                                    color: isLight
+                                                        ? Colors.black
+                                                        : Colors.white,
+                                                    fontSize: 10,
+                                                    fontWeight: FontWeight.w800,
+                                                  ),
+                                                ),
+                                              );
+                                            },
+                                          )
+                                        : Container(
                                             padding: const EdgeInsets.symmetric(
                                               horizontal: 8,
                                               vertical: 5,
@@ -3794,7 +3933,7 @@ class _OnlineScreenState extends State<OnlineScreen>
                                                       alpha: 0.45)),
                                             ),
                                             child: Text(
-                                              '$count חברים',
+                                              '1 חבר',
                                               style: TextStyle(
                                                 color: isLight
                                                     ? Colors.black
@@ -3803,10 +3942,8 @@ class _OnlineScreenState extends State<OnlineScreen>
                                                 fontWeight: FontWeight.w800,
                                               ),
                                             ),
-                                          );
-                                        },
-                                      ),
-                                    ),
+                                          ),
+                                  ),
                                 ],
                               ),
                             ),
@@ -4872,7 +5009,7 @@ class _MeetNowPostsViewer extends StatefulWidget {
 
   final List<MeetNowPostEntry> entries;
   final int initialIndex;
-  final Future<void> Function(MeetNowPostEntry entry) onJoinPressed;
+  final Future<bool> Function(MeetNowPostEntry entry) onJoinPressed;
   final Future<void> Function(String uid) onOpenProfilePressed;
   final String Function(DateTime createdAt) relativeTimeBuilder;
 
@@ -4895,6 +5032,26 @@ class _MeetNowPostsViewerState extends State<_MeetNowPostsViewer> {
   String? _hintPostId;
   bool _hintShiftUp = false;
   Timer? _hintReturnTimer;
+
+  String _distanceBucketText(double? meters) {
+    if (meters == null || meters.isNaN || meters.isInfinite || meters < 0) {
+      return 'מרחק לא זמין';
+    }
+    final km = meters / 1000;
+    if (km < 1) return 'פחות מ-1 ק"מ ממך';
+    if (km < 3) return '1-3 ק"מ ממך';
+    if (km < 5) return '3-5 ק"מ ממך';
+    if (km < 10) return '5-10 ק"מ ממך';
+    if (km < 20) return '10-20 ק"מ ממך';
+    if (km < 30) return '20-30 ק"מ ממך';
+    if (km < 40) return '30-40 ק"מ ממך';
+    if (km < 50) return '40-50 ק"מ ממך';
+    if (km < 60) return '50-60 ק"מ ממך';
+    if (km < 70) return '60-70 ק"מ ממך';
+    if (km < 80) return '70-80 ק"מ ממך';
+    if (km < 90) return '80-90 ק"מ ממך';
+    return 'מעל 90 ק"מ ממך';
+  }
 
   @override
   void initState() {
@@ -5118,37 +5275,46 @@ class _MeetNowPostsViewerState extends State<_MeetNowPostsViewer> {
                           right: 12,
                           left: 12,
                           child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 10, vertical: 6),
-                                decoration: BoxDecoration(
-                                  color: isLight
-                                      ? Colors.white.withValues(alpha: 0.82)
-                                      : Colors.black.withValues(alpha: 0.4),
-                                  border: isLight
-                                      ? Border.all(
-                                          color: const Color(0xFFA9C3FF),
-                                        )
-                                      : null,
-                                  borderRadius: BorderRadius.circular(999),
-                                ),
-                                child: Text(
-                                  '${imageUrls.length} תמונות פרופיל',
-                                  style: TextStyle(
-                                    color:
-                                        isLight ? Colors.black87 : Colors.white,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w700,
-                                  ),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      _distanceBucketText(
+                                        entry.distanceMetersFromCurrentUser,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      '${imageUrls.length} תמונות פרופיל',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        color: isLight
+                                            ? const Color(0xFFF2F6FF)
+                                            : const Color(0xFFD8E3F8),
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
-                              const Spacer(),
+                              const SizedBox(width: 8),
                               IconButton(
                                 onPressed: () => Navigator.of(context).pop(),
-                                icon: Icon(
+                                icon: const Icon(
                                   Icons.close_rounded,
-                                  color: isLight ? Colors.white : Colors.white,
+                                  color: Colors.white,
                                 ),
                               ),
                             ],
@@ -5245,109 +5411,132 @@ class _MeetNowPostsViewerState extends State<_MeetNowPostsViewer> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Align(
-                                  alignment: Alignment.topRight,
-                                  child: _metaPill(
-                                    Icons.access_time_rounded,
-                                    widget.relativeTimeBuilder(entry.createdAt),
-                                    isLight: isLight,
-                                  ),
-                                ),
-                                if (entry.details.trim().isNotEmpty) ...[
-                                  const SizedBox(height: 8),
-                                  Container(
-                                    width: double.infinity,
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 10,
-                                      vertical: 8,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: isLight
-                                          ? Colors.white.withValues(alpha: 0.9)
-                                          : const Color(0xFF17263C),
-                                      borderRadius: BorderRadius.circular(12),
-                                      border: Border.all(
-                                        color: isLight
-                                            ? const Color(0xFFA9C3FF)
-                                            : _cyan.withValues(alpha: 0.22),
-                                      ),
-                                    ),
-                                    child: Text(
-                                      entry.details.trim(),
-                                      textDirection: TextDirection.rtl,
-                                      textAlign: TextAlign.right,
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        color: isLight
-                                            ? Colors.black87
-                                            : const Color(0xFFD8E3F8),
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w600,
-                                        height: 1.35,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                                const SizedBox(height: 8),
-                                Align(
-                                  alignment: Alignment.topRight,
-                                  child: Wrap(
-                                    alignment: WrapAlignment.start,
-                                    runAlignment: WrapAlignment.start,
-                                    textDirection: TextDirection.rtl,
-                                    spacing: 8,
-                                    runSpacing: 8,
-                                    children: [
-                                      _metaPill(
-                                        Icons.stars_rounded,
-                                        '${entry.authorScore} נקודות',
-                                        isLight: isLight,
-                                      ),
-                                      _metaPill(
-                                        Icons.place_rounded,
-                                        entry.meetingLocation.isEmpty
-                                            ? 'מיקום לא צוין'
-                                            : entry.meetingLocation,
-                                        isLight: isLight,
-                                      ),
-                                      _metaPill(
-                                        Icons.schedule_rounded,
-                                        entry.timePreference.isEmpty
-                                            ? 'לא צוין זמן'
-                                            : entry.timePreference,
-                                        isLight: isLight,
-                                      ),
-                                      if (entry.category.isNotEmpty ||
-                                          entry.subCategory.isNotEmpty)
-                                        _metaPill(
-                                          categoryIconFor(
-                                            entry.category.isEmpty
-                                                ? kGeneralCategory
-                                                : entry.category,
+                                Expanded(
+                                  child: SingleChildScrollView(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Align(
+                                          alignment: Alignment.topRight,
+                                          child: _metaPill(
+                                            Icons.access_time_rounded,
+                                            widget.relativeTimeBuilder(
+                                                entry.createdAt),
+                                            isLight: isLight,
                                           ),
-                                          entry.subCategory.isEmpty
-                                              ? entry.category
-                                              : '${entry.category} • ${entry.subCategory}',
-                                          isLight: isLight,
                                         ),
-                                      if (entry.minAge != null &&
-                                          entry.maxAge != null)
-                                        _metaPill(
-                                          Icons.cake_rounded,
-                                          'גילאים ${entry.minAge}-${entry.maxAge}',
-                                          isLight: isLight,
+                                        if (entry.details
+                                            .trim()
+                                            .isNotEmpty) ...[
+                                          const SizedBox(height: 8),
+                                          Container(
+                                            width: double.infinity,
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 10,
+                                              vertical: 8,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: isLight
+                                                  ? Colors.white
+                                                      .withValues(alpha: 0.9)
+                                                  : const Color(0xFF17263C),
+                                              borderRadius:
+                                                  BorderRadius.circular(12),
+                                              border: Border.all(
+                                                color: isLight
+                                                    ? const Color(0xFFA9C3FF)
+                                                    : _cyan.withValues(
+                                                        alpha: 0.22),
+                                              ),
+                                            ),
+                                            child: Text(
+                                              entry.details.trim(),
+                                              textDirection: TextDirection.rtl,
+                                              textAlign: TextAlign.right,
+                                              style: TextStyle(
+                                                color: isLight
+                                                    ? Colors.black87
+                                                    : const Color(0xFFD8E3F8),
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.w600,
+                                                height: 1.35,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                        const SizedBox(height: 8),
+                                        Align(
+                                          alignment: Alignment.topRight,
+                                          child: Wrap(
+                                            alignment: WrapAlignment.start,
+                                            runAlignment: WrapAlignment.start,
+                                            textDirection: TextDirection.rtl,
+                                            spacing: 8,
+                                            runSpacing: 8,
+                                            children: [
+                                              _metaPill(
+                                                Icons.stars_rounded,
+                                                '${entry.authorScore} נקודות',
+                                                isLight: isLight,
+                                              ),
+                                              _metaPill(
+                                                Icons.place_rounded,
+                                                entry.meetingLocation.isEmpty
+                                                    ? 'מיקום לא צוין'
+                                                    : entry.meetingLocation,
+                                                isLight: isLight,
+                                              ),
+                                              _metaPill(
+                                                Icons.schedule_rounded,
+                                                entry.timePreference.isEmpty
+                                                    ? 'לא צוין זמן'
+                                                    : entry.timePreference,
+                                                isLight: isLight,
+                                              ),
+                                              if (entry
+                                                      .linkedGroupMembersCount >
+                                                  0)
+                                                _metaPill(
+                                                  Icons.people_alt_rounded,
+                                                  '${entry.linkedGroupMembersCount} חברים',
+                                                  isLight: isLight,
+                                                ),
+                                              if (entry.category.isNotEmpty ||
+                                                  entry.subCategory.isNotEmpty)
+                                                _metaPill(
+                                                  categoryIconFor(
+                                                    entry.category.isEmpty
+                                                        ? kGeneralCategory
+                                                        : entry.category,
+                                                  ),
+                                                  entry.subCategory.isEmpty
+                                                      ? entry.category
+                                                      : '${entry.category} • ${entry.subCategory}',
+                                                  isLight: isLight,
+                                                ),
+                                              if (entry.minAge != null &&
+                                                  entry.maxAge != null)
+                                                _metaPill(
+                                                  Icons.cake_rounded,
+                                                  'גילאים ${entry.minAge}-${entry.maxAge}',
+                                                  isLight: isLight,
+                                                ),
+                                              if (entry.desiredParticipants !=
+                                                  null)
+                                                _metaPill(
+                                                  Icons.groups_rounded,
+                                                  '${entry.desiredParticipants} משתתפים רצויים',
+                                                  isLight: isLight,
+                                                ),
+                                            ],
+                                          ),
                                         ),
-                                      if (entry.desiredParticipants != null)
-                                        _metaPill(
-                                          Icons.groups_rounded,
-                                          '${entry.desiredParticipants} משתתפים רצויים',
-                                          isLight: isLight,
-                                        ),
-                                    ],
+                                      ],
+                                    ),
                                   ),
                                 ),
-                                const Spacer(),
+                                const SizedBox(height: 10),
                                 Align(
                                   alignment: Alignment.centerRight,
                                   child: SizedBox(
@@ -5367,8 +5556,14 @@ class _MeetNowPostsViewerState extends State<_MeetNowPostsViewer> {
                                                       _joiningPostId = entry.id;
                                                     });
                                                     try {
-                                                      await widget
-                                                          .onJoinPressed(entry);
+                                                      final joined =
+                                                          await widget
+                                                              .onJoinPressed(
+                                                                  entry);
+                                                      if (joined && mounted) {
+                                                        Navigator.of(context)
+                                                            .pop();
+                                                      }
                                                     } finally {
                                                       if (mounted) {
                                                         setState(() {

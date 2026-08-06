@@ -792,7 +792,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     if (!_hasAcceptedPrivacyPolicy) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('יש לאשר את מדיניות הפרטיות כדי להשלים הרשמה.'),
+          content: Text('יש לאשר את מדיניות הפרטיות ותנאי השימוש כדי להשלים הרשמה.'),
         ),
       );
       return;
@@ -919,7 +919,30 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     ),
                   ),
                   const Text(
-                    ' ואני מאשר/ת אותה',
+                    ' ואת ',
+                    textAlign: TextAlign.right,
+                    style: TextStyle(
+                      color: _textSecondary,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  GestureDetector(
+                    onTap: () => showTermsOfUseDialog(context),
+                    child: const Text(
+                      'תנאי השימוש',
+                      textAlign: TextAlign.right,
+                      style: TextStyle(
+                        color: _accent,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        decoration: TextDecoration.underline,
+                        decorationColor: _accent,
+                      ),
+                    ),
+                  ),
+                  const Text(
+                    ' ואני מאשר/ת אותם',
                     textAlign: TextAlign.right,
                     style: TextStyle(
                       color: _textSecondary,

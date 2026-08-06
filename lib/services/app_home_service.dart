@@ -82,6 +82,7 @@ class MeetNowPostEntry {
   final int linkedGroupMembersCount;
   final bool linkedGroupIsPublic;
   final List<String> participantProfileImageUrls;
+  final double? distanceMetersFromCurrentUser;
 
   const MeetNowPostEntry({
     required this.id,
@@ -108,6 +109,7 @@ class MeetNowPostEntry {
     required this.linkedGroupMembersCount,
     required this.linkedGroupIsPublic,
     required this.participantProfileImageUrls,
+    required this.distanceMetersFromCurrentUser,
   });
 }
 
@@ -150,6 +152,10 @@ class AppHomeService {
 
   CollectionReference<Map<String, dynamic>> get _users =>
       _db.collection('users');
+  CollectionReference<Map<String, dynamic>> get _publicUsers =>
+      _db.collection('users_public');
+  CollectionReference<Map<String, dynamic>> get _userPresence =>
+      _db.collection('user_presence');
   CollectionReference<Map<String, dynamic>> get _groups =>
       _db.collection('groups');
   CollectionReference<Map<String, dynamic>> get _meetNowPosts =>
@@ -281,9 +287,8 @@ class AppHomeService {
     return null;
   }
 
-  bool _isLikelyOnline(
-      Map<String, dynamic> privateData, Map<String, dynamic> publicData) {
-    final merged = <String, dynamic>{...privateData, ...publicData};
+  bool _isLikelyOnline(Map<String, dynamic> presenceData) {
+    final merged = <String, dynamic>{...presenceData};
     final forcedOnlineUntil =
         _dateValue(merged, const ['forcedOnlineUntil', 'forceOnlineUntil']);
     if (forcedOnlineUntil != null &&
@@ -348,29 +353,23 @@ class AppHomeService {
   }
 
   List<HomeFriendEntry> _friendEntriesFromSnapshots(
-    Map<String, DocumentSnapshot<Map<String, dynamic>>> privateSnapshots,
+    Map<String, DocumentSnapshot<Map<String, dynamic>>> presenceSnapshots,
+    Map<String, DocumentSnapshot<Map<String, dynamic>>> publicSnapshots,
     List<String> orderedFriendIds,
   ) {
     final entries = <HomeFriendEntry>[];
 
     for (final friendUid in orderedFriendIds) {
-      final privateData =
-          privateSnapshots[friendUid]?.data() ?? <String, dynamic>{};
+      final presenceData =
+          presenceSnapshots[friendUid]?.data() ?? <String, dynamic>{};
+      final publicData =
+          publicSnapshots[friendUid]?.data() ?? <String, dynamic>{};
       final fallbackName =
-          _textValue(privateData, const ['displayName', 'username']);
-      final profile = PublicUserProfile.fallback(
-        userId: friendUid,
-        username: _textValue(privateData, const ['username']),
-        displayName:
-            _textValue(privateData, const ['displayName', 'firstName']),
-        profilePictureUrl: _textValue(
-          privateData,
-          const ['profilePictureUrl', 'profileImageUrl', 'avatarUrl'],
-        ),
-        score: _intValue(privateData, const ['score']),
-        exists: privateSnapshots[friendUid]?.exists ?? false,
-      );
-      final isOnline = _isLikelyOnline(privateData, privateData);
+          _textValue(publicData, const ['displayName', 'username']);
+      final profile = publicData.isNotEmpty
+          ? PublicUserProfile.fromMap(friendUid, publicData)
+          : PublicUserProfile.fallback(userId: friendUid, exists: false);
+      final isOnline = _isLikelyOnline(presenceData);
       if (!isOnline) {
         continue;
       }
@@ -454,38 +453,58 @@ class AppHomeService {
 
     return Stream.multi((controller) {
       StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? userSub;
-      final friendSubs = <String,
+      final friendPresenceSubs = <String,
           StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>>{};
-      final friendSnapshots =
+      final friendProfileSubs = <String,
+          StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>>{};
+      final friendPresenceSnapshots =
+          <String, DocumentSnapshot<Map<String, dynamic>>>{};
+      final friendPublicSnapshots =
           <String, DocumentSnapshot<Map<String, dynamic>>>{};
       List<String> currentFriendIds = const <String>[];
 
       void emit() {
-        controller.add(
-            _friendEntriesFromSnapshots(friendSnapshots, currentFriendIds));
+        controller.add(_friendEntriesFromSnapshots(
+          friendPresenceSnapshots,
+          friendPublicSnapshots,
+          currentFriendIds,
+        ));
       }
 
       Future<void> resetFriendSubscriptions(List<String> friendIds) async {
         final nextIds = friendIds.toSet();
-        final staleIds = friendSubs.keys
+        final staleIds = friendPresenceSubs.keys
             .where((id) => !nextIds.contains(id))
             .toList(growable: false);
         for (final staleId in staleIds) {
-          await friendSubs.remove(staleId)?.cancel();
-          friendSnapshots.remove(staleId);
+          await friendPresenceSubs.remove(staleId)?.cancel();
+          await friendProfileSubs.remove(staleId)?.cancel();
+          friendPresenceSnapshots.remove(staleId);
+          friendPublicSnapshots.remove(staleId);
         }
 
         for (final friendUid in friendIds) {
-          if (friendSubs.containsKey(friendUid)) {
-            continue;
+          if (!friendPresenceSubs.containsKey(friendUid)) {
+            friendPresenceSubs[friendUid] =
+                _userPresence.doc(friendUid).snapshots().listen(
+              (snapshot) {
+                friendPresenceSnapshots[friendUid] = snapshot;
+                emit();
+              },
+              onError: controller.addError,
+            );
           }
-          friendSubs[friendUid] = _users.doc(friendUid).snapshots().listen(
-            (snapshot) {
-              friendSnapshots[friendUid] = snapshot;
-              emit();
-            },
-            onError: controller.addError,
-          );
+
+          if (!friendProfileSubs.containsKey(friendUid)) {
+            friendProfileSubs[friendUid] =
+                _publicUsers.doc(friendUid).snapshots().listen(
+              (snapshot) {
+                friendPublicSnapshots[friendUid] = snapshot;
+                emit();
+              },
+              onError: controller.addError,
+            );
+          }
         }
 
         emit();
@@ -522,7 +541,10 @@ class AppHomeService {
 
       controller.onCancel = () async {
         await userSub?.cancel();
-        for (final sub in friendSubs.values) {
+        for (final sub in friendPresenceSubs.values) {
+          await sub.cancel();
+        }
+        for (final sub in friendProfileSubs.values) {
           await sub.cancel();
         }
       };
@@ -695,16 +717,9 @@ class AppHomeService {
             final profile =
                 await _publicUserProfileService.fetchProfile(authorUid);
             final profileMap = profile?.toMap() ?? <String, dynamic>{};
-            final privateProfileSnap = await _users.doc(authorUid).get();
-            final privateProfileData =
-                privateProfileSnap.data() ?? <String, dynamic>{};
             final profileImageUrls = <String>{
               ..._stringListValue(
                 profileMap,
-                const ['profileImageUrls', 'images'],
-              ),
-              ..._stringListValue(
-                privateProfileData,
                 const ['profileImageUrls', 'images'],
               ),
             };
@@ -713,11 +728,23 @@ class AppHomeService {
               profileImageUrls.add(avatarUrl);
             }
             final linkedGroupId = _textValue(data, const ['linkedGroupId']);
+            var effectiveLinkedGroupId = linkedGroupId;
             int linkedMembersCount = 0;
             bool linkedGroupIsPublic = false;
             final participantImageUrls = <String>{};
-            if (linkedGroupId.isNotEmpty) {
-              final groupDoc = await _groups.doc(linkedGroupId).get();
+            double? distanceMetersFromCurrentUser;
+            if (effectiveLinkedGroupId.isEmpty) {
+              final existingGroup = await _groups
+                  .where('originMeetPostId', isEqualTo: doc.id)
+                  .limit(1)
+                  .get();
+              if (existingGroup.docs.isNotEmpty) {
+                effectiveLinkedGroupId = existingGroup.docs.first.id;
+              }
+            }
+
+            if (effectiveLinkedGroupId.isNotEmpty) {
+              final groupDoc = await _groups.doc(effectiveLinkedGroupId).get();
               final groupData = groupDoc.data() ?? <String, dynamic>{};
               linkedMembersCount = _intValue(groupData, const ['membersCount']);
               linkedGroupIsPublic = (groupData['isPublic'] as bool?) ?? true;
@@ -731,6 +758,13 @@ class AppHomeService {
                 participantImageUrls.addAll(images);
               }
             }
+
+            final geoForDistance =
+                _geoPointFromData(data) ?? _geoPointFromData(profileMap);
+            distanceMetersFromCurrentUser = _locationService.distanceInMeters(
+              from: userGeo,
+              to: geoForDistance,
+            );
 
             entries.add(
               MeetNowPostEntry(
@@ -764,11 +798,12 @@ class AppHomeService {
                     : null,
                 createdAt:
                     _dateValue(data, const ['createdAt']) ?? DateTime.now(),
-                linkedGroupId: linkedGroupId,
+                linkedGroupId: effectiveLinkedGroupId,
                 linkedGroupMembersCount: linkedMembersCount,
                 linkedGroupIsPublic: linkedGroupIsPublic,
                 participantProfileImageUrls:
                     participantImageUrls.toList(growable: false),
+                distanceMetersFromCurrentUser: distanceMetersFromCurrentUser,
               ),
             );
           } catch (error) {
@@ -781,9 +816,9 @@ class AppHomeService {
         entries.sort((a, b) {
           final geoA = a.meetingGeo ?? a.authorGeo;
           final geoB = b.meetingGeo ?? b.authorGeo;
-          final distanceA =
+          final distanceA = a.distanceMetersFromCurrentUser ??
               _locationService.distanceInMeters(from: userGeo, to: geoA);
-          final distanceB =
+          final distanceB = b.distanceMetersFromCurrentUser ??
               _locationService.distanceInMeters(from: userGeo, to: geoB);
 
           if (distanceA != null && distanceB != null) {
@@ -834,6 +869,92 @@ class AppHomeService {
         await postsSub?.cancel();
       };
     });
+  }
+
+  Stream<Set<String>> streamJoinedMeetNowPostIds() {
+    final uid = currentUid;
+    if (uid == null || uid.isEmpty) {
+      return Stream.value(const <String>{});
+    }
+
+    return _db
+        .collection('users')
+        .doc(uid)
+        .collection('activity')
+        .where('type', isEqualTo: 'pop_join')
+        .snapshots()
+        .map((snapshot) {
+      final ids = <String>{};
+      for (final doc in snapshot.docs) {
+        final postId = (doc.data()['postId'] as String? ?? '').trim();
+        if (postId.isNotEmpty) {
+          ids.add(postId);
+        }
+      }
+      return ids;
+    });
+  }
+
+  Future<void> registerMeetNowJoin({
+    required MeetNowPostEntry entry,
+    required String groupId,
+  }) async {
+    final uid = currentUid;
+    if (uid == null || uid.trim().isEmpty) {
+      throw FirebaseAuthException(
+        code: 'not-authenticated',
+        message: 'User must be logged in to join.',
+      );
+    }
+
+    final normalizedUid = uid.trim();
+    final normalizedPostId = entry.id.trim();
+    final normalizedGroupId = groupId.trim();
+    if (normalizedPostId.isEmpty || normalizedGroupId.isEmpty) {
+      return;
+    }
+
+    final activityRef = _db
+        .collection('users')
+        .doc(normalizedUid)
+        .collection('activity')
+        .doc('pop_join_${normalizedPostId}_$normalizedGroupId');
+    final joinedAtNow = Timestamp.now();
+
+    await activityRef.set(<String, dynamic>{
+      'type': 'pop_join',
+      'uid': normalizedUid,
+      'postId': normalizedPostId,
+      'linkedGroupId': normalizedGroupId,
+      'authorUid': entry.authorUid,
+      'title': entry.title.trim(),
+      'description': entry.details.trim(),
+      'meetingLocation': entry.meetingLocation.trim(),
+      'timePreference': entry.timePreference.trim(),
+      'category': entry.category.trim(),
+      'subCategory': entry.subCategory.trim(),
+      'desiredParticipants': entry.desiredParticipants,
+      'minAge': entry.minAge,
+      'maxAge': entry.maxAge,
+      'createdAt': joinedAtNow,
+      'joinedAt': joinedAtNow,
+      'serverCreatedAt': FieldValue.serverTimestamp(),
+      'serverJoinedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    if (entry.linkedGroupId.trim().isEmpty) {
+      try {
+        await _meetNowPosts.doc(normalizedPostId).set(
+          <String, dynamic>{
+            'linkedGroupId': normalizedGroupId,
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
+      } catch (_) {
+        // Best effort: history + hiding still rely on local join activity.
+      }
+    }
   }
 
   Future<void> createMeetNowPost({
@@ -923,6 +1044,16 @@ class AppHomeService {
 
     final postRef = _meetNowPosts.doc(postId);
 
+    try {
+      final existingGroup = await _groups
+          .where('originMeetPostId', isEqualTo: postId)
+          .limit(1)
+          .get();
+      if (existingGroup.docs.isNotEmpty) {
+        return existingGroup.docs.first.id;
+      }
+    } catch (_) {}
+
     return _db.runTransaction<String>((tx) async {
       final postSnap = await tx.get(postRef);
       if (!postSnap.exists) {
@@ -977,9 +1108,10 @@ class AppHomeService {
 
       final groupRef = _groups.doc();
       final groupId = groupRef.id;
-      final initialMembers = <String>[authorUid];
+      final effectiveAdminUid = authorUid;
+      final initialMembers = <String>[effectiveAdminUid];
       final initialChatParticipants = <String>{
-        authorUid,
+        effectiveAdminUid,
         normalizedRequesterUid,
       }.toList(growable: false);
 
@@ -998,7 +1130,9 @@ class AppHomeService {
         'isMinScoreRequired': false,
         'isPublic': true,
         'isAdminApprovalRequired': false,
-        'adminUid': authorUid,
+        'adminUid': effectiveAdminUid,
+        'originAuthorUid': authorUid,
+        'originMeetPostId': postId,
         'originType': 'pop',
         'members': initialMembers,
         'membersList': initialMembers,
@@ -1022,13 +1156,15 @@ class AppHomeService {
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
-      tx.set(groupRef.collection('members').doc(authorUid), {
-        'uid': authorUid,
-        'status': 'approved',
-        'role': 'admin',
-        'joinedAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
+      if (normalizedRequesterUid == effectiveAdminUid) {
+        tx.set(groupRef.collection('members').doc(effectiveAdminUid), {
+          'uid': effectiveAdminUid,
+          'status': 'approved',
+          'role': 'admin',
+          'joinedAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      }
 
       tx.set(
           postRef,

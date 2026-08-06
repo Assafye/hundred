@@ -505,11 +505,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     _navTile(
                                       isLight: isLight,
                                       icon: Icons.privacy_tip_rounded,
-                                      title: 'מדיניות פרטיות',
+                                      title:
+                                          'צפייה במדיניות פרטיות ותנאי משתמש',
                                       subtitle:
-                                          'קריאת תנאי שימוש ומדיניות פרטיות',
+                                        'בחירה מהירה בין מדיניות פרטיות ותנאי שימוש',
                                       onTap: () =>
-                                          showPrivacyPolicyDialog(context),
+                                        showLegalDocumentsPickerDialog(context),
                                     ),
                                   ],
                                 ),

@@ -795,8 +795,15 @@ class ChatService {
             ? start + batchSize
             : idsNeedingFallback.length;
         final chunk = idsNeedingFallback.sublist(start, end);
-        final snapshot =
-            await _users.where(FieldPath.documentId, whereIn: chunk).get();
+        QuerySnapshot<Map<String, dynamic>>? snapshot;
+        try {
+          snapshot = await _users.where(FieldPath.documentId, whereIn: chunk).get();
+        } catch (error) {
+          if (!_isPermissionDenied(error)) {
+            rethrow;
+          }
+          continue;
+        }
 
         for (final doc in snapshot.docs) {
           final data = doc.data();

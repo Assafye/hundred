@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
@@ -44,6 +46,95 @@ class GroupService {
       );
     }
     return uid;
+  }
+
+  Future<bool> _isApprovedOrPendingMemberByAnySchema({
+    required String groupId,
+    required String uid,
+  }) async {
+    final normalizedGroupId = groupId.trim();
+    final normalizedUid = uid.trim();
+    if (normalizedGroupId.isEmpty || normalizedUid.isEmpty) {
+      return false;
+    }
+
+    try {
+      final groupSnap =
+          await _db.collection('groups').doc(normalizedGroupId).get();
+      if (!groupSnap.exists) {
+        return false;
+      }
+
+      final groupData = groupSnap.data() ?? <String, dynamic>{};
+      final adminUid = (groupData['adminUid'] as String? ?? '').trim();
+      if (adminUid == normalizedUid) {
+        return true;
+      }
+
+      final rootIds = <String>{
+        ...((groupData['members'] as List<dynamic>?) ?? const <dynamic>[])
+            .map((value) => value.toString().trim())
+            .where((value) => value.isNotEmpty),
+        ...((groupData['membersList'] as List<dynamic>?) ?? const <dynamic>[])
+            .map((value) => value.toString().trim())
+            .where((value) => value.isNotEmpty),
+        ...((groupData['participants'] as List<dynamic>?) ?? const <dynamic>[])
+            .map((value) => value.toString().trim())
+            .where((value) => value.isNotEmpty),
+      };
+      if (rootIds.contains(normalizedUid)) {
+        return true;
+      }
+
+      final directMember = await _db
+          .collection('groups')
+          .doc(normalizedGroupId)
+          .collection('members')
+          .doc(normalizedUid)
+          .get();
+      if (directMember.exists) {
+        final status = (directMember.data()?['status'] as String? ?? '')
+            .trim()
+            .toLowerCase();
+        if (status.isEmpty || status == 'approved' || status == 'pending') {
+          return true;
+        }
+      }
+
+      Future<bool> probeByField(String field) async {
+        try {
+          final snapshot = await _db
+              .collection('groups')
+              .doc(normalizedGroupId)
+              .collection('members')
+              .where(field, isEqualTo: normalizedUid)
+              .limit(5)
+              .get();
+          for (final doc in snapshot.docs) {
+            final status =
+                (doc.data()['status'] as String? ?? '').trim().toLowerCase();
+            if (status.isEmpty || status == 'approved' || status == 'pending') {
+              return true;
+            }
+          }
+        } catch (_) {}
+        return false;
+      }
+
+      if (await probeByField('uid')) {
+        return true;
+      }
+      if (await probeByField('userId')) {
+        return true;
+      }
+      if (await probeByField('memberUid')) {
+        return true;
+      }
+    } catch (_) {
+      return false;
+    }
+
+    return false;
   }
 
   Future<void> _requireAdmin(String groupId) async {
@@ -286,14 +377,17 @@ class GroupService {
       }
     } catch (error, stackTrace) {
       if (_isPermissionDenied(error)) {
-        await _secureQueue.enqueue(
-          type: SecureActionTypes.joinGroup,
-          payload: <String, dynamic>{
-            'groupId': groupId,
-          },
-          dedupeKey: 'join_group:$uid:$groupId',
+        final alreadyJoined = await _isApprovedOrPendingMemberByAnySchema(
+          groupId: groupId,
+          uid: uid,
         );
-        return;
+        if (alreadyJoined) {
+          return;
+        }
+        throw const GroupJoinException(
+          code: 'permission-denied',
+          message: 'אין הרשאה להצטרף לקבוצה כרגע. נסה שוב בעוד רגע.',
+        );
       }
       if (error is FirebaseException) {
         debugPrint(
@@ -695,13 +789,33 @@ class GroupService {
   }
 
   Stream<int> approvedMembersCount(String groupId) {
-    return _db
-        .collection('groups')
-        .doc(groupId)
-        .collection('members')
-        .where('status', isEqualTo: 'approved')
-        .snapshots()
-        .map((snap) => snap.docs.length);
+    return _db.collection('groups').doc(groupId).snapshots().map((doc) {
+      final data = doc.data() ?? const <String, dynamic>{};
+      final membersCountRaw = data['membersCount'];
+      final membersCountFromField = membersCountRaw is num
+          ? membersCountRaw.toInt()
+          : int.tryParse((membersCountRaw ?? '').toString().trim()) ?? 0;
+
+      final membersLength = (data['members'] as List<dynamic>? ?? const [])
+          .map((item) => item.toString().trim())
+          .where((item) => item.isNotEmpty)
+          .toSet()
+          .length;
+      final membersListLength =
+          (data['membersList'] as List<dynamic>? ?? const [])
+              .map((item) => item.toString().trim())
+              .where((item) => item.isNotEmpty)
+              .toSet()
+              .length;
+
+      return math.max(
+        1,
+        math.max(
+          membersCountFromField,
+          math.max(membersLength, membersListLength),
+        ),
+      );
+    });
   }
 
   Stream<QuerySnapshot<Map<String, dynamic>>> pendingMembersStream(
@@ -840,7 +954,7 @@ class GroupService {
     required String groupId,
     required String groupImageUrl,
   }) async {
-    final uid = _requireUid();
+    _requireUid();
     final normalizedGroupId = groupId.trim();
     final normalizedImageUrl = groupImageUrl.trim();
     if (normalizedGroupId.isEmpty || normalizedImageUrl.isEmpty) {
@@ -848,32 +962,24 @@ class GroupService {
     }
 
     try {
-      await _db.collection('groups').doc(normalizedGroupId).set(
-        <String, dynamic>{
-          'groupImageUrl': normalizedImageUrl,
-          'updatedAt': FieldValue.serverTimestamp(),
-        },
-        SetOptions(merge: true),
-      );
-      await _db.collection('chats').doc(normalizedGroupId).set(
-        <String, dynamic>{
-          'groupImageUrl': normalizedImageUrl,
-          'updatedAt': FieldValue.serverTimestamp(),
-        },
-        SetOptions(merge: true),
-      );
+      final batch = _db.batch();
+      final groupRef = _db.collection('groups').doc(normalizedGroupId);
+      final chatRef = _db.collection('chats').doc(normalizedGroupId);
+      final payload = <String, dynamic>{
+        'groupImageUrl': normalizedImageUrl,
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+
+      batch.set(groupRef, payload, SetOptions(merge: true));
+      batch.set(chatRef, payload, SetOptions(merge: true));
+      await batch.commit();
       return 'updated';
     } catch (error) {
       if (_isPermissionDenied(error)) {
-        await _secureQueue.enqueue(
-          type: SecureActionTypes.updateGroupImage,
-          payload: <String, dynamic>{
-            'groupId': normalizedGroupId,
-            'groupImageUrl': normalizedImageUrl,
-          },
-          dedupeKey: 'group_image:$uid:$normalizedGroupId:$normalizedImageUrl',
+        throw const GroupJoinException(
+          code: 'permission-denied',
+          message: 'אין הרשאה לעדכן תמונת קבוצה כרגע. נסה שוב בעוד רגע.',
         );
-        return 'queued';
       }
       rethrow;
     }
@@ -924,49 +1030,49 @@ class GroupService {
 
     try {
       await _db.runTransaction((tx) async {
-      final groupSnap = await tx.get(groupRef);
-      if (!groupSnap.exists) {
-        throw FirebaseException(
-            plugin: 'cloud_firestore', message: 'Group not found');
-      }
+        final groupSnap = await tx.get(groupRef);
+        if (!groupSnap.exists) {
+          throw FirebaseException(
+              plugin: 'cloud_firestore', message: 'Group not found');
+        }
 
-      final groupData = groupSnap.data() ?? <String, dynamic>{};
-      final adminUid = (groupData['adminUid'] as String?) ?? '';
-      if (adminUid != myUid) {
-        throw FirebaseAuthException(
-          code: 'permission-denied',
-          message: 'Only group admin can remove members.',
-        );
-      }
-      if (uid == adminUid) {
-        throw FirebaseAuthException(
-          code: 'invalid-action',
-          message: 'Admin cannot remove themselves from group settings.',
-        );
-      }
+        final groupData = groupSnap.data() ?? <String, dynamic>{};
+        final adminUid = (groupData['adminUid'] as String?) ?? '';
+        if (adminUid != myUid) {
+          throw FirebaseAuthException(
+            code: 'permission-denied',
+            message: 'Only group admin can remove members.',
+          );
+        }
+        if (uid == adminUid) {
+          throw FirebaseAuthException(
+            code: 'invalid-action',
+            message: 'Admin cannot remove themselves from group settings.',
+          );
+        }
 
-      final memberSnap = await tx.get(memberRef);
-      final status = (memberSnap.data()?['status'] as String?) ?? '';
-      if (memberSnap.exists) {
-        tx.delete(memberRef);
-      }
+        final memberSnap = await tx.get(memberRef);
+        final status = (memberSnap.data()?['status'] as String?) ?? '';
+        if (memberSnap.exists) {
+          tx.delete(memberRef);
+        }
 
-      final updates = <String, dynamic>{
-        'members': FieldValue.arrayRemove([uid]),
-        'membersList': FieldValue.arrayRemove([uid]),
-        'invitedFriendUids': FieldValue.arrayRemove([uid]),
-      };
-      if (status == 'approved') {
-        updates['membersCount'] = FieldValue.increment(-1);
-      } else if (status == 'pending') {
-        updates['pendingCount'] = FieldValue.increment(-1);
-      }
-      tx.update(groupRef, updates);
+        final updates = <String, dynamic>{
+          'members': FieldValue.arrayRemove([uid]),
+          'membersList': FieldValue.arrayRemove([uid]),
+          'invitedFriendUids': FieldValue.arrayRemove([uid]),
+        };
+        if (status == 'approved') {
+          updates['membersCount'] = FieldValue.increment(-1);
+        } else if (status == 'pending') {
+          updates['pendingCount'] = FieldValue.increment(-1);
+        }
+        tx.update(groupRef, updates);
 
-      tx.update(_db.collection('chats').doc(groupId), {
-        'participants': FieldValue.arrayRemove([uid]),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
+        tx.update(_db.collection('chats').doc(groupId), {
+          'participants': FieldValue.arrayRemove([uid]),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
       });
     } catch (error) {
       if (_isPermissionDenied(error)) {
@@ -990,70 +1096,56 @@ class GroupService {
     final memberRef = groupRef.collection('members').doc(uid);
 
     var groupExists = false;
-    var adminUid = '';
     var wasApprovedMember = false;
     var wasPendingMember = false;
 
     try {
       await _db.runTransaction((tx) async {
-      final groupSnap = await tx.get(groupRef);
-      if (!groupSnap.exists) {
-        throw FirebaseException(
-          plugin: 'cloud_firestore',
-          message: 'Group not found',
-        );
-      }
+        final groupSnap = await tx.get(groupRef);
+        if (!groupSnap.exists) {
+          throw FirebaseException(
+            plugin: 'cloud_firestore',
+            message: 'Group not found',
+          );
+        }
 
-      groupExists = true;
-      final groupData = groupSnap.data() ?? <String, dynamic>{};
-      adminUid = (groupData['adminUid'] as String? ?? '').trim();
+        groupExists = true;
 
-      if (uid == adminUid) {
-        throw FirebaseAuthException(
-          code: 'invalid-action',
-          message: 'Admin must close the group instead of leaving it.',
-        );
-      }
+        final memberSnap = await tx.get(memberRef);
+        final memberStatus =
+            (memberSnap.data()?['status'] as String? ?? '').trim();
+        wasApprovedMember = memberStatus == 'approved';
+        wasPendingMember = memberStatus == 'pending';
 
-      final memberSnap = await tx.get(memberRef);
-      final memberStatus =
-          (memberSnap.data()?['status'] as String? ?? '').trim();
-      wasApprovedMember = memberStatus == 'approved';
-      wasPendingMember = memberStatus == 'pending';
+        if (memberSnap.exists) {
+          tx.delete(memberRef);
+        }
 
-      if (memberSnap.exists) {
-        tx.delete(memberRef);
-      }
+        final updates = <String, dynamic>{
+          'members': FieldValue.arrayRemove([uid]),
+          'membersList': FieldValue.arrayRemove([uid]),
+          'invitedFriendUids': FieldValue.arrayRemove([uid]),
+          'updatedAt': FieldValue.serverTimestamp(),
+        };
 
-      final updates = <String, dynamic>{
-        'members': FieldValue.arrayRemove([uid]),
-        'membersList': FieldValue.arrayRemove([uid]),
-        'invitedFriendUids': FieldValue.arrayRemove([uid]),
-        'updatedAt': FieldValue.serverTimestamp(),
-      };
+        if (wasApprovedMember) {
+          updates['membersCount'] = FieldValue.increment(-1);
+        } else if (wasPendingMember) {
+          updates['pendingCount'] = FieldValue.increment(-1);
+        }
 
-      if (wasApprovedMember) {
-        updates['membersCount'] = FieldValue.increment(-1);
-      } else if (wasPendingMember) {
-        updates['pendingCount'] = FieldValue.increment(-1);
-      }
-
-      tx.update(groupRef, updates);
-      tx.update(_db.collection('chats').doc(groupId), {
-        'participants': FieldValue.arrayRemove([uid]),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
+        tx.update(groupRef, updates);
+        tx.update(_db.collection('chats').doc(groupId), {
+          'participants': FieldValue.arrayRemove([uid]),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
       });
     } catch (error) {
       if (_isPermissionDenied(error)) {
-        await _secureQueue.enqueue(
-          type: SecureActionTypes.leaveGroup,
-          payload: <String, dynamic>{
-            'groupId': groupId,
-          },
-          dedupeKey: 'leave_group:$uid:$groupId',
+        throw const GroupJoinException(
+          code: 'permission-denied',
+          message: 'אין הרשאה לצאת מהקבוצה כרגע. נסה שוב בעוד רגע.',
         );
-        return;
       }
       rethrow;
     }

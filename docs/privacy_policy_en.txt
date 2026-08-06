@@ -1,0 +1,84 @@
+Privacy Policy - Hundred
+
+Last updated: August 6, 2026
+
+This Privacy Policy applies to the Hundred application and related services (the "App").
+Data Controller/Operator: Assaf Yehoshua (the "Operator").
+Official contact address: 10 Beit HaArava St, Rishon LeZion, Israel.
+Privacy contact: assafyeho@gmail.com
+
+1. Overview
+We respect user privacy and process personal data in accordance with applicable Israeli law. This Policy explains what data we collect, why we collect it, how we use and share it, and your rights.
+
+2. Eligibility
+The App is intended for users aged 13 and older. By using the App, you represent that you meet this age requirement. If we discover otherwise, we may suspend or delete the account and take appropriate action.
+
+3. Data We Collect
+We may collect and process:
+1. Account and identity data: email, username, first name, last name, display name, phone number, date of birth.
+2. Profile and content data: profile photos, bio, motto, posts, comments, messages, media (images/video/audio), interactions (likes, saves, shares).
+3. Location data: precise location data (including coordinates), timestamps, and location updates for core proximity-based features.
+4. Presence and activity data: online/offline status, last seen, in-app feature usage.
+5. Notification data: notification preferences, in-app notifications, and push notifications.
+6. Technical/security data: technical identifiers, operational logs, reliability and security-related data processed through infrastructure providers.
+
+4. Device Permissions
+The App may request location, camera, microphone, and photo/gallery permissions.
+1. Location: required for optimal and core service functionality. Without location permission, key features may not work properly.
+2. Camera/Photos: for capturing and selecting media for profile, posts, and chats.
+3. Microphone: for audio capture and voice messages.
+4. Notifications: in-app notifications and push notifications for operational/service communication.
+
+5. Purposes of Processing
+We process personal data to:
+1. Register users, verify identity, manage accounts, and protect account security.
+2. Operate social features, chats, posts, groups, and content recommendations.
+3. Provide location/proximity-based functionality.
+4. Deliver service and operational notifications.
+5. Enforce community rules, prevent fraud, handle requests, and address abuse/safety risks.
+6. Maintain, improve, and develop the App.
+
+6. Legal Bases (where applicable)
+1. Contract performance.
+2. Consent (especially for device permissions and specific processing).
+3. Legitimate interests (security, fraud prevention, service improvement, community management).
+4. Legal obligation.
+
+7. Sharing with Third Parties
+We do not sell personal data for marketing purposes.
+We may share data with:
+1. Cloud/infrastructure providers (including Firebase services such as Authentication, Firestore/Database, Storage, and related infrastructure).
+2. Technical/operational service providers, including content-compute/recommendation, hosting, storage, analytics, and support providers, where used by us.
+3. Law enforcement, courts, or competent authorities when legally required.
+4. Parties needed to protect rights, user/community safety, and prevent harm.
+
+8. International Transfers
+Data may be processed outside Israel depending on infrastructure architecture. In such cases, we apply reasonable safeguards.
+
+9. Public Data in the App
+1. Some data is intended to be visible to other users as part of the service design (e.g., public profile elements, published content, certain interactions).
+2. Users are responsible for what they choose to publish or share.
+
+10. Account Deletion and Actual Effect
+When account deletion is initiated, we currently apply the following:
+1. Mark account as deleted and neutralize/remove key identifying profile fields.
+2. Clear major identifying profile fields (such as username, bio, profile photos, phone, email, date of birth) in profile data stores.
+3. Attempt deletion of authentication account to disable login access.
+4. Some previously published/distributed content may remain in the system in disassociated form, or until removed operationally/moderation-wise/system-wise.
+5. Limited backup/log retention may continue for security, recovery, or legal compliance purposes.
+
+11. Retention
+We retain data as needed for service operation, security, dispute handling, legal compliance, and rights protection, then delete or anonymize where reasonably possible.
+
+12. Security
+We implement reasonable technical and organizational measures to reduce risks of unauthorized access, misuse, loss, or alteration. No method is absolutely secure at all times.
+
+13. Your Rights
+You may request access, correction, deletion, objection, or other privacy-related actions, subject to applicable law.
+We aim to respond within up to 60 days, subject to identity verification and request scope.
+
+14. Policy Changes
+We may update this Policy from time to time. The latest update date appears at the top. In case of a material change, we will make reasonable efforts to provide notice in-app and/or by email. Continued use after updates means acceptance of the updated Policy.
+
+15. Contact
+Privacy requests and inquiries: assafyeho@gmail.com

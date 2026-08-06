@@ -52,6 +52,7 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
   bool _isImageUpdating = false;
   bool _isClosingGroup = false;
   bool _showAllMembers = false;
+  String _optimisticGroupImageUrl = '';
 
   Future<ImageSource?> _selectImageSource() async {
     final isLight = Theme.of(context).brightness == Brightness.light;
@@ -499,14 +500,15 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
         imageBytes: bytes,
         imageFileName: picked.name,
       );
-      final status = await _groupService.updateGroupImageAsMember(
+      await _groupService.updateGroupImageAsMember(
         groupId: widget.groupId,
         groupImageUrl: url,
       );
       if (!mounted) return;
-      final message = status == 'updated'
-          ? 'תמונת הקבוצה עודכנה'
-          : 'התמונה נשמרה ותתעדכן לאחר סנכרון מאובטח';
+      setState(() {
+        _optimisticGroupImageUrl = url;
+      });
+      final message = 'תמונת הקבוצה עודכנה';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(message)),
       );
@@ -661,11 +663,13 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
               titlePadding: const EdgeInsets.fromLTRB(16, 10, 8, 0),
               title: Row(
                 children: [
-                  const Expanded(
+                  Expanded(
                     child: Text(
                       'הוספת חברים לקבוצה',
                       style: TextStyle(
-                          color: Colors.black, fontWeight: FontWeight.bold),
+                        color: isLight ? Colors.black : Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
                   closeButton,
@@ -703,7 +707,7 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
                               ),
                               filled: true,
                               fillColor: isLight
-                                  ? Colors.white.withValues(alpha:  0.72)
+                                  ? Colors.white.withValues(alpha: 0.72)
                                   : const Color(0xFF0B1019),
                               border: const OutlineInputBorder(
                                   borderSide: BorderSide.none),
@@ -739,7 +743,7 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
                                         decoration: BoxDecoration(
                                           color: isLight
                                               ? Colors.white
-                                                  .withValues(alpha:  0.8)
+                                                  .withValues(alpha: 0.8)
                                               : const Color(0xFF0B1019),
                                           borderRadius:
                                               BorderRadius.circular(14),
@@ -807,30 +811,30 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
                                                         if (!mounted) return;
 
                                                         if (status !=
-                                                          'queued') {
+                                                            'queued') {
                                                           setModalState(() {
-                                                          filteredFriends
-                                                            .removeWhere(
-                                                              (item) =>
-                                                                item.uid ==
-                                                                friend
-                                                                  .uid);
-                                                          allFriendsInDialog
-                                                            .removeWhere(
-                                                              (item) =>
-                                                                item.uid ==
-                                                                friend
-                                                                  .uid);
+                                                            filteredFriends
+                                                                .removeWhere(
+                                                                    (item) =>
+                                                                        item.uid ==
+                                                                        friend
+                                                                            .uid);
+                                                            allFriendsInDialog
+                                                                .removeWhere(
+                                                                    (item) =>
+                                                                        item.uid ==
+                                                                        friend
+                                                                            .uid);
                                                           });
                                                         }
 
-                                                        final statusMessage =
-                                                          status == 'approved'
+                                                        final statusMessage = status ==
+                                                                'approved'
                                                             ? 'החבר צורף לקבוצה'
                                                             : status ==
-                                                                'pending'
-                                                              ? 'החבר הועבר לרשימת בקשות ההצטרפות'
-                                                              : 'הפעולה נשמרה ותתבצע לאחר סנכרון מאובטח';
+                                                                    'pending'
+                                                                ? 'החבר הועבר לרשימת בקשות ההצטרפות'
+                                                                : 'הפעולה נשמרה ותתבצע לאחר סנכרון מאובטח';
                                                         ScaffoldMessenger.of(
                                                                 this.context)
                                                             .showSnackBar(
@@ -974,7 +978,7 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
     return Container(
       decoration: BoxDecoration(
         color: isLight
-            ? Colors.white.withValues(alpha:  0.8)
+            ? Colors.white.withValues(alpha: 0.8)
             : const Color(0xFF1E2632),
         borderRadius: BorderRadius.circular(18),
         border: Border.all(
@@ -1215,6 +1219,9 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
               final date = _readGroupDate(groupData);
               final imageUrl =
                   (groupData['groupImageUrl'] as String? ?? '').trim();
+              final resolvedImageUrl = _optimisticGroupImageUrl.isNotEmpty
+                  ? _optimisticGroupImageUrl
+                  : imageUrl;
               final adminUid = (groupData['adminUid'] as String? ?? '').trim();
               final myUid = FirebaseAuth.instance.currentUser?.uid;
               final isActualAdmin = myUid != null && myUid == adminUid;
@@ -1313,7 +1320,7 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
                           padding: const EdgeInsets.all(14),
                           decoration: BoxDecoration(
                             color: isLight
-                                ? Colors.white.withValues(alpha:  0.82)
+                                ? Colors.white.withValues(alpha: 0.82)
                                 : const Color(0xFF1E2632),
                             borderRadius: BorderRadius.circular(24),
                             border: Border.all(
@@ -1334,7 +1341,7 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
                                       children: [
                                         GroupAvatar(
                                           radius: 34,
-                                          imageUrl: imageUrl,
+                                          imageUrl: resolvedImageUrl,
                                         ),
                                         if (_isImageUpdating)
                                           const SizedBox(
@@ -1353,7 +1360,7 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
                                               decoration: BoxDecoration(
                                                 color: isLight
                                                     ? Colors.white
-                                                        .withValues(alpha:  0.94)
+                                                        .withValues(alpha: 0.94)
                                                     : const Color(0xFF1E2632),
                                                 shape: BoxShape.circle,
                                               ),
@@ -1585,7 +1592,7 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
                                         ? [
                                             BoxShadow(
                                               color: const Color(0xFF9EDBFF)
-                                                  .withValues(alpha:  0.14),
+                                                  .withValues(alpha: 0.14),
                                               blurRadius: 16,
                                               offset: const Offset(0, 8),
                                             ),
@@ -1653,7 +1660,7 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
                             padding: const EdgeInsets.all(16),
                             decoration: BoxDecoration(
                               color: isLight
-                                  ? Colors.white.withValues(alpha:  0.82)
+                                  ? Colors.white.withValues(alpha: 0.82)
                                   : const Color(0xFF1E2632),
                               borderRadius: BorderRadius.circular(20),
                               border: Border.all(
@@ -1757,7 +1764,7 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
                             color: isLight
-                                ? Colors.white.withValues(alpha:  0.96)
+                                ? Colors.white.withValues(alpha: 0.96)
                                 : const Color(0xFF1E2632),
                             borderRadius: BorderRadius.circular(20),
                             border: Border.all(
@@ -1769,7 +1776,7 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
                                 ? [
                                     BoxShadow(
                                       color: const Color(0xFF9EDBFF)
-                                          .withValues(alpha:  0.10),
+                                          .withValues(alpha: 0.10),
                                       blurRadius: 18,
                                       offset: const Offset(0, 8),
                                     ),
@@ -2022,7 +2029,7 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
                                             color: isLight
                                                 ? const Color(0xFFEDE7FF)
                                                 : const Color(0xFF9E7CFF)
-                                                    .withValues(alpha:  0.18),
+                                                    .withValues(alpha: 0.18),
                                             borderRadius:
                                                 BorderRadius.circular(999),
                                             border: Border.all(
@@ -2377,7 +2384,7 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
                         ? [
                             BoxShadow(
                               color: const Color(0xFF9EDBFF)
-                                  .withValues(alpha:  0.12),
+                                  .withValues(alpha: 0.12),
                               blurRadius: 16,
                               offset: const Offset(0, -2),
                             ),
@@ -2485,7 +2492,7 @@ class _ProfileTile extends StatelessWidget {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF9E7CFF).withValues(alpha:  0.2),
+                    color: const Color(0xFF9E7CFF).withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(color: const Color(0xFF9E7CFF)),
                   ),

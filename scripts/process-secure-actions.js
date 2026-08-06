@@ -558,6 +558,7 @@ async function processCommentSideEffects(actorUid, payload) {
 
     const commentData = commentSnap.data() || {};
     if (String(commentData.authorId ?? '').trim() !== actorUid) return;
+    if (commentData.sideEffectsApplied === true) return;
 
     postBefore = postSnap.data() || {};
     postImageUrl = String(postBefore.imageUrl ?? postBefore.mediaUrl ?? '').trim();
@@ -570,6 +571,12 @@ async function processCommentSideEffects(actorUid, payload) {
 
     tx.set(postRef, {
       commentsCount: currentComments + 1,
+      updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+
+    tx.set(commentRef, {
+      sideEffectsApplied: true,
+      sideEffectsAppliedAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     }, { merge: true });
 

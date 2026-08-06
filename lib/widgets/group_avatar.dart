@@ -36,15 +36,15 @@ class GroupAvatar extends StatelessWidget {
       ),
       child: ClipOval(
         child: hasImage
-            ? DecoratedBox(
-                decoration: BoxDecoration(
-                  image: DecorationImage(
-                    image: memoryBytes != null
-                        ? MemoryImage(memoryBytes!) as ImageProvider
-                        : NetworkImage(normalizedImageUrl),
-                    fit: BoxFit.cover,
-                  ),
-                ),
+            ? Image(
+                image: memoryBytes != null
+                    ? MemoryImage(memoryBytes!) as ImageProvider
+                    : NetworkImage(normalizedImageUrl),
+                fit: BoxFit.cover,
+                gaplessPlayback: true,
+                filterQuality: FilterQuality.low,
+                errorBuilder: (context, error, stackTrace) =>
+                    _GroupAvatarPlaceholder(radius: radius),
               )
             : _GroupAvatarPlaceholder(radius: radius),
       ),
@@ -80,7 +80,7 @@ class _GroupAvatarPlaceholder extends StatelessWidget {
               width: radius * 0.42,
               height: radius * 0.42,
               decoration: BoxDecoration(
-                color: const Color(0xFFBFEAFF).withValues(alpha:  0.7),
+                color: const Color(0xFFBFEAFF).withValues(alpha: 0.7),
                 shape: BoxShape.circle,
               ),
             ),
@@ -92,7 +92,7 @@ class _GroupAvatarPlaceholder extends StatelessWidget {
               width: radius * 0.52,
               height: radius * 0.52,
               decoration: BoxDecoration(
-                color: const Color(0xFFDCCBFF).withValues(alpha:  0.8),
+                color: const Color(0xFFDCCBFF).withValues(alpha: 0.8),
                 shape: BoxShape.circle,
               ),
             ),

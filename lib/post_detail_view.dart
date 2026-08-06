@@ -20,11 +20,13 @@ import 'services/firestore_rule_feedback.dart';
 import 'services/post_interaction_overlay_service.dart';
 import 'services/post_service.dart';
 import 'services/public_user_profile_service.dart';
+import 'services/report_service.dart';
 import 'services/share_flow_log_service.dart';
 import 'services/social_service.dart';
 import 'user_profile_screen.dart';
 import 'widgets/post_media_viewer.dart';
 import 'widgets/post_comments_sheet.dart';
+import 'widgets/report_dialogs.dart';
 import 'widgets/post_share_targets_sheet.dart';
 import 'widgets/swipe_back_wrapper.dart';
 
@@ -64,6 +66,7 @@ class _PostDetailViewState extends State<PostDetailView> {
   final PostService _postService = PostService();
   final SocialService _socialService = SocialService();
   final GroupService _groupService = GroupService();
+  final ReportService _reportService = ReportService();
   final Map<String, PublicUserProfile?> _authorProfilesByUid =
       <String, PublicUserProfile?>{};
   final Map<String, StreamSubscription<PublicUserProfile?>>
@@ -501,6 +504,9 @@ class _PostDetailViewState extends State<PostDetailView> {
     for (final key in keys) {
       final value = _countFromData(post, key, listKey: listKey);
       if (value > 0) {
+        if (metric == 'comments') {
+          return value.clamp(0, 1 << 30).toInt();
+        }
         final delta = metric.isEmpty
             ? 0
             : PostInteractionOverlayService.deltaFor(
@@ -509,6 +515,9 @@ class _PostDetailViewState extends State<PostDetailView> {
               );
         return (value + delta).clamp(0, 1 << 30).toInt();
       }
+    }
+    if (metric == 'comments') {
+      return 0;
     }
     final delta = metric.isEmpty
         ? 0
@@ -1489,10 +1498,10 @@ class _PostDetailViewState extends State<PostDetailView> {
                                                         )
                                                       : BorderSide.none,
                                                 ),
-                                                onPressed: () {
+                                                onPressed: () async {
                                                   Navigator.of(sheetContext)
                                                       .pop();
-                                                  Navigator.of(context).push(
+                                                  await _pushWithDetailPlaybackPaused(
                                                     MaterialPageRoute(
                                                       builder: (_) =>
                                                           ChatRoomScreen(
@@ -1580,27 +1589,31 @@ class _PostDetailViewState extends State<PostDetailView> {
                                                     await _groupService
                                                         .joinGroup(
                                                             groupMeta.groupId);
-                                                    if (!mounted ||
-                                                        !sheetContext.mounted) {
+                                                    if (sheetContext.mounted) {
+                                                      Navigator.of(sheetContext)
+                                                          .pop();
+                                                    }
+                                                    if (!mounted) {
                                                       return;
                                                     }
                                                     ScaffoldMessenger.of(
-                                                            context)
+                                                            this.context)
                                                         .showSnackBar(
                                                       const SnackBar(
                                                         content: Text(
                                                             'בקשת ההצטרפות נשלחה'),
                                                       ),
                                                     );
-                                                    Navigator.of(sheetContext)
-                                                        .pop();
                                                   } catch (error) {
-                                                    if (!mounted ||
-                                                        !sheetContext.mounted) {
+                                                    if (sheetContext.mounted) {
+                                                      Navigator.of(sheetContext)
+                                                          .pop();
+                                                    }
+                                                    if (!mounted) {
                                                       return;
                                                     }
                                                     ScaffoldMessenger.of(
-                                                            context)
+                                                            this.context)
                                                         .showSnackBar(
                                                       SnackBar(
                                                         content: Text(
@@ -1715,10 +1728,10 @@ class _PostDetailViewState extends State<PostDetailView> {
                                           const SizedBox(width: 10),
                                           Expanded(
                                             child: InkWell(
-                                              onTap: () {
+                                              onTap: () async {
                                                 Navigator.of(sheetContext)
                                                     .pop();
-                                                Navigator.of(context).push(
+                                                await _pushWithDetailPlaybackPaused(
                                                   MaterialPageRoute(
                                                     builder: (_) =>
                                                         UserProfileScreen(
@@ -2098,6 +2111,79 @@ class _PostDetailViewState extends State<PostDetailView> {
 
   String _postAuthorId(Map<String, dynamic> post) {
     return (post['authorId'] as String? ?? post['uid'] as String? ?? '').trim();
+  }
+
+  Future<void> _reportCurrentPost() async {
+    if (_posts.isEmpty || _currentIndex < 0 || _currentIndex >= _posts.length) {
+      return;
+    }
+
+    final post = _posts[_currentIndex];
+    final postId = _postId(post);
+    final authorId = _postAuthorId(post);
+    final currentUid = _currentUserId();
+    if (postId.isEmpty || authorId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('לא ניתן לדווח על הפוסט כרגע.')),
+      );
+      return;
+    }
+    if (currentUid.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('יש להתחבר כדי לדווח.')),
+      );
+      return;
+    }
+    if (authorId == currentUid) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('לא ניתן לדווח על פוסט שלך.')),
+      );
+      return;
+    }
+
+    final shouldReport = await showReportConfirmationDialog(
+      context,
+      targetLabel: 'פוסט',
+    );
+    if (!shouldReport || !mounted) {
+      return;
+    }
+
+    final reason = await showReportReasonPicker(
+      context,
+      targetLabel: 'פוסט',
+    );
+    if (reason == null || !mounted) {
+      return;
+    }
+
+    final details = await showReportDetailsDialog(
+      context,
+      reason: reason,
+      targetLabel: 'פוסט',
+    );
+    if (details == null || !mounted) {
+      return;
+    }
+
+    try {
+      await _reportService.submitPostReport(
+        targetPostId: postId,
+        targetUserUid: authorId,
+        reason: reason,
+        details: details,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('הדיווח נשלח. תודה שעזרת לשמור על הקהילה.')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('שליחת הדיווח נכשלה: $error')),
+      );
+    }
   }
 
   bool _isLikedByMe(Map<String, dynamic> post) {
@@ -2605,7 +2691,15 @@ class _PostDetailViewState extends State<PostDetailView> {
         postAuthorId: authorId,
         initialCommentId: initialCommentId,
         onCommentSubmitted: () {
-          PostInteractionOverlayService.addDelta(postId: postId, comments: 1);
+          final current =
+              _countFromData(_posts[_currentIndex], 'commentsCount');
+          if (!mounted) return;
+          setState(() {
+            _posts[_currentIndex] = <String, dynamic>{
+              ..._posts[_currentIndex],
+              'commentsCount': current + 1,
+            };
+          });
           _refreshPostAtIndex(_currentIndex);
         },
       ),
@@ -2656,8 +2750,8 @@ class _PostDetailViewState extends State<PostDetailView> {
     final canOpenProfile = authorProfile.userId.isNotEmpty &&
         !(widget.disableOwnAuthorProfileTap && _isOwnedByCurrentUser(post));
     final openAuthorProfileTap = canOpenProfile
-        ? () {
-            Navigator.of(context).push(
+        ? () async {
+            await _pushWithDetailPlaybackPaused(
               MaterialPageRoute(
                 builder: (_) => UserProfileScreen(
                   uid: authorProfile.userId,
@@ -2974,8 +3068,8 @@ class _PostDetailViewState extends State<PostDetailView> {
                     Row(
                       children: [
                         GestureDetector(
-                          onTap: () {
-                            Navigator.of(context).push(
+                          onTap: () async {
+                            await _pushWithDetailPlaybackPaused(
                               MaterialPageRoute(
                                 builder: (_) => CategoryScreen(
                                   categoryName: category,
@@ -3551,6 +3645,24 @@ class _PostDetailViewState extends State<PostDetailView> {
     );
   }
 
+  Future<T?> _pushWithDetailPlaybackPaused<T>(Route<T> route) async {
+    if (mounted) {
+      setState(() {
+        _isDetailViewInForeground = false;
+      });
+    }
+
+    try {
+      return await Navigator.of(context).push(route);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isDetailViewInForeground = true;
+        });
+      }
+    }
+  }
+
   Future<void> _openEditForCurrentPost() async {
     if (_currentIndex < 0 || _currentIndex >= _posts.length) {
       return;
@@ -3663,6 +3775,19 @@ class _PostDetailViewState extends State<PostDetailView> {
             ),
           ),
           actions: [
+            if (_posts.isNotEmpty &&
+                _currentIndex >= 0 &&
+                _currentIndex < _posts.length &&
+                !_isOwnedByCurrentUser(_posts[_currentIndex]))
+              IconButton(
+                tooltip: 'דיווח על פוסט',
+                onPressed: _reportCurrentPost,
+                icon: const Icon(
+                  Icons.flag_outlined,
+                  color: Colors.white70,
+                  size: 24,
+                ),
+              ),
             if (widget.enableEditAction)
               widget.useDraftPublishEditAction
                   ? Padding(

@@ -748,8 +748,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
           color: isLight
-              ? const Color(0xFF6B4BB6).withValues(alpha:  0.65)
-              : const Color(0xFF46D3FF).withValues(alpha:  0.26),
+              ? const Color(0xFF6B4BB6).withValues(alpha: 0.65)
+              : const Color(0xFF46D3FF).withValues(alpha: 0.26),
         ),
       ),
       child: Column(
@@ -905,8 +905,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
               borderRadius: BorderRadius.circular(14),
               border: Border.all(
                 color: isLight
-                    ? const Color(0xFF6B4BB6).withValues(alpha:  0.65)
-                    : const Color(0xFF46D3FF).withValues(alpha:  0.26),
+                    ? const Color(0xFF6B4BB6).withValues(alpha: 0.65)
+                    : const Color(0xFF46D3FF).withValues(alpha: 0.26),
               ),
             ),
             child: Text(
@@ -1238,20 +1238,20 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     final text = (replyTo['text'] as String? ?? '').trim();
     final previewText = text.isNotEmpty ? text : 'הודעה';
     final borderColor = isMe
-        ? const Color(0xFF6B4BB6).withValues(alpha:  0.42)
+        ? const Color(0xFF6B4BB6).withValues(alpha: 0.42)
         : (isLight
-            ? const Color(0xFF9E7CFF).withValues(alpha:  0.38)
-            : const Color(0xFF53C1F9).withValues(alpha:  0.28));
+            ? const Color(0xFF9E7CFF).withValues(alpha: 0.38)
+            : const Color(0xFF53C1F9).withValues(alpha: 0.28));
     final backgroundColor = isMe
-        ? Colors.white.withValues(alpha:  0.28)
+        ? Colors.white.withValues(alpha: 0.28)
         : (isLight
             ? const Color(0xFFF7FBFF)
-            : const Color(0xFF152031).withValues(alpha:  0.9));
+            : const Color(0xFF152031).withValues(alpha: 0.9));
     final titleColor = isMe
-        ? Colors.black.withValues(alpha:  0.78)
+        ? Colors.black.withValues(alpha: 0.78)
         : (isLight ? const Color(0xFF6B4BB6) : const Color(0xFF9EDBFF));
     final textColor = isMe
-        ? Colors.black.withValues(alpha:  0.82)
+        ? Colors.black.withValues(alpha: 0.82)
         : (isLight ? const Color(0xFF34425D) : Colors.white70);
 
     return Material(
@@ -1491,7 +1491,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                                 textDirection: bubbleTextDirection,
                                 style: TextStyle(
                                   color: isLight
-                                      ? fg.withValues(alpha:  0.72)
+                                      ? fg.withValues(alpha: 0.72)
                                       : Colors.white,
                                   fontSize: 11,
                                   fontWeight: FontWeight.w400,
@@ -1545,7 +1545,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                           ? [
                               BoxShadow(
                                 color: const Color(0xFF53C1F9)
-                                    .withValues(alpha:  0.22),
+                                    .withValues(alpha: 0.22),
                                 blurRadius: 16,
                                 spreadRadius: 1,
                               ),
@@ -1605,7 +1605,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                             textDirection: bubbleTextDirection,
                             style: TextStyle(
                                 color: isLight
-                                    ? fg.withValues(alpha:  0.72)
+                                    ? fg.withValues(alpha: 0.72)
                                     : Colors.white,
                                 fontSize: 11,
                                 fontWeight: FontWeight.w400),
@@ -1683,7 +1683,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
           Text(
             durationLabel,
             style: TextStyle(
-              color: fg.withValues(alpha:  0.8),
+              color: fg.withValues(alpha: 0.8),
               fontSize: 12,
             ),
           ),
@@ -1894,7 +1894,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha:  0.38),
+                    color: Colors.black.withValues(alpha: 0.38),
                     borderRadius: BorderRadius.circular(999),
                   ),
                   child: Text(
@@ -1988,8 +1988,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     colors: [
-                      Colors.black.withValues(alpha:  0.06),
-                      Colors.black.withValues(alpha:  0.22),
+                      Colors.black.withValues(alpha: 0.06),
+                      Colors.black.withValues(alpha: 0.22),
                     ],
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
@@ -2013,7 +2013,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                   decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha:  0.38),
+                    color: Colors.black.withValues(alpha: 0.38),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
@@ -2047,7 +2047,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         borderRadius: borderRadius,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha:  0.08),
+            color: Colors.black.withValues(alpha: 0.08),
             blurRadius: 18,
             offset: const Offset(0, 8),
           ),
@@ -2661,6 +2661,13 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
               final isDirectChat = _isDirectChat(chatData);
               final isDeletedDirectChatProfile =
                   isDirectChat && _isDeletedProfileLabel(widget.chatName);
+              final fallbackGroupName =
+                  ((chatData?['name'] as String?) ?? widget.chatName).trim();
+              final fallbackGroupImage =
+                  ((chatData?['groupImageUrl'] as String?) ??
+                          widget.avatarUrl ??
+                          '')
+                      .trim();
 
               return AppBar(
                 backgroundColor:
@@ -2724,24 +2731,66 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                       ),
                     );
                   },
-                  child: Row(
-                    children: [
-                      GroupAvatar(
-                        radius: 18,
-                        imageUrl: widget.avatarUrl ?? '',
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          widget.chatName,
-                          style: TextStyle(
-                            color: isLight ? Colors.black : Colors.white,
-                            fontWeight: FontWeight.bold,
-                          ),
+                  child: isDirectChat
+                      ? Row(
+                          children: [
+                            GroupAvatar(
+                              radius: 18,
+                              imageUrl: widget.avatarUrl ?? '',
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                widget.chatName,
+                                style: TextStyle(
+                                  color: isLight ? Colors.black : Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                        )
+                      : StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                          stream: FirebaseFirestore.instance
+                              .collection('groups')
+                              .doc(widget.chatId)
+                              .snapshots(),
+                          builder: (context, groupSnapshot) {
+                            final groupData = groupSnapshot.data?.data() ??
+                                const <String, dynamic>{};
+                            final liveName =
+                                ((groupData['groupName'] as String?) ??
+                                        (groupData['name'] as String?) ??
+                                        fallbackGroupName)
+                                    .trim();
+                            final liveImageUrl =
+                                ((groupData['groupImageUrl'] as String?) ??
+                                        fallbackGroupImage)
+                                    .trim();
+
+                            return Row(
+                              children: [
+                                GroupAvatar(
+                                  radius: 18,
+                                  imageUrl: liveImageUrl,
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Text(
+                                    liveName.isNotEmpty
+                                        ? liveName
+                                        : fallbackGroupName,
+                                    style: TextStyle(
+                                      color:
+                                          isLight ? Colors.black : Colors.white,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            );
+                          },
                         ),
-                      ),
-                    ],
-                  ),
                 ),
               );
             },
@@ -2760,7 +2809,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       color: const Color(0xFF53C1F9)
-                          .withValues(alpha:  isLight ? 0.08 : 0.07),
+                          .withValues(alpha: isLight ? 0.08 : 0.07),
                     ),
                   ),
                 ),
@@ -2775,7 +2824,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       color: const Color(0xFF9E7CFF)
-                          .withValues(alpha:  isLight ? 0.07 : 0.08),
+                          .withValues(alpha: isLight ? 0.07 : 0.08),
                     ),
                   ),
                 ),
@@ -2933,7 +2982,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                                                   color: isLight
                                                       ? const Color(0xFFA9C3FF)
                                                       : const Color(0xFF53C1F9)
-                                                          .withValues(alpha:  0.24),
+                                                          .withValues(
+                                                              alpha: 0.24),
                                                 ),
                                               ),
                                               child: Row(
@@ -2987,7 +3037,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                                                   color: isLight
                                                       ? const Color(0xFFA9C3FF)
                                                       : const Color(0xFF53C1F9)
-                                                          .withValues(alpha:  0.24),
+                                                          .withValues(
+                                                              alpha: 0.24),
                                                 ),
                                               ),
                                               child: Row(
@@ -3059,7 +3110,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                           horizontal: 8, vertical: 2),
                       decoration: BoxDecoration(
                         color: isLight
-                            ? Colors.white.withValues(alpha:  0.72)
+                            ? Colors.white.withValues(alpha: 0.72)
                             : Colors.transparent,
                         borderRadius: BorderRadius.circular(14),
                         border: Border.all(
@@ -3085,7 +3136,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                                   color: isLight
                                       ? const Color(0xFFA9C3FF)
                                       : const Color(0xFF53C1F9)
-                                          .withValues(alpha:  0.22),
+                                          .withValues(alpha: 0.22),
                                 ),
                               ),
                               child: Row(
@@ -3360,7 +3411,7 @@ class _ChatMediaViewerPageState extends State<_ChatMediaViewerPage> {
             VideoPlayer(controller),
             if (!controller.value.isPlaying)
               Container(
-                color: Colors.black.withValues(alpha:  0.18),
+                color: Colors.black.withValues(alpha: 0.18),
                 child: const Center(
                   child: Icon(
                     Icons.play_circle_fill_rounded,

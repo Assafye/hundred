@@ -35,6 +35,10 @@ class PublicUserProfileService {
 
   final FirebaseFirestore _db;
 
+  bool _isPermissionDenied(Object error) {
+    return error is FirebaseException && error.code == 'permission-denied';
+  }
+
   PublicUserProfileService({FirebaseFirestore? db})
       : _db = db ?? FirebaseFirestore.instance;
 
@@ -185,12 +189,27 @@ class PublicUserProfileService {
   ) async {
     if (publicSnapshot.exists) {
       final publicData = publicSnapshot.data() ?? <String, dynamic>{};
-      final privateSnapshot = await _users.doc(uid).get();
-      if (!privateSnapshot.exists) {
-        return PublicUserProfile.fromMap(
+      DocumentSnapshot<Map<String, dynamic>>? privateSnapshot;
+      try {
+        privateSnapshot = await _users.doc(uid).get();
+      } catch (error) {
+        if (!_isPermissionDenied(error)) {
+          rethrow;
+        }
+      }
+      if (privateSnapshot == null) {
+        final resolved = PublicUserProfile.fromMap(
           publicSnapshot.id,
           publicData,
         );
+        return _withOptimisticScore(uid, resolved);
+      }
+      if (!privateSnapshot.exists) {
+        final resolved = PublicUserProfile.fromMap(
+          publicSnapshot.id,
+          publicData,
+        );
+        return _withOptimisticScore(uid, resolved);
       }
 
       final privateData = privateSnapshot.data() ?? <String, dynamic>{};
@@ -205,7 +224,18 @@ class PublicUserProfileService {
       return _withOptimisticScore(uid, resolved);
     }
 
-    final privateSnapshot = await _users.doc(uid).get();
+    DocumentSnapshot<Map<String, dynamic>>? privateSnapshot;
+    try {
+      privateSnapshot = await _users.doc(uid).get();
+    } catch (error) {
+      if (!_isPermissionDenied(error)) {
+        rethrow;
+      }
+    }
+    if (privateSnapshot == null) {
+      final fallback = PublicUserProfile.fallback(userId: uid, exists: false);
+      return _withOptimisticScore(uid, fallback);
+    }
     if (privateSnapshot.exists) {
       final resolved = PublicUserProfile.fromMap(
         privateSnapshot.id,

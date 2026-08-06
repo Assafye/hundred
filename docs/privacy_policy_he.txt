@@ -1,0 +1,171 @@
+מדיניות פרטיות
+תאריך עדכון אחרון: 06 באוגוסט 2026
+מדיניות פרטיות זו חלה על אפליקציית Hundred ועל כל שירות נלווה שלה ("האפליקציה").
+מפעיל האפליקציה: אסף יהושע ("המפעיל").
+יצירת קשר בענייני פרטיות: assafyeho@gmail.com
+
+כללי
+אנו מכבדים את פרטיות המשתמשים ופועלים לעיבוד מידע אישי בהתאם לדין החל בישראל. מדיניות זו מפרטת איזה מידע אנו אוספים, כיצד אנו משתמשים בו, למי הוא מועבר, מהן זכויותיך, וכיצד ניתן לממשן.
+
+מי רשאי להשתמש באפליקציה
+האפליקציה מיועדת למשתמשים בגיל 13 ומעלה.
+בעת הרשמה המשתמש מצהיר כי הוא עומד בדרישת הגיל. אם יתברר לנו שמשתמש אינו עומד בדרישת הגיל, אנו רשאים להשעות או למחוק את החשבון ולנקוט פעולות מתאימות.
+
+אילו נתונים אנו אוספים
+אנו עשויים לאסוף ולעבד את סוגי המידע הבאים:
+פרטי חשבון וזהות משתמש: כתובת דוא"ל, שם משתמש, שם פרטי, שם משפחה, שם תצוגה, מספר טלפון, תאריך לידה.
+נתוני פרופיל ותוכן: תמונות פרופיל, ביוגרפיה, מוטו, פוסטים, תגובות, הודעות, מדיה (תמונות/וידאו/אודיו), אינטראקציות (לייקים, שמירות, שיתופים).
+נתוני מיקום: נתוני מיקום מדויקים (לרבות קואורדינטות), חותמות זמן ועדכוני מיקום לצורך תפקוד תכונות ליבה מבוססות קרבה.
+נתוני נוכחות ופעילות: סטטוס אונליין/אופליין, זמן נראה לאחרונה, שימוש בתכונות בתוך האפליקציה.
+נתוני התראות: העדפות התראות, התראות בתוך האפליקציה והתראות Push למכשיר.
+מידע טכני ואבטחתי: מזהים טכניים, לוגים תפעוליים, נתוני אמינות ואבטחה הנאספים או מעובדים באמצעות ספקי תשתית.
+
+הרשאות מכשיר
+האפליקציה עשויה לבקש הרשאות למיקום, מצלמה, מיקרופון וגלריה/תמונות.
+מיקום: נדרש לתפקוד מיטבי ומהותי של תכונות האפליקציה. ללא הרשאת מיקום, חלקים מרכזיים בשירות עלולים שלא לפעול.
+מצלמה/גלריה: לצילום ובחירת מדיה עבור פרופיל, פוסטים וצ'אטים.
+מיקרופון: להקלטת אודיו בעת יצירת תוכן או שליחת הודעות קוליות.
+התראות: התראות בתוך האפליקציה וכן Push Notifications לתקשורת תפעולית ושירותית.
+
+מטרות השימוש במידע
+אנו מעבדים מידע אישי למטרות הבאות:
+יצירת חשבון, אימות זהות, ניהול משתמשים והגנה על אבטחת החשבון.
+תפעול השירות והצגת פיצ'רים חברתיים, צ'אטים, פוסטים, קבוצות והמלצות תוכן.
+הפעלת שירותים מבוססי מיקום וקרבה.
+משלוח התראות שירותיות ותפעוליות.
+אכיפת כללי קהילה, מניעת הונאה, טיפול בפניות, חקירה וטיפול בהפרות או סיכוני בטיחות.
+שיפור חוויית שימוש, תחזוקה, ניטור ביצועים ופיתוח תכונות עתידיות.
+
+הבסיס המשפטי לעיבוד (ככל שרלוונטי)
+ביצוע חוזה: לצורך אספקת השירות שביקשת.
+הסכמה: בפרט להרשאות מכשיר ולשימושים מסוימים.
+אינטרס לגיטימי: אבטחה, מניעת הונאה, שיפור שירות, ניהול קהילה.
+חובה חוקית: כאשר נדרש לפי דין או הוראה מוסמכת.
+
+שיתוף מידע עם צדדים שלישיים
+איננו מוכרים מידע אישי לצדדים שלישיים למטרות שיווק.
+אנו עשויים לשתף מידע עם:
+ספקי תשתית ענן ושירותים נלווים (לרבות שירותי Firebase כגון Authentication, Firestore/Database, Storage ותשתיות משלימות).
+ספקי שירות טכניים ותפעוליים, כולל שירותי חישוב/המלצות תוכן, אירוח, אחסון, ניתוח ותמיכה, ככל שמופעלים על ידינו.
+רשויות מוסמכות, בתי משפט או גורמי אכיפה לפי דרישה חוקית.
+גורמים להגנת זכויותינו, בטיחות המשתמשים והציבור, ומניעת נזק.
+
+העברת מידע מחוץ לישראל
+מידע עשוי להיות מעובד בשרתים מחוץ לישראל, בהתאם למבנה ספקי התשתית. במקרה כזה נפעל לנקוט אמצעי הגנה סבירים ומקובלים להעברות מידע.
+
+נתונים ציבוריים ופרטיות בתוך האפליקציה
+חלק מהמידע נועד להצגה למשתמשים אחרים לפי אופי השירות (כגון פרופיל ציבורי, תוכן שפורסם ואינטראקציות מסוימות).
+באחריות המשתמש לשקול היטב איזה מידע לפרסם או לשתף עם אחרים.
+
+מחיקת חשבון ומשמעותה בפועל
+בעת מחיקת חשבון, אנו מיישמים את המנגנון הבא:
+סימון החשבון כ"משתמש מחוק" ונטרול/מחיקה של שדות זיהוי מרכזיים בפרופיל.
+ניקוי פרטי פרופיל מזהים מרכזיים (כגון שם משתמש, ביוגרפיה, תמונות פרופיל, טלפון, אימייל, תאריך לידה) במסדי הנתונים של הפרופיל.
+ניסיון למחיקת חשבון האימות (Auth) כך שלא יישאר חשבון כניסה פעיל.
+תוכן מסוים שכבר פורסם או הופץ במערכת עשוי להישאר במערכת כשהוא מנותק מזיהוי אישי ישיר, או עד להסרה תפעולית/קהילתית/מערכתית.
+ייתכנו עותקי גיבוי/לוגים הנשמרים לפרק זמן מוגבל לצורכי אבטחה, התאוששות או עמידה בדרישות דין.
+
+שמירת מידע
+אנו שומרים מידע כל עוד הוא נדרש להפעלת השירות, אבטחה, טיפול במחלוקות, עמידה בדרישות דין והגנה על זכויותינו, ולאחר מכן נמחק/נאנונם באופן סביר בהתאם לצורך.
+
+אבטחת מידע
+אנו מפעילים אמצעי אבטחה סבירים ומקובלים להפחתת סיכוני גישה לא מורשית, שימוש לרעה, אובדן או שינוי מידע.
+עם זאת, אין אפשרות להבטיח אבטחה מוחלטת בכל עת.
+
+זכויות משתמשים
+באפשרותך לפנות אלינו בבקשות לעיון, תיקון, מחיקה, התנגדות לעיבוד או בקשות פרטיות אחרות, בכפוף לדין החל.
+נטפל בבקשה בתוך עד 60 ימים ממועד קבלתה, בכפוף לאימות זהות והיקף הבקשה.
+
+שינויים במדיניות
+אנו רשאים לעדכן מדיניות זו מעת לעת. מועד העדכון האחרון יוצג בראש המסמך. המשך שימוש לאחר עדכון מהווה הסכמה למדיניות המעודכנת.
+
+יצירת קשר
+לשאלות או בקשות פרטיות ניתן לפנות לכתובת: assafyeho@gmail.com
+
+====================
+English Version
+====================
+
+Privacy Policy
+Last updated: August 6, 2026
+
+This Privacy Policy applies to the Hundred application and related services (the "App").
+Data Controller/Operator: Assaf Yehoshua (the "Operator").
+Privacy contact: assafyeho@gmail.com
+
+Overview
+We respect user privacy and process personal data in accordance with applicable Israeli law. This Policy explains what data we collect, why we collect it, how we use and share it, and your rights.
+
+Who can use the App
+The App is intended for users aged 13 and older.
+By registering, you represent that you meet this age requirement. If we discover otherwise, we may suspend or delete the account and take appropriate action.
+
+Data We Collect
+We may collect and process:
+Account and identity data: email, username, first name, last name, display name, phone number, date of birth.
+Profile and content data: profile photos, bio, motto, posts, comments, messages, media (images/video/audio), interactions (likes, saves, shares).
+Location data: precise location data (including coordinates), timestamps, and location updates for core proximity-based features.
+Presence and activity data: online/offline status, last seen, in-app feature usage.
+Notification data: notification preferences, in-app notifications, and push notifications.
+Technical/security data: technical identifiers, operational logs, reliability and security-related data processed through infrastructure providers.
+
+Device Permissions
+The App may request location, camera, microphone, and photo/gallery permissions.
+Location: required for optimal and core service functionality. Without location permission, key features may not work properly.
+Camera/Photos: for capturing and selecting media for profile, posts, and chats.
+Microphone: for audio capture and voice messages.
+Notifications: in-app notifications and push notifications for operational/service communication.
+
+Purposes of Processing
+We process personal data to:
+Register users, verify identity, manage accounts, and protect account security.
+Operate social features, chats, posts, groups, and content recommendations.
+Provide location/proximity-based functionality.
+Deliver service and operational notifications.
+Enforce community rules, prevent fraud, handle requests, and address abuse/safety risks.
+Maintain, improve, and develop the App.
+
+Legal Bases (where applicable)
+Contract performance.
+Consent (especially for device permissions and specific processing).
+Legitimate interests (security, fraud prevention, service improvement, community management).
+Legal obligation.
+
+Sharing with Third Parties
+We do not sell personal data for marketing purposes.
+We may share data with:
+Cloud/infrastructure providers (including Firebase services such as Authentication, Firestore/Database, Storage, and related infrastructure).
+Technical/operational service providers, including content-compute/recommendation, hosting, storage, analytics, and support providers, where used by us.
+Law enforcement, courts, or competent authorities when legally required.
+Parties needed to protect rights, user/community safety, and prevent harm.
+
+International Transfers
+Data may be processed outside Israel depending on infrastructure architecture. In such cases, we apply reasonable safeguards.
+
+Public Data in the App
+Some data is intended to be visible to other users as part of the service design (for example, public profile elements, published content, certain interactions).
+Users are responsible for what they choose to publish or share.
+
+Account Deletion and Actual Effect
+When account deletion is initiated, we currently apply the following:
+Mark account as deleted and neutralize/remove key identifying profile fields.
+Clear major identifying profile fields (such as username, bio, profile photos, phone, email, date of birth) in profile data stores.
+Attempt deletion of authentication account to disable login access.
+Some previously published/distributed content may remain in the system in disassociated form, or until removed operationally/moderation-wise/system-wise.
+Limited backup/log retention may continue for security, recovery, or legal compliance purposes.
+
+Retention
+We retain data as needed for service operation, security, dispute handling, legal compliance, and rights protection, then delete or anonymize where reasonably possible.
+
+Security
+We implement reasonable technical and organizational measures to reduce risks of unauthorized access, misuse, loss, or alteration. No method is absolutely secure at all times.
+
+Your Rights
+You may request access, correction, deletion, objection, or other privacy-related actions, subject to applicable law.
+We aim to respond within up to 60 days, subject to identity verification and request scope.
+
+Policy Changes
+We may update this Policy from time to time. The latest update date appears at the top. Continued use after updates means acceptance of the updated Policy.
+
+Contact
+Privacy requests and inquiries: assafyeho@gmail.com

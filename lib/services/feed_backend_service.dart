@@ -38,6 +38,70 @@ class FeedBackendService {
 
   bool get isConfigured => _baseUrl.trim().isNotEmpty;
 
+  Future<({Set<String> followingIds, Set<String> followerIds})>
+      _viewerRelations(String viewerUid) async {
+    final normalizedViewerUid = viewerUid.trim();
+    if (normalizedViewerUid.isEmpty) {
+      return (followingIds: <String>{}, followerIds: <String>{});
+    }
+
+    final viewerDoc =
+        await _db.collection('users').doc(normalizedViewerUid).get();
+    final viewerData = viewerDoc.data() ?? <String, dynamic>{};
+
+    Set<String> readSet(String key) {
+      final raw = viewerData[key];
+      if (raw is! List) {
+        return <String>{};
+      }
+      return raw
+          .map((item) => item.toString().trim())
+          .where((item) => item.isNotEmpty)
+          .toSet();
+    }
+
+    return (
+      followingIds: readSet('following'),
+      followerIds: readSet('followers'),
+    );
+  }
+
+  String _postAudience(Map<String, dynamic> post) {
+    return (post['audience'] as String? ?? 'public').trim().toLowerCase();
+  }
+
+  bool _canViewerSeePost({
+    required String viewerUid,
+    required Map<String, dynamic> post,
+    required PublicUserProfile? authorProfile,
+    required Set<String> viewerFollowingIds,
+    required Set<String> viewerFollowerIds,
+  }) {
+    final authorId =
+        (post['authorId'] as String? ?? post['uid'] as String? ?? '').trim();
+    if (authorId.isEmpty) {
+      return false;
+    }
+    if (authorId == viewerUid) {
+      return true;
+    }
+
+    final audience = _postAudience(post);
+    if (audience == 'friends') {
+      return viewerFollowingIds.contains(authorId) &&
+          viewerFollowerIds.contains(authorId);
+    }
+
+    final isPrivateAuthor = authorProfile?.exists == true
+        ? authorProfile!.isPrivate
+      : false;
+    if (isPrivateAuthor) {
+      return viewerFollowingIds.contains(authorId);
+    }
+
+    return true;
+  }
+
   Stream<List<Map<String, dynamic>>> watchRecommendedFeedWithAuthors({
     required bool isForYouFeed,
     String? category,
@@ -152,6 +216,10 @@ class FeedBackendService {
         entry.key: entry.value,
     };
 
+    final relations = await _viewerRelations(uid);
+    final viewerFollowingIds = relations.followingIds;
+    final viewerFollowerIds = relations.followerIds;
+
     final visiblePosts = <Map<String, dynamic>>[];
     for (final rawPost in orderedPosts) {
       final authorId =
@@ -161,6 +229,16 @@ class FeedBackendService {
           _publicUserProfileService.fallbackProfileForPost(rawPost);
 
       if (profile.isDeleted) {
+        continue;
+      }
+
+      if (!_canViewerSeePost(
+        viewerUid: uid,
+        post: rawPost,
+        authorProfile: profile,
+        viewerFollowingIds: viewerFollowingIds,
+        viewerFollowerIds: viewerFollowerIds,
+      )) {
         continue;
       }
 
@@ -179,23 +257,35 @@ class FeedBackendService {
       return result;
     }
 
-    const int chunkSize = 10;
-    for (int i = 0; i < postIds.length; i += chunkSize) {
-      final end = (i + chunkSize < postIds.length)
-          ? i + chunkSize
-          : postIds.length;
-      final chunk = postIds.sublist(i, end);
-      final snapshot = await _db
-          .collection('posts')
-          .where(FieldPath.documentId, whereIn: chunk)
-          .where('status', isEqualTo: 'published')
-          .get();
+    for (final postId in postIds) {
+      final normalizedPostId = postId.trim();
+      if (normalizedPostId.isEmpty) {
+        continue;
+      }
 
-      for (final doc in snapshot.docs) {
-        final map = Map<String, dynamic>.from(doc.data());
+      try {
+        final doc =
+            await _db.collection('posts').doc(normalizedPostId).get();
+        if (!doc.exists) {
+          continue;
+        }
+
+        final map = Map<String, dynamic>.from(doc.data() ?? <String, dynamic>{});
+        final status = (map['status'] as String? ?? 'published')
+            .trim()
+            .toLowerCase();
+        if (status != 'published') {
+          continue;
+        }
+
         map['id'] = doc.id;
         map['postId'] = (map['postId'] as String? ?? doc.id).trim();
         result[doc.id] = map;
+      } on FirebaseException catch (error) {
+        if (error.code == 'permission-denied') {
+          continue;
+        }
+        rethrow;
       }
     }
 

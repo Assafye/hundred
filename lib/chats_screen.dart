@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -71,6 +73,13 @@ class _ChatsScreenState extends State<ChatsScreen> {
       <String, Future<DocumentSnapshot<Map<String, dynamic>>>>{};
   final Map<String, Future<List<_GlobalSearchResult>>> _globalSearchCache =
       <String, Future<List<_GlobalSearchResult>>>{};
+  List<Map<String, dynamic>> _lastResolvedPublicGroupEntries =
+      const <Map<String, dynamic>>[];
+  String _streamsUid = '';
+  Stream<QuerySnapshot<Map<String, dynamic>>>? _userChatsStream;
+  Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>>? _publicChatsStream;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
+      _userChatsNotificationsSub;
 
   Set<String> _myFriendIds = <String>{};
   Map<String, Map<String, String>> _myFriendSummaries =
@@ -118,12 +127,60 @@ class _ChatsScreenState extends State<ChatsScreen> {
     _publicFilterToDate = widget.initialPublicFilterToDate;
     _loadMyFriendsForPublicGroups();
     _loadMyScoreForPublicFilters();
+    final currentUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    _ensureStableChatStreams(currentUid);
+    _attachUserChatsNotificationsStream(currentUid);
   }
 
   @override
   void dispose() {
+    _userChatsNotificationsSub?.cancel();
     _searchController.dispose();
     super.dispose();
+  }
+
+  void _ensureStableChatStreams(String uid) {
+    final normalizedUid = uid.trim();
+    if (normalizedUid.isEmpty) {
+      _streamsUid = '';
+      _userChatsStream = null;
+      _publicChatsStream = null;
+      return;
+    }
+
+    if (_streamsUid == normalizedUid &&
+        _userChatsStream != null &&
+        _publicChatsStream != null) {
+      return;
+    }
+
+    _streamsUid = normalizedUid;
+    _userChatsStream =
+        _chatService.streamUserChats(normalizedUid).asBroadcastStream();
+    _publicChatsStream =
+        _chatService.streamPublicChatsExcludingUser(normalizedUid);
+  }
+
+  void _attachUserChatsNotificationsStream(String uid) {
+    final normalizedUid = uid.trim();
+    _userChatsNotificationsSub?.cancel();
+    _userChatsNotificationsSub = null;
+    if (normalizedUid.isEmpty) {
+      return;
+    }
+
+    _ensureStableChatStreams(normalizedUid);
+    final stream = _userChatsStream;
+    if (stream == null) {
+      return;
+    }
+
+    _userChatsNotificationsSub = stream.listen((snapshot) {
+      _processTabNotificationsFromChats(
+        snapshot.docs.toList(growable: false),
+        normalizedUid,
+      );
+    });
   }
 
   String _directChatOtherUserId(
@@ -296,9 +353,11 @@ class _ChatsScreenState extends State<ChatsScreen> {
     final shouldShowGroups = latestGroupFromOthers != null &&
         latestGroupFromOthers.isAfter(_groupsTabAcknowledgedAt);
 
-    if (_hasNewUsersNotification == shouldShowUsers &&
-        (_hasNewGroupsNotification || shouldShowGroups) ==
-            _hasNewGroupsNotification) {
+    final nextUsers = _hasNewUsersNotification || shouldShowUsers;
+    final nextGroups = _hasNewGroupsNotification || shouldShowGroups;
+
+    if (_hasNewUsersNotification == nextUsers &&
+        _hasNewGroupsNotification == nextGroups) {
       return;
     }
 
@@ -306,22 +365,9 @@ class _ChatsScreenState extends State<ChatsScreen> {
       return;
     }
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) {
-        return;
-      }
-
-      final nextUsers = shouldShowUsers;
-      final nextGroups = _hasNewGroupsNotification || shouldShowGroups;
-      if (_hasNewUsersNotification == nextUsers &&
-          _hasNewGroupsNotification == nextGroups) {
-        return;
-      }
-
-      setState(() {
-        _hasNewUsersNotification = nextUsers;
-        _hasNewGroupsNotification = nextGroups;
-      });
+    setState(() {
+      _hasNewUsersNotification = nextUsers;
+      _hasNewGroupsNotification = nextGroups;
     });
   }
 
@@ -921,206 +967,367 @@ class _ChatsScreenState extends State<ChatsScreen> {
 
     return Scaffold(
       extendBody: true,
-      backgroundColor: isLight ? Colors.white : const Color(0xFF0B1019),
-      body: SizedBox.expand(
-        child: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: isLight
-                  ? const [Colors.white, Color(0xFFF8FBFF), Colors.white]
-                  : const [Color(0xFF0B1019), Color(0xFF0B1019)],
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-            ),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: isLight
+                ? const [Colors.white, Color(0xFFF8FBFF), Colors.white]
+                : const [Color(0xFF0B1019), Color(0xFF0B1019)],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
           ),
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              if (isLight)
-                Positioned(
-                  top: -130,
-                  right: -100,
-                  child: IgnorePointer(
-                    child: Container(
-                      width: orbSizeA,
-                      height: orbSizeA,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: const Color(0xFFB9A9FF).withValues(alpha: 0.12),
-                      ),
+        ),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            if (isLight)
+              Positioned(
+                top: -130,
+                right: -100,
+                child: IgnorePointer(
+                  child: Container(
+                    width: orbSizeA,
+                    height: orbSizeA,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: const Color(0xFFB9A9FF).withValues(alpha: 0.12),
                     ),
                   ),
                 ),
-              if (isLight)
-                Positioned(
-                  bottom: -140,
-                  left: -100,
-                  child: IgnorePointer(
-                    child: Container(
-                      width: orbSizeB,
-                      height: orbSizeB,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: const Color(0xFF9EEBFF).withValues(alpha: 0.12),
-                      ),
+              ),
+            if (isLight)
+              Positioned(
+                bottom: -140,
+                left: -100,
+                child: IgnorePointer(
+                  child: Container(
+                    width: orbSizeB,
+                    height: orbSizeB,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: const Color(0xFF9EEBFF).withValues(alpha: 0.12),
                     ),
                   ),
                 ),
-              SafeArea(
-                child: SingleChildScrollView(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Container(
-                                clipBehavior: Clip.antiAlias,
-                                decoration: BoxDecoration(
-                                  color: isLight
-                                      ? Colors.white.withValues(alpha: 0.62)
-                                      : const Color(0xFF1E2632),
-                                  borderRadius: BorderRadius.circular(24),
-                                ),
-                                child: TextField(
-                                  controller: _searchController,
-                                  onChanged: (value) {
-                                    setState(() {
-                                      searchQuery = value;
-                                    });
-                                  },
-                                  style: baseTextStyle,
-                                  decoration: InputDecoration(
-                                    hintText: 'lets be hundred',
-                                    hintStyle: baseTextStyle.copyWith(
+              ),
+            SafeArea(
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Container(
+                              clipBehavior: Clip.antiAlias,
+                              decoration: BoxDecoration(
+                                color: isLight
+                                    ? Colors.white.withValues(alpha: 0.62)
+                                    : const Color(0xFF1E2632),
+                                borderRadius: BorderRadius.circular(24),
+                              ),
+                              child: TextField(
+                                controller: _searchController,
+                                onChanged: (value) {
+                                  setState(() {
+                                    searchQuery = value;
+                                  });
+                                },
+                                style: baseTextStyle,
+                                decoration: InputDecoration(
+                                  hintText: 'lets be hundred',
+                                  hintStyle: baseTextStyle.copyWith(
+                                    color: isLight
+                                        ? Colors.black54
+                                        : Colors.grey[600],
+                                  ),
+                                  filled: true,
+                                  fillColor: Colors.transparent,
+                                  prefixIcon: Icon(
+                                    Icons.search_rounded,
+                                    color: isLight
+                                        ? const Color(0xFF9AB0FF)
+                                        : Colors.grey[500],
+                                    size: 20,
+                                  ),
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(24),
+                                    borderSide: BorderSide(
                                       color: isLight
-                                          ? Colors.black54
-                                          : Colors.grey[600],
+                                          ? const Color(0xFFA9C3FF)
+                                          : const Color(0xFF3F5877),
+                                      width: 1.3,
                                     ),
-                                    filled: true,
-                                    fillColor: Colors.transparent,
-                                    prefixIcon: Icon(
-                                      Icons.search_rounded,
+                                  ),
+                                  enabledBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(24),
+                                    borderSide: BorderSide(
                                       color: isLight
-                                          ? const Color(0xFF9AB0FF)
-                                          : Colors.grey[500],
-                                      size: 20,
+                                          ? const Color(0xFFA9C3FF)
+                                          : const Color(0xFF3F5877),
+                                      width: 1.3,
                                     ),
-                                    border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(24),
-                                      borderSide: BorderSide(
-                                        color: isLight
-                                            ? const Color(0xFFA9C3FF)
-                                            : const Color(0xFF3F5877),
-                                        width: 1.3,
-                                      ),
+                                  ),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(24),
+                                    borderSide: BorderSide(
+                                      color: isLight
+                                          ? const Color(0xFFA9C3FF)
+                                          : const Color(0xFF3F5877),
+                                      width: 1.3,
                                     ),
-                                    enabledBorder: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(24),
-                                      borderSide: BorderSide(
-                                        color: isLight
-                                            ? const Color(0xFFA9C3FF)
-                                            : const Color(0xFF3F5877),
-                                        width: 1.3,
-                                      ),
-                                    ),
-                                    focusedBorder: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(24),
-                                      borderSide: BorderSide(
-                                        color: isLight
-                                            ? const Color(0xFFA9C3FF)
-                                            : const Color(0xFF3F5877),
-                                        width: 1.3,
-                                      ),
-                                    ),
-                                    contentPadding: const EdgeInsets.symmetric(
-                                      vertical: 12,
-                                      horizontal: 16,
-                                    ),
+                                  ),
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    vertical: 12,
+                                    horizontal: 16,
                                   ),
                                 ),
                               ),
                             ),
-                            const SizedBox(width: 12),
-                            Container(
-                              width: 48,
-                              height: 48,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                gradient: isLight
-                                    ? const LinearGradient(
-                                        colors: [
-                                          Color(0xFF9EEBFF),
-                                          Color(0xFFC9B7FF)
-                                        ],
-                                        begin: Alignment.topLeft,
-                                        end: Alignment.bottomRight,
-                                      )
-                                    : const LinearGradient(
-                                        colors: [
-                                          Color(0xFF9E7CFF),
-                                          Color(0xFF53C1F9)
-                                        ],
-                                      ),
-                                color: isLight ? null : null,
-                                border: Border.all(
-                                  color: isLight
-                                      ? const Color(0xFFB79BFF)
-                                      : Colors.transparent,
-                                ),
-                                boxShadow: isLight
-                                    ? [
-                                        BoxShadow(
-                                          color: const Color(0xFF53C1F9)
-                                              .withValues(alpha: 0.25),
-                                          blurRadius: 14,
-                                          offset: const Offset(0, 5),
-                                        ),
-                                        BoxShadow(
-                                          color: const Color(0xFFB79BFF)
-                                              .withValues(alpha: 0.22),
-                                          blurRadius: 14,
-                                          offset: const Offset(0, 6),
-                                        ),
-                                      ]
-                                    : null,
+                          ),
+                          const SizedBox(width: 12),
+                          Container(
+                            width: 48,
+                            height: 48,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              gradient: isLight
+                                  ? const LinearGradient(
+                                      colors: [
+                                        Color(0xFF9EEBFF),
+                                        Color(0xFFC9B7FF)
+                                      ],
+                                      begin: Alignment.topLeft,
+                                      end: Alignment.bottomRight,
+                                    )
+                                  : const LinearGradient(
+                                      colors: [
+                                        Color(0xFF9E7CFF),
+                                        Color(0xFF53C1F9)
+                                      ],
+                                    ),
+                              color: isLight ? null : null,
+                              border: Border.all(
+                                color: isLight
+                                    ? const Color(0xFFB79BFF)
+                                    : Colors.transparent,
                               ),
-                              child: Material(
-                                color: Colors.transparent,
-                                child: InkWell(
-                                  borderRadius: BorderRadius.circular(24),
-                                  onTap: () async {
-                                    final newGroup = await Navigator.push<
-                                        Map<String, dynamic>>(
-                                      context,
-                                      PageRouteBuilder(
-                                        pageBuilder: (context, animation,
-                                                secondaryAnimation) =>
-                                            const CreateGroupScreen(),
-                                        transitionsBuilder: (context, animation,
-                                            secondaryAnimation, child) {
-                                          return FadeTransition(
-                                              opacity: animation, child: child);
-                                        },
+                              boxShadow: isLight
+                                  ? [
+                                      BoxShadow(
+                                        color: const Color(0xFF53C1F9)
+                                            .withValues(alpha: 0.25),
+                                        blurRadius: 14,
+                                        offset: const Offset(0, 5),
                                       ),
-                                    );
+                                      BoxShadow(
+                                        color: const Color(0xFFB79BFF)
+                                            .withValues(alpha: 0.22),
+                                        blurRadius: 14,
+                                        offset: const Offset(0, 6),
+                                      ),
+                                    ]
+                                  : null,
+                            ),
+                            child: Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(24),
+                                onTap: () async {
+                                  final newGroup = await Navigator.push<
+                                      Map<String, dynamic>>(
+                                    context,
+                                    PageRouteBuilder(
+                                      pageBuilder: (context, animation,
+                                              secondaryAnimation) =>
+                                          const CreateGroupScreen(),
+                                      transitionsBuilder: (context, animation,
+                                          secondaryAnimation, child) {
+                                        return FadeTransition(
+                                            opacity: animation, child: child);
+                                      },
+                                    ),
+                                  );
 
-                                    if (!mounted) {
-                                      return;
-                                    }
+                                  if (!mounted) {
+                                    return;
+                                  }
 
-                                    if (newGroup != null) {
-                                      setState(() {
-                                        _selectedChatsTabIndex = 1;
-                                      });
-                                    }
-                                  },
-                                  child: const Icon(
-                                    Icons.add_rounded,
-                                    color: Colors.white,
-                                    size: 25,
+                                  if (newGroup != null) {
+                                    setState(() {
+                                      _selectedChatsTabIndex = 1;
+                                    });
+                                  }
+                                },
+                                child: const Icon(
+                                  Icons.add_rounded,
+                                  color: Colors.white,
+                                  size: 25,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (_hasSearchQuery) _buildGlobalSearchResultsPanel(),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: isLight
+                              ? Colors.white.withValues(alpha: 0.62)
+                              : const Color(0xFF1E2632),
+                          borderRadius: BorderRadius.circular(24),
+                          border: Border.all(
+                            color: isLight
+                                ? const Color(0xFFA9C3FF)
+                                : Colors.transparent,
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: GestureDetector(
+                                onTap: () {
+                                  setState(() {
+                                    _selectedChatsTabIndex = 0;
+                                    _hasNewUsersNotification = false;
+                                    _usersTabAcknowledgedAt = DateTime.now();
+                                    _searchController.clear();
+                                    searchQuery = '';
+                                  });
+                                },
+                                child: Container(
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 12),
+                                  decoration: BoxDecoration(
+                                    color: _selectedChatsTabIndex == 0
+                                        ? (isLight
+                                            ? const Color(0xFFE8EEFF)
+                                            : const Color(0xFF9E7CFF))
+                                        : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(20),
+                                  ),
+                                  alignment: Alignment.center,
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Flexible(
+                                        child: FittedBox(
+                                          fit: BoxFit.scaleDown,
+                                          child: Text(
+                                            'משתמשים',
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: baseTextStyle.copyWith(
+                                                color: isLight
+                                                    ? Colors.black
+                                                    : Colors.white,
+                                                fontWeight: FontWeight.w600),
+                                          ),
+                                        ),
+                                      ),
+                                      if (_hasNewUsersNotification) ...[
+                                        const SizedBox(width: 6),
+                                        _buildGroupsTabNotificationDot(
+                                          isLight: isLight,
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                            Expanded(
+                              child: GestureDetector(
+                                onTap: () {
+                                  setState(() {
+                                    _selectedChatsTabIndex = 1;
+                                    _hasNewGroupsNotification = false;
+                                    _groupsTabAcknowledgedAt = DateTime.now();
+                                    _searchController.clear();
+                                    searchQuery = '';
+                                  });
+                                },
+                                child: Container(
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 12),
+                                  decoration: BoxDecoration(
+                                    color: _selectedChatsTabIndex == 1
+                                        ? (isLight
+                                            ? const Color(0xFFE8EEFF)
+                                            : const Color(0xFF9E7CFF))
+                                        : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(20),
+                                  ),
+                                  alignment: Alignment.center,
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Flexible(
+                                        child: FittedBox(
+                                          fit: BoxFit.scaleDown,
+                                          child: Text(
+                                            'קבוצות',
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: baseTextStyle.copyWith(
+                                                color: isLight
+                                                    ? Colors.black
+                                                    : Colors.white,
+                                                fontWeight: FontWeight.w600),
+                                          ),
+                                        ),
+                                      ),
+                                      if (_hasNewGroupsNotification) ...[
+                                        const SizedBox(width: 6),
+                                        _buildGroupsTabNotificationDot(
+                                          isLight: isLight,
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                            Expanded(
+                              child: GestureDetector(
+                                onTap: () {
+                                  setState(() {
+                                    _selectedChatsTabIndex = 2;
+                                    _searchController.clear();
+                                    searchQuery = '';
+                                  });
+                                },
+                                child: Container(
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 12),
+                                  decoration: BoxDecoration(
+                                    color: _selectedChatsTabIndex == 2
+                                        ? (isLight
+                                            ? const Color(0xFFE8EEFF)
+                                            : const Color(0xFF9E7CFF))
+                                        : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(20),
+                                  ),
+                                  alignment: Alignment.center,
+                                  child: FittedBox(
+                                    fit: BoxFit.scaleDown,
+                                    child: Text(
+                                      'קבוצות ציבוריות',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: baseTextStyle.copyWith(
+                                          color: isLight
+                                              ? Colors.black
+                                              : Colors.white,
+                                          fontWeight: FontWeight.w600),
+                                    ),
                                   ),
                                 ),
                               ),
@@ -1128,209 +1335,15 @@ class _ChatsScreenState extends State<ChatsScreen> {
                           ],
                         ),
                       ),
-                      if (_hasSearchQuery) _buildGlobalSearchResultsPanel(),
-                      Builder(
-                        builder: (context) {
-                          final currentUid =
-                              FirebaseAuth.instance.currentUser?.uid;
-                          if (currentUid == null || currentUid.isEmpty) {
-                            return const SizedBox.shrink();
-                          }
-
-                          return StreamBuilder<
-                              QuerySnapshot<Map<String, dynamic>>>(
-                            stream: _chatService.streamUserChats(currentUid),
-                            builder: (context, snapshot) {
-                              final docs =
-                                  snapshot.data?.docs.toList(growable: false) ??
-                                      const <QueryDocumentSnapshot<
-                                          Map<String, dynamic>>>[];
-                              _processTabNotificationsFromChats(
-                                  docs, currentUid);
-                              return const SizedBox.shrink();
-                            },
-                          );
-                        },
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: isLight
-                                ? Colors.white.withValues(alpha: 0.62)
-                                : const Color(0xFF1E2632),
-                            borderRadius: BorderRadius.circular(24),
-                            border: Border.all(
-                              color: isLight
-                                  ? const Color(0xFFA9C3FF)
-                                  : Colors.transparent,
-                            ),
-                          ),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: GestureDetector(
-                                  onTap: () {
-                                    setState(() {
-                                      _selectedChatsTabIndex = 0;
-                                      _hasNewUsersNotification = false;
-                                      _usersTabAcknowledgedAt = DateTime.now();
-                                      _searchController.clear();
-                                      searchQuery = '';
-                                    });
-                                  },
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                        vertical: 12),
-                                    decoration: BoxDecoration(
-                                      color: _selectedChatsTabIndex == 0
-                                          ? (isLight
-                                              ? const Color(0xFFE8EEFF)
-                                              : const Color(0xFF9E7CFF))
-                                          : Colors.transparent,
-                                      borderRadius: BorderRadius.circular(20),
-                                    ),
-                                    alignment: Alignment.center,
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.center,
-                                      children: [
-                                        Flexible(
-                                          child: FittedBox(
-                                            fit: BoxFit.scaleDown,
-                                            child: Text(
-                                              'משתמשים',
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: baseTextStyle.copyWith(
-                                                  color: isLight
-                                                      ? Colors.black
-                                                      : Colors.white,
-                                                  fontWeight: FontWeight.w600),
-                                            ),
-                                          ),
-                                        ),
-                                        if (_hasNewUsersNotification) ...[
-                                          const SizedBox(width: 6),
-                                          _buildGroupsTabNotificationDot(
-                                            isLight: isLight,
-                                          ),
-                                        ],
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              Expanded(
-                                child: GestureDetector(
-                                  onTap: () {
-                                    setState(() {
-                                      _selectedChatsTabIndex = 1;
-                                      _hasNewGroupsNotification = false;
-                                      _groupsTabAcknowledgedAt = DateTime.now();
-                                      _searchController.clear();
-                                      searchQuery = '';
-                                    });
-                                  },
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                        vertical: 12),
-                                    decoration: BoxDecoration(
-                                      color: _selectedChatsTabIndex == 1
-                                          ? (isLight
-                                              ? const Color(0xFFE8EEFF)
-                                              : const Color(0xFF9E7CFF))
-                                          : Colors.transparent,
-                                      borderRadius: BorderRadius.circular(20),
-                                    ),
-                                    alignment: Alignment.center,
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.center,
-                                      children: [
-                                        Flexible(
-                                          child: FittedBox(
-                                            fit: BoxFit.scaleDown,
-                                            child: Text(
-                                              'קבוצות',
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: baseTextStyle.copyWith(
-                                                  color: isLight
-                                                      ? Colors.black
-                                                      : Colors.white,
-                                                  fontWeight: FontWeight.w600),
-                                            ),
-                                          ),
-                                        ),
-                                        if (_hasNewGroupsNotification) ...[
-                                          const SizedBox(width: 6),
-                                          _buildGroupsTabNotificationDot(
-                                            isLight: isLight,
-                                          ),
-                                        ],
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              Expanded(
-                                child: GestureDetector(
-                                  onTap: () {
-                                    setState(() {
-                                      _selectedChatsTabIndex = 2;
-                                      _searchController.clear();
-                                      searchQuery = '';
-                                    });
-                                  },
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                        vertical: 12),
-                                    decoration: BoxDecoration(
-                                      color: _selectedChatsTabIndex == 2
-                                          ? (isLight
-                                              ? const Color(0xFFE8EEFF)
-                                              : const Color(0xFF9E7CFF))
-                                          : Colors.transparent,
-                                      borderRadius: BorderRadius.circular(20),
-                                    ),
-                                    alignment: Alignment.center,
-                                    child: FittedBox(
-                                      fit: BoxFit.scaleDown,
-                                      child: Text(
-                                        'קבוצות ציבוריות',
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: baseTextStyle.copyWith(
-                                            color: isLight
-                                                ? Colors.black
-                                                : Colors.white,
-                                            fontWeight: FontWeight.w600),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      if (_selectedChatsTabIndex == 0)
-                        _buildExistingChatsList()
-                      else if (_selectedChatsTabIndex == 1)
-                        _buildRequestsList()
-                      else
-                        _buildPublicGroupsList(),
-                      const SizedBox(height: 120),
-                    ],
-                  ),
+                    ),
+                    const SizedBox(height: 16),
+                    _buildActiveChatsTab(),
+                    const SizedBox(height: 120),
+                  ],
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
       bottomNavigationBar: const MainBottomNav(currentIndex: 3),
@@ -1343,9 +1356,10 @@ class _ChatsScreenState extends State<ChatsScreen> {
     if (currentUser == null) {
       return _buildCenteredMessage('אין עדיין צאטים!');
     }
+    _ensureStableChatStreams(currentUser.uid);
 
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: _chatService.streamUserChats(currentUser.uid),
+      stream: _userChatsStream,
       builder: (context, chatSnapshot) {
         if (chatSnapshot.connectionState == ConnectionState.waiting &&
             !chatSnapshot.hasData) {
@@ -1379,14 +1393,6 @@ class _ChatsScreenState extends State<ChatsScreen> {
             chatIds: chatIds,
           ),
           builder: (context, readSnapshot) {
-            if (readSnapshot.connectionState == ConnectionState.waiting &&
-                !readSnapshot.hasData) {
-              return const Padding(
-                padding: EdgeInsets.symmetric(vertical: 40),
-                child: Center(child: CircularProgressIndicator()),
-              );
-            }
-
             if (readSnapshot.hasError) {
               return _buildErrorState(
                   'שגיאה בטעינת מצב הקריאה: ${readSnapshot.error}');
@@ -1479,8 +1485,15 @@ class _ChatsScreenState extends State<ChatsScreen> {
                             ),
                           );
                         },
-                        leading: _buildChatAvatar(
-                            name: chatName, imageUrl: imageUrl),
+                        leading: isDirectChat
+                            ? _buildChatAvatar(
+                                name: chatName,
+                                imageUrl: imageUrl,
+                              )
+                            : _buildLiveGroupAvatar(
+                                groupId: chatDoc.id,
+                                fallbackImageUrl: imageUrl,
+                              ),
                         title: Row(
                           children: [
                             Expanded(
@@ -1537,36 +1550,34 @@ class _ChatsScreenState extends State<ChatsScreen> {
                                       : Colors.grey[400],
                                 ),
                               ),
-                        trailing: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            Text(
-                              _formatRelativeTime(activityDate),
-                              style: TextStyle(
-                                color:
-                                    isLight ? Colors.black54 : Colors.grey[500],
-                                fontSize: 12,
-                              ),
-                            ),
-                            if (hasUnread) ...[
-                              const SizedBox(height: 6),
-                              StreamBuilder<int>(
-                                stream: _unreadMessagesCountStream(
+                        trailing: SizedBox(
+                          height: double.infinity,
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              if (hasUnread) ...[
+                                _buildUnreadOverlayBadge(
                                   chatId: chatDoc.id,
                                   lastReadAt: lastReadAt,
                                 ),
-                                initialData: 1,
-                                builder: (context, unreadSnapshot) {
-                                  final unreadCount = unreadSnapshot.data ?? 1;
-                                  if (unreadCount <= 0) {
-                                    return const SizedBox.shrink();
-                                  }
-                                  return _buildUnreadBadge(unreadCount);
-                                },
+                                const SizedBox(height: 6),
+                              ],
+                              SizedBox(
+                                width: 92,
+                                child: Text(
+                                  _formatRelativeTime(activityDate),
+                                  textAlign: TextAlign.end,
+                                  style: TextStyle(
+                                    color: isLight
+                                        ? Colors.black54
+                                        : Colors.grey[500],
+                                    fontSize: 12,
+                                  ),
+                                ),
                               ),
                             ],
-                          ],
+                          ),
                         ),
                       ),
                     );
@@ -1589,15 +1600,28 @@ class _ChatsScreenState extends State<ChatsScreen> {
     );
   }
 
+  Widget _buildActiveChatsTab() {
+    switch (_selectedChatsTabIndex) {
+      case 0:
+        return _buildExistingChatsList();
+      case 1:
+        return _buildRequestsList();
+      case 2:
+      default:
+        return _buildPublicGroupsList();
+    }
+  }
+
   Widget _buildPublicGroupsList() {
     final isLight = Theme.of(context).brightness == Brightness.light;
     final currentUid = FirebaseAuth.instance.currentUser?.uid;
     if (currentUid == null || currentUid.isEmpty) {
       return _buildCenteredMessage('יש להתחבר כדי לצפות בקבוצות ציבוריות');
     }
+    _ensureStableChatStreams(currentUid);
 
     return StreamBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
-      stream: _chatService.streamPublicChatsExcludingUser(currentUid),
+      stream: _publicChatsStream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting &&
             !snapshot.hasData) {
@@ -1627,21 +1651,14 @@ class _ChatsScreenState extends State<ChatsScreen> {
         return FutureBuilder<List<Map<String, dynamic>>>(
           future: _resolvePublicGroupEntries(filteredDocs),
           builder: (context, resolvedSnapshot) {
-            if (resolvedSnapshot.connectionState == ConnectionState.waiting &&
-                !resolvedSnapshot.hasData) {
-              return const Column(
-                children: [
-                  SizedBox(height: 4),
-                  Padding(
-                    padding: EdgeInsets.symmetric(vertical: 32),
-                    child: Center(child: CircularProgressIndicator()),
-                  ),
-                ],
-              );
+            final resolvedEntries = resolvedSnapshot.data ??
+                (_lastResolvedPublicGroupEntries.isNotEmpty
+                    ? _lastResolvedPublicGroupEntries
+                    : const <Map<String, dynamic>>[]);
+            if (resolvedSnapshot.hasData) {
+              _lastResolvedPublicGroupEntries =
+                  resolvedSnapshot.data ?? const <Map<String, dynamic>>[];
             }
-
-            final resolvedEntries =
-                resolvedSnapshot.data ?? const <Map<String, dynamic>>[];
             final visibleEntries = _applyPublicGroupsFilters(resolvedEntries);
 
             return Column(
@@ -1705,8 +1722,10 @@ class _ChatsScreenState extends State<ChatsScreen> {
                             children: [
                               Row(
                                 children: [
-                                  _buildChatAvatar(
-                                      name: groupName, imageUrl: groupImageUrl),
+                                  _buildLiveGroupAvatar(
+                                    groupId: targetGroupId,
+                                    fallbackImageUrl: groupImageUrl,
+                                  ),
                                   const SizedBox(width: 12),
                                   Expanded(
                                     child: Column(
@@ -2194,7 +2213,9 @@ class _ChatsScreenState extends State<ChatsScreen> {
     filtered.sort((a, b) {
       final aDate = _chatActivityDate(a.data());
       final bDate = _chatActivityDate(b.data());
-      return bDate.compareTo(aDate);
+      final aComparable = aDate ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final bComparable = bDate ?? DateTime.fromMillisecondsSinceEpoch(0);
+      return bComparable.compareTo(aComparable);
     });
     return filtered;
   }
@@ -2347,6 +2368,37 @@ class _ChatsScreenState extends State<ChatsScreen> {
     return GroupAvatar(
       radius: 28,
       imageUrl: imageUrl,
+    );
+  }
+
+  Widget _buildLiveGroupAvatar({
+    required String groupId,
+    required String fallbackImageUrl,
+  }) {
+    final normalizedFallback = fallbackImageUrl.trim();
+    if (normalizedFallback.isNotEmpty) {
+      return GroupAvatar(
+        radius: 28,
+        imageUrl: normalizedFallback,
+      );
+    }
+
+    final normalizedGroupId = groupId.trim();
+    if (normalizedGroupId.isEmpty) {
+      return _buildChatAvatar(name: '', imageUrl: '');
+    }
+
+    return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      future: _groupDetails(normalizedGroupId),
+      builder: (context, snapshot) {
+        final groupData = snapshot.data?.data() ?? const <String, dynamic>{};
+        final resolvedImageUrl =
+            ((groupData['groupImageUrl'] as String?) ?? '').trim();
+        return GroupAvatar(
+          radius: 28,
+          imageUrl: resolvedImageUrl,
+        );
+      },
     );
   }
 
@@ -3109,9 +3161,10 @@ class _ChatsScreenState extends State<ChatsScreen> {
     if (currentUser == null) {
       return _buildCenteredMessage('יש להתחבר כדי לצפות בקבוצות');
     }
+    _ensureStableChatStreams(currentUser.uid);
 
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: _chatService.streamUserChats(currentUser.uid),
+      stream: _userChatsStream,
       builder: (context, chatSnapshot) {
         if (chatSnapshot.connectionState == ConnectionState.waiting &&
             !chatSnapshot.hasData) {
@@ -3202,8 +3255,10 @@ class _ChatsScreenState extends State<ChatsScreen> {
                         ),
                       );
                     },
-                    leading:
-                        _buildChatAvatar(name: chatName, imageUrl: imageUrl),
+                    leading: _buildLiveGroupAvatar(
+                      groupId: chatDoc.id,
+                      fallbackImageUrl: imageUrl,
+                    ),
                     title: Text(
                       chatName,
                       maxLines: 1,
@@ -3226,30 +3281,18 @@ class _ChatsScreenState extends State<ChatsScreen> {
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
-                        Text(
-                          _formatRelativeTime(activityDate),
-                          style: TextStyle(
-                            color: isLight ? Colors.black54 : Colors.grey[500],
-                            fontSize: 12,
+                        SizedBox(
+                          width: 92,
+                          child: Text(
+                            _formatRelativeTime(activityDate),
+                            textAlign: TextAlign.end,
+                            style: TextStyle(
+                              color:
+                                  isLight ? Colors.black54 : Colors.grey[500],
+                              fontSize: 12,
+                            ),
                           ),
                         ),
-                        if (hasUnread) ...[
-                          const SizedBox(height: 6),
-                          StreamBuilder<int>(
-                            stream: _unreadMessagesCountStream(
-                              chatId: chatDoc.id,
-                              lastReadAt: lastReadAt,
-                            ),
-                            initialData: 1,
-                            builder: (context, unreadSnapshot) {
-                              final unreadCount = unreadSnapshot.data ?? 1;
-                              if (unreadCount <= 0) {
-                                return const SizedBox.shrink();
-                              }
-                              return _buildUnreadBadge(unreadCount);
-                            },
-                          ),
-                        ],
                       ],
                     ),
                   ),
@@ -3364,7 +3407,10 @@ class _ChatsScreenState extends State<ChatsScreen> {
     );
   }
 
-  Widget _buildChatFrame({required Widget child, required bool hasUnread}) {
+  Widget _buildChatFrame({
+    required Widget child,
+    required bool hasUnread,
+  }) {
     final isLight = Theme.of(context).brightness == Brightness.light;
     final frameThickness = hasUnread ? 2.8 : 1.4;
 
@@ -3439,30 +3485,74 @@ class _ChatsScreenState extends State<ChatsScreen> {
 
   Widget _buildUnreadBadge(int unreadCount) {
     final label = unreadCount > 99 ? '99+' : '$unreadCount';
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    const badgeSize = 30.0;
 
     return Container(
-      constraints: const BoxConstraints(minWidth: 22),
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      width: badgeSize,
+      height: badgeSize,
       decoration: BoxDecoration(
-        color: const Color(0xFF53C1F9),
-        borderRadius: BorderRadius.circular(999),
-        boxShadow: const [
+        shape: BoxShape.circle,
+        gradient: LinearGradient(
+          colors: isLight
+              ? const [Color(0xFF9EEBFF), Color(0xFFC9B7FF)]
+              : const [Color(0xFFBCA7FF), Color(0xFF8EE6FF)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        boxShadow: [
           BoxShadow(
-            color: Color(0x553BC5FF),
-            blurRadius: 8,
-            offset: Offset(0, 2),
+            color: const Color(0xFF53C1F9).withValues(alpha: 0.28),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+          BoxShadow(
+            color: const Color(0xFFB79BFF).withValues(alpha: 0.24),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
-      child: Text(
-        label,
-        textAlign: TextAlign.center,
-        style: const TextStyle(
-          fontFamily: 'Segoe UI',
-          color: Color(0xFF0A1828),
-          fontSize: 11,
-          fontWeight: FontWeight.w800,
+      child: Center(
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            label,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontFamily: 'Segoe UI',
+              color: isLight ? Colors.white : Colors.black,
+              fontSize: 11,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildUnreadOverlayBadge({
+    required String chatId,
+    required DateTime? lastReadAt,
+  }) {
+    return SizedBox(
+      width: 30,
+      height: 30,
+      child: StreamBuilder<int>(
+        stream: _unreadMessagesCountStream(
+          chatId: chatId,
+          lastReadAt: lastReadAt,
+        ),
+        builder: (context, unreadSnapshot) {
+          final unreadCount = unreadSnapshot.data;
+          if (unreadCount == null) {
+            return const SizedBox.shrink();
+          }
+          if (unreadCount <= 0) {
+            return const SizedBox.shrink();
+          }
+          return _buildUnreadBadge(unreadCount);
+        },
       ),
     );
   }
@@ -3478,11 +3568,10 @@ class _ChatsScreenState extends State<ChatsScreen> {
     return lastMessageAt.isAfter(lastReadAt);
   }
 
-  DateTime _chatActivityDate(Map<String, dynamic> data) {
+  DateTime? _chatActivityDate(Map<String, dynamic> data) {
     return _timestampToDate(data['lastMessageAt'] as Timestamp?) ??
         _timestampToDate(data['updatedAt'] as Timestamp?) ??
-        _timestampToDate(data['createdAt'] as Timestamp?) ??
-        DateTime.now();
+        _timestampToDate(data['createdAt'] as Timestamp?);
   }
 
   DateTime? _timestampToDate(Timestamp? timestamp) {
@@ -3776,9 +3865,17 @@ class _ChatsScreenState extends State<ChatsScreen> {
     );
   }
 
-  String _formatRelativeTime(DateTime dateTime) {
+  String _formatRelativeTime(DateTime? dateTime) {
+    if (dateTime == null) {
+      return '';
+    }
+
     final now = DateTime.now();
     final difference = now.difference(dateTime);
+
+    if (difference.isNegative) {
+      return 'כרגע';
+    }
 
     if (difference.inSeconds < 60) {
       return 'כרגע';

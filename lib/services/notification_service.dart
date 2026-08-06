@@ -589,7 +589,7 @@ class NotificationService {
   }
 
   Future<List<String>> _fetchAllUserIds() async {
-    final snapshot = await _db.collection('users').get();
+    final snapshot = await _db.collection('users_public').get();
     return snapshot.docs
         .map((doc) => doc.id.trim())
         .where((uid) => uid.isNotEmpty)
@@ -600,7 +600,12 @@ class NotificationService {
     required String uid,
     required String settingKey,
   }) async {
-    final userDoc = await _db.collection('users').doc(uid).get();
+    DocumentSnapshot<Map<String, dynamic>>? userDoc;
+    try {
+      userDoc = await _db.collection('users').doc(uid).get();
+    } catch (_) {
+      return defaultSettings[settingKey] ?? true;
+    }
     final data = userDoc.data() ?? <String, dynamic>{};
     final settings =
         (data['notificationSettings'] as Map<String, dynamic>?) ??

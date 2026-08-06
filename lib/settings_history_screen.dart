@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import 'app_categories.dart';
+import 'chat_room_screen.dart';
 import 'post_media_utils.dart';
 import 'post_detail_view.dart';
 import 'widgets/post_media_viewer.dart';
@@ -125,42 +126,127 @@ class _SettingsHistoryScreenState extends State<SettingsHistoryScreen>
 
     return Stream.multi((controller) {
       Set<String> joinedGroupIds = <String>{};
+      Map<String, String> joinedPopGroupIdByPostId = <String, String>{};
       QuerySnapshot<Map<String, dynamic>>? postsSnapshot;
+      QuerySnapshot<Map<String, dynamic>>? joinedActivitySnapshot;
       StreamSubscription<Set<String>>? groupsSub;
       StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? postsSub;
+      StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? activitySub;
 
       void emitJoined() {
-        if (postsSnapshot == null) {
+        if (postsSnapshot == null && joinedActivitySnapshot == null) {
           return;
         }
 
-        final items = <_MeetHistoryPopItem>[];
-        for (final doc in postsSnapshot!.docs) {
+        final itemsByPostId = <String, _MeetHistoryPopItem>{};
+        final postsById = <String, Map<String, dynamic>>{};
+
+        for (final doc in postsSnapshot?.docs ??
+            const <QueryDocumentSnapshot<Map<String, dynamic>>>[]) {
           final data = doc.data();
+          postsById[doc.id] = data;
+
           final linkedGroupId = (data['linkedGroupId'] as String? ?? '').trim();
-          if (linkedGroupId.isEmpty ||
-              !joinedGroupIds.contains(linkedGroupId)) {
+          final joinedByLinkedGroup = linkedGroupId.isNotEmpty &&
+              joinedGroupIds.contains(linkedGroupId);
+          final joinedByOriginGroup =
+              joinedPopGroupIdByPostId.containsKey(doc.id);
+          if (!joinedByLinkedGroup && !joinedByOriginGroup) {
             continue;
           }
 
-          final authorUid = (data['authorUid'] as String? ?? '').trim();
+          final effectiveLinkedGroupId = linkedGroupId.isNotEmpty
+              ? linkedGroupId
+              : (joinedPopGroupIdByPostId[doc.id] ?? '');
+          final effectiveData =
+              effectiveLinkedGroupId.isNotEmpty && linkedGroupId.isEmpty
+                  ? <String, dynamic>{
+                      ...data,
+                      'linkedGroupId': effectiveLinkedGroupId,
+                    }
+                  : data;
+
+          final authorUid =
+              (effectiveData['authorUid'] as String? ?? '').trim();
           if (authorUid == _uid) {
             continue;
           }
 
-          final status = (data['status'] as String? ?? '').trim().toLowerCase();
+          final status =
+              (effectiveData['status'] as String? ?? '').trim().toLowerCase();
           if (status == 'deleted') {
             continue;
           }
 
-          final item = _MeetHistoryPopItem(id: doc.id, data: data);
+          final item = _MeetHistoryPopItem(id: doc.id, data: effectiveData);
           if (!_withinHistoryWindow(item.createdAt)) {
             continue;
           }
 
-          items.add(item);
+          itemsByPostId[doc.id] = item;
         }
 
+        for (final activityDoc in joinedActivitySnapshot?.docs ??
+            const <QueryDocumentSnapshot<Map<String, dynamic>>>[]) {
+          final activityData = activityDoc.data();
+          final postId = (activityData['postId'] as String? ?? '').trim();
+          if (postId.isEmpty) {
+            continue;
+          }
+
+          final postData = postsById[postId];
+          final fallbackGroupId = joinedPopGroupIdByPostId[postId] ?? '';
+          final activityTime = activityData['joinedAt'] ??
+              activityData['createdAt'] ??
+              activityData['serverJoinedAt'] ??
+              activityData['serverCreatedAt'];
+          final effectiveData = postData ??
+              <String, dynamic>{
+                'authorUid':
+                    (activityData['authorUid'] as String? ?? '').trim(),
+                'title': (activityData['title'] as String? ?? '').trim(),
+                'details':
+                    (activityData['description'] as String? ?? '').trim(),
+                'category': (activityData['category'] as String? ?? '').trim(),
+                'subCategory':
+                    (activityData['subCategory'] as String? ?? '').trim(),
+                'meetingLocation':
+                    (activityData['meetingLocation'] as String? ?? '').trim(),
+                'timePreference':
+                    (activityData['timePreference'] as String? ?? '').trim(),
+                'desiredParticipants': activityData['desiredParticipants'],
+                'minAge': activityData['minAge'],
+                'maxAge': activityData['maxAge'],
+                'linkedGroupId':
+                    (activityData['linkedGroupId'] as String? ?? '').trim(),
+                'status': 'active',
+                'createdAt': activityTime,
+              };
+          final activityLinkedGroupId =
+              (effectiveData['linkedGroupId'] as String? ?? '').trim();
+          final normalizedData =
+              activityLinkedGroupId.isNotEmpty || fallbackGroupId.isEmpty
+                  ? effectiveData
+                  : <String, dynamic>{
+                      ...effectiveData,
+                      'linkedGroupId': fallbackGroupId,
+                    };
+
+          final authorUid =
+              (normalizedData['authorUid'] as String? ?? '').trim();
+          if (authorUid == _uid) {
+            continue;
+          }
+
+          final item = _MeetHistoryPopItem(id: postId, data: normalizedData);
+          if (!_withinHistoryWindow(item.createdAt)) {
+            continue;
+          }
+
+          itemsByPostId[postId] = item;
+        }
+
+        final items = itemsByPostId.values.toList(growable: false);
         items.sort((a, b) {
           final aTime = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
           final bTime = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
@@ -170,8 +256,37 @@ class _SettingsHistoryScreenState extends State<SettingsHistoryScreen>
         controller.add(items);
       }
 
+      Future<void> refreshJoinedPopPostIdsFromGroups() async {
+        if (joinedGroupIds.isEmpty) {
+          joinedPopGroupIdByPostId = <String, String>{};
+          emitJoined();
+          return;
+        }
+
+        final groupDocFutures = joinedGroupIds
+            .map((groupId) => _db.collection('groups').doc(groupId).get())
+            .toList(growable: false);
+        final groupDocs = await Future.wait(groupDocFutures);
+
+        final postIdToGroupId = <String, String>{};
+        for (final groupDoc in groupDocs) {
+          final data = groupDoc.data() ?? <String, dynamic>{};
+          final originType =
+              (data['originType'] as String? ?? '').trim().toLowerCase();
+          final originMeetPostId =
+              (data['originMeetPostId'] as String? ?? '').trim();
+          if (originType == 'pop' && originMeetPostId.isNotEmpty) {
+            postIdToGroupId[originMeetPostId] = groupDoc.id;
+          }
+        }
+
+        joinedPopGroupIdByPostId = postIdToGroupId;
+        emitJoined();
+      }
+
       groupsSub = _joinedGroupIdsStream().listen((ids) {
         joinedGroupIds = ids;
+        unawaited(refreshJoinedPopPostIdsFromGroups());
         emitJoined();
       }, onError: controller.addError);
 
@@ -185,9 +300,21 @@ class _SettingsHistoryScreenState extends State<SettingsHistoryScreen>
         emitJoined();
       }, onError: controller.addError);
 
+      activitySub = _db
+          .collection('users')
+          .doc(_uid)
+          .collection('activity')
+          .where('type', isEqualTo: 'pop_join')
+          .snapshots()
+          .listen((snapshot) {
+        joinedActivitySnapshot = snapshot;
+        emitJoined();
+      }, onError: controller.addError);
+
       controller.onCancel = () async {
         await groupsSub?.cancel();
         await postsSub?.cancel();
+        await activitySub?.cancel();
       };
     });
   }
@@ -225,9 +352,14 @@ class _SettingsHistoryScreenState extends State<SettingsHistoryScreen>
 
   Future<Map<String, dynamic>> _mergedUserData(String uid) async {
     final publicDoc = await _db.collection('users_public').doc(uid).get();
-    final privateDoc = await _db.collection('users').doc(uid).get();
+    DocumentSnapshot<Map<String, dynamic>>? privateDoc;
+    try {
+      privateDoc = await _db.collection('users').doc(uid).get();
+    } catch (_) {
+      privateDoc = null;
+    }
     return <String, dynamic>{
-      ...?privateDoc.data(),
+      ...?(privateDoc?.data()),
       ...?publicDoc.data(),
     };
   }
@@ -1266,6 +1398,7 @@ class _SettingsHistoryScreenState extends State<SettingsHistoryScreen>
     final category = (data['category'] as String? ?? '').trim();
     final subCategory = (data['subCategory'] as String? ?? '').trim();
     final timePreference = (data['timePreference'] as String? ?? '').trim();
+    final linkedGroupId = (data['linkedGroupId'] as String? ?? '').trim();
     final desiredParticipants = (data['desiredParticipants'] as num?)?.toInt();
     final minAge = (data['minAge'] as num?)?.toInt();
     final maxAge = (data['maxAge'] as num?)?.toInt();
@@ -1464,6 +1597,27 @@ class _SettingsHistoryScreenState extends State<SettingsHistoryScreen>
                                     ),
                                   ],
                                 ),
+                              if (linkedGroupId.isNotEmpty) ...[
+                                if (canEdit) const SizedBox(height: 8),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: OutlinedButton.icon(
+                                        onPressed: () async {
+                                          Navigator.of(sheetContext).pop();
+                                          await _openGroupChatById(
+                                            groupId: linkedGroupId,
+                                            fallbackName:
+                                                title.isEmpty ? 'פופ' : title,
+                                          );
+                                        },
+                                        icon: const Icon(Icons.forum_rounded),
+                                        label: const Text('צפייה בקבוצה'),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
                             ],
                           ),
                         ),
@@ -1477,6 +1631,66 @@ class _SettingsHistoryScreenState extends State<SettingsHistoryScreen>
         );
       },
     );
+  }
+
+  Future<void> _openGroupChatById({
+    required String groupId,
+    required String fallbackName,
+  }) async {
+    final normalizedGroupId = groupId.trim();
+    if (normalizedGroupId.isEmpty || !mounted) {
+      return;
+    }
+
+    try {
+      final chatDoc =
+          await _db.collection('chats').doc(normalizedGroupId).get();
+      final groupDoc =
+          await _db.collection('groups').doc(normalizedGroupId).get();
+      final chatData = chatDoc.data() ?? <String, dynamic>{};
+      final groupData = groupDoc.data() ?? <String, dynamic>{};
+
+      String firstNonEmpty(List<String> values) {
+        for (final value in values) {
+          final trimmed = value.trim();
+          if (trimmed.isNotEmpty) return trimmed;
+        }
+        return '';
+      }
+
+      final chatName = firstNonEmpty([
+        (chatData['name'] as String? ?? ''),
+        (groupData['groupName'] as String? ?? ''),
+        (groupData['name'] as String? ?? ''),
+        fallbackName,
+      ]);
+      final avatarUrl = firstNonEmpty([
+        (chatData['groupImageUrl'] as String? ?? ''),
+        (groupData['groupImageUrl'] as String? ?? ''),
+      ]);
+
+      if (!mounted) {
+        return;
+      }
+
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => ChatRoomScreen(
+            chatName: chatName.isEmpty ? fallbackName : chatName,
+            avatarUrl: avatarUrl.isEmpty ? null : avatarUrl,
+            chatId: normalizedGroupId,
+            isDirectChat: false,
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('פתיחת הקבוצה נכשלה: $error')),
+      );
+    }
   }
 
   Widget _metaPill(IconData icon, String text) {

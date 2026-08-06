@@ -53,10 +53,24 @@ class SocialService {
   Map<String, dynamic> _publicCountersPayload({
     required int followersCount,
     required int followingCount,
+    Set<String>? followers,
+    Set<String>? following,
   }) {
+    List<String>? sortedFollowers;
+    if (followers != null) {
+      sortedFollowers = followers.toList(growable: false)..sort();
+    }
+
+    List<String>? sortedFollowing;
+    if (following != null) {
+      sortedFollowing = following.toList(growable: false)..sort();
+    }
+
     return <String, dynamic>{
       'followersCount': followersCount,
       'followingCount': followingCount,
+      if (sortedFollowers != null) 'followers': sortedFollowers,
+      if (sortedFollowing != null) 'following': sortedFollowing,
     };
   }
 
@@ -79,13 +93,11 @@ class SocialService {
   }) async {
     final myUserRef = _db.collection('users').doc(myUid);
     final myPublicUserRef = _db.collection('users_public').doc(myUid);
-    final targetUserSnap = await _db.collection('users').doc(targetUid).get();
     final targetPublicSnap =
         await _db.collection('users_public').doc(targetUid).get();
 
-    final targetData = targetUserSnap.data() ?? <String, dynamic>{};
     final targetPublicData = targetPublicSnap.data() ?? <String, dynamic>{};
-    final isPrivateTarget = _isPrivateUser(targetData, targetPublicData);
+    final isPrivateTarget = _isPrivateUser(null, targetPublicData);
 
     final mySnap = await myUserRef.get();
     final myData = mySnap.data() ?? <String, dynamic>{};
@@ -122,6 +134,8 @@ class SocialService {
       _publicCountersPayload(
         followersCount: myFollowers.length,
         followingCount: nextFollowing.length,
+        followers: myFollowers,
+        following: nextFollowing,
       ),
       SetOptions(merge: true),
     );
@@ -152,6 +166,8 @@ class SocialService {
       _publicCountersPayload(
         followersCount: myFollowers.length,
         followingCount: myFollowing.length,
+        followers: myFollowers,
+        following: myFollowing,
       ),
       SetOptions(merge: true),
     );
@@ -181,6 +197,8 @@ class SocialService {
       _publicCountersPayload(
         followersCount: myFollowers.length,
         followingCount: myFollowing.length,
+        followers: myFollowers,
+        following: myFollowing,
       ),
       SetOptions(merge: true),
     );
@@ -288,10 +306,14 @@ class SocialService {
         final myPublicUpdate = _publicCountersPayload(
           followersCount: _readUidSet(myData, 'followers').length,
           followingCount: myFollowing.length,
+          followers: _readUidSet(myData, 'followers'),
+          following: myFollowing,
         );
         final targetPublicUpdate = _publicCountersPayload(
           followersCount: targetFollowers.length,
           followingCount: _readUidSet(targetData, 'following').length,
+          followers: targetFollowers,
+          following: _readUidSet(targetData, 'following'),
         );
 
         debugPrint('[Follow Debug] update ${myUserRef.path}: $myUserUpdate');
@@ -454,6 +476,8 @@ class SocialService {
           _publicCountersPayload(
             followersCount: myFollowers.length,
             followingCount: myFollowing.length,
+            followers: myFollowers,
+            following: myFollowing,
           ),
           SetOptions(merge: true),
         );
@@ -464,6 +488,8 @@ class SocialService {
             _publicCountersPayload(
               followersCount: targetFollowers.length,
               followingCount: targetFollowing.length,
+              followers: targetFollowers,
+              following: targetFollowing,
             ),
           );
         }
@@ -557,19 +583,17 @@ class SocialService {
       return true;
     }
 
-    final targetSnapshot =
-        await _db.collection('users').doc(normalizedTargetUid).get();
     final targetPublicSnapshot =
         await _db.collection('users_public').doc(normalizedTargetUid).get();
-    final targetData = targetSnapshot.data() ?? <String, dynamic>{};
     final targetPublicData = targetPublicSnapshot.data() ?? <String, dynamic>{};
-    final isPrivateTarget = _isPrivateUser(targetData, targetPublicData);
+    final isPrivateTarget = _isPrivateUser(null, targetPublicData);
     if (!isPrivateTarget) {
       return true;
     }
 
-    final targetFollowers = _readUidSet(targetData, 'followers');
-    return targetFollowers.contains(myUid);
+    final mySnapshot = await _db.collection('users').doc(myUid).get();
+    final myFollowing = _readUidSet(mySnapshot.data(), 'following');
+    return myFollowing.contains(normalizedTargetUid);
   }
 
   Future<void> cancelFollowRequest(String targetUid) async {
@@ -692,6 +716,8 @@ class SocialService {
         _publicCountersPayload(
           followersCount: _uidCount(myFollowers),
           followingCount: _uidCount(myFollowing),
+          followers: myFollowers,
+          following: myFollowing,
         ),
         SetOptions(merge: true),
       );
@@ -701,6 +727,8 @@ class SocialService {
         _publicCountersPayload(
           followersCount: _uidCount(requesterFollowers),
           followingCount: _uidCount(requesterFollowing),
+          followers: requesterFollowers,
+          following: requesterFollowing,
         ),
         SetOptions(merge: true),
       );
@@ -711,6 +739,8 @@ class SocialService {
           _publicCountersPayload(
             followersCount: _uidCount(myFollowers),
             followingCount: _uidCount(myFollowing),
+            followers: myFollowers,
+            following: myFollowing,
           ),
           SetOptions(merge: true),
         );
@@ -722,6 +752,8 @@ class SocialService {
           _publicCountersPayload(
             followersCount: _uidCount(requesterFollowers),
             followingCount: _uidCount(requesterFollowing),
+            followers: requesterFollowers,
+            following: requesterFollowing,
           ),
           SetOptions(merge: true),
         );
@@ -828,6 +860,8 @@ class SocialService {
           _publicCountersPayload(
             followersCount: _uidCount(myFollowers),
             followingCount: _uidCount(myFollowing),
+            followers: myFollowers,
+            following: myFollowing,
           ),
           SetOptions(merge: true),
         );
@@ -837,6 +871,8 @@ class SocialService {
           _publicCountersPayload(
             followersCount: _uidCount(followerFollowers),
             followingCount: _uidCount(followerFollowing),
+            followers: followerFollowers,
+            following: followerFollowing,
           ),
           SetOptions(merge: true),
         );
@@ -883,13 +919,60 @@ class SocialService {
     }
 
     final mySnapshot = await _db.collection('users').doc(myUid).get();
-    final targetSnapshot = await _db.collection('users').doc(targetUid).get();
-
     final myFollowingIds = _readUidSet(mySnapshot.data(), 'following');
-    final targetFollowingIds = _readUidSet(targetSnapshot.data(), 'following');
-    return myFollowingIds
-        .intersection(targetFollowingIds)
-        .toList(growable: false);
+    final myFollowerIds = _readUidSet(mySnapshot.data(), 'followers');
+    final myFriends = myFollowingIds.intersection(myFollowerIds);
+
+    Set<String> targetFollowingIds = <String>{};
+    Set<String> targetFollowerIds = <String>{};
+    try {
+      final targetPublicSnapshot =
+          await _db.collection('users_public').doc(targetUid).get();
+      targetFollowingIds =
+          _readUidSet(targetPublicSnapshot.data(), 'following');
+      targetFollowerIds = _readUidSet(targetPublicSnapshot.data(), 'followers');
+    } catch (_) {
+      return const <String>[];
+    }
+
+    Set<String> targetFriends = <String>{};
+    if (targetFollowingIds.isNotEmpty && targetFollowerIds.isNotEmpty) {
+      targetFriends = targetFollowingIds.intersection(targetFollowerIds);
+    }
+
+    if (targetFriends.isEmpty) {
+      try {
+        final followersOfTargetSnap = await _db
+            .collection('users_public')
+            .where('following', arrayContains: targetUid)
+            .get();
+        final followingOfTargetSnap = await _db
+            .collection('users_public')
+            .where('followers', arrayContains: targetUid)
+            .get();
+
+        final followersOfTarget = followersOfTargetSnap.docs
+            .map((doc) => doc.id.trim())
+            .where((id) => id.isNotEmpty)
+            .toSet();
+        final followingOfTarget = followingOfTargetSnap.docs
+            .map((doc) => doc.id.trim())
+            .where((id) => id.isNotEmpty)
+            .toSet();
+
+        targetFriends = followersOfTarget.intersection(followingOfTarget);
+      } catch (_) {
+        targetFriends = <String>{};
+      }
+    }
+
+    if (myFriends.isEmpty || targetFriends.isEmpty) {
+      return const <String>[];
+    }
+
+    final mutual = myFriends.intersection(targetFriends).toList(growable: false)
+      ..sort();
+    return mutual;
   }
 
   Future<bool> isMutualFollow(String otherUid) async {
@@ -903,11 +986,9 @@ class SocialService {
     }
 
     final mySnapshot = await _db.collection('users').doc(myUid).get();
-    final targetSnapshot = await _db.collection('users').doc(targetUid).get();
-
     final myFollowingIds = _readUidSet(mySnapshot.data(), 'following');
-    final targetFollowingIds = _readUidSet(targetSnapshot.data(), 'following');
+    final myFollowerIds = _readUidSet(mySnapshot.data(), 'followers');
     return myFollowingIds.contains(targetUid) &&
-        targetFollowingIds.contains(myUid);
+        myFollowerIds.contains(targetUid);
   }
 }

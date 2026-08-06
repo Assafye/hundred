@@ -28,6 +28,13 @@ class PresenceService with WidgetsBindingObserver {
   bool _started = false;
   String? _activeUid;
 
+  CollectionReference<Map<String, dynamic>> get _users =>
+      _firestore.collection('users');
+  CollectionReference<Map<String, dynamic>> get _publicUsers =>
+      _firestore.collection('users_public');
+  CollectionReference<Map<String, dynamic>> get _userPresence =>
+      _firestore.collection('user_presence');
+
   Future<void> start() async {
     if (_started) {
       return;
@@ -156,8 +163,16 @@ class PresenceService with WidgetsBindingObserver {
     };
 
     await Future.wait([
-      _firestore.collection('users').doc(uid).set(payload, SetOptions(merge: true)),
-      _firestore.collection('users_public').doc(uid).set(payload, SetOptions(merge: true)),
+      _users.doc(uid).set(payload, SetOptions(merge: true)),
+      _userPresence.doc(uid).set(payload, SetOptions(merge: true)),
+      _publicUsers.doc(uid).set(
+        {
+          'isOnline': FieldValue.delete(),
+          'lastSeen': FieldValue.delete(),
+          'presenceUpdatedAt': FieldValue.delete(),
+        },
+        SetOptions(merge: true),
+      ),
     ]);
   }
 }

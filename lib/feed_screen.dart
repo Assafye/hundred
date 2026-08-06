@@ -16,10 +16,14 @@ import 'services/feed_backend_service.dart';
 import 'services/public_user_profile_service.dart';
 import 'services/firestore_rule_feedback.dart';
 import 'services/post_interaction_overlay_service.dart';
+import 'services/report_service.dart';
 import 'services/share_flow_log_service.dart';
 import 'services/social_service.dart';
+import 'services/group_service.dart';
 import 'services/spontaneous_challenge_service.dart';
 import 'category_screen.dart';
+import 'chat_room_screen.dart';
+import 'group_details_screen.dart';
 import 'user_profile_screen.dart';
 import 'main_bottom_nav.dart';
 import 'stars_screen.dart'
@@ -31,6 +35,7 @@ import 'app_categories.dart';
 import 'widgets/post_media_viewer.dart';
 import 'widgets/post_comments_sheet.dart';
 import 'widgets/post_share_targets_sheet.dart';
+import 'widgets/report_dialogs.dart';
 
 enum _FeedShareMenuAction { copyLink, sendToFriend, systemShare }
 
@@ -71,6 +76,8 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
   final PublicUserProfileService _publicUserProfileService =
       PublicUserProfileService();
   final SocialService _socialService = SocialService();
+  final GroupService _groupService = GroupService();
+  final ReportService _reportService = ReportService();
 
   static const Color _themePurple = Color(0xFF8C62FF);
   static const Color _themePurpleDeep = Color(0xFF6C3DFF);
@@ -84,8 +91,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
   final Set<String> _likeInFlightPostIds = <String>{};
   final Set<String> _saveInFlightPostIds = <String>{};
   final Set<String> _shareInFlightPostIds = <String>{};
-  final Map<String, Future<DocumentSnapshot<Map<String, dynamic>>>>
-      _authorFutureCache = {};
+  final Map<String, Future<PublicUserProfile?>> _authorFutureCache = {};
   Offset _heartTapPosition = Offset.zero;
   bool _showDoubleTapHeart = false;
   String _activeHeartPostId = '';
@@ -95,9 +101,6 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
   Timer? _spontaneousPromptTimer;
   Stream<List<Map<String, dynamic>>>? _cachedFeedStream;
   String _cachedFeedStreamKey = '';
-  Future<List<PostModel>>? _cachedAudienceFilterFuture;
-  String _cachedAudienceFilterKey = '';
-
   late final List<String> categories;
   String _randomizedFeedSignature = '';
   Map<String, int> _randomizedFeedOrder = <String, int>{};
@@ -371,11 +374,10 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
         : const Color(0xFF0B1019);
   }
 
-  Future<DocumentSnapshot<Map<String, dynamic>>> _authorFuture(
-      String authorId) {
+  Future<PublicUserProfile?> _authorFuture(String authorId) {
     final normalizedId = authorId.trim();
     if (normalizedId.isEmpty) {
-      return Future<DocumentSnapshot<Map<String, dynamic>>>.error(
+      return Future<PublicUserProfile?>.error(
         StateError('Missing authorId for users lookup'),
       );
     }
@@ -383,10 +385,8 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
     final cached = _authorFutureCache[normalizedId];
     if (cached != null) return cached;
 
-    final future = FirebaseFirestore.instance
-        .collection('users')
-        .doc(normalizedId)
-        .get()
+    final future = _publicUserProfileService
+        .fetchProfile(normalizedId)
         .catchError((error) {
       _authorFutureCache.remove(normalizedId);
       throw error;
@@ -852,6 +852,67 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
     );
   }
 
+  Future<void> _reportPostFromFeed(PostModel post) async {
+    final currentUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    final authorUid = post.authorId.trim();
+    final postId = post.id.trim();
+
+    if (currentUid.isEmpty || authorUid.isEmpty || postId.isEmpty) {
+      return;
+    }
+    if (authorUid == currentUid) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('לא ניתן לדווח על הפוסט של עצמך.')),
+      );
+      return;
+    }
+
+    final shouldReport = await showReportConfirmationDialog(
+      context,
+      targetLabel: 'פוסט',
+    );
+    if (!shouldReport || !mounted) {
+      return;
+    }
+
+    final reason = await showReportReasonPicker(
+      context,
+      targetLabel: 'פוסט',
+    );
+    if (reason == null || !mounted) {
+      return;
+    }
+
+    final details = await showReportDetailsDialog(
+      context,
+      reason: reason,
+      targetLabel: 'פוסט',
+    );
+    if (details == null || details.trim().isEmpty || !mounted) {
+      return;
+    }
+
+    try {
+      await _reportService.submitPostReport(
+        targetPostId: postId,
+        targetUserUid: authorUid,
+        reason: reason,
+        details: details,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('הדיווח נשלח. תודה שעזרת לשמור על הקהילה.')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('שליחת הדיווח נכשלה: $error')),
+      );
+    }
+  }
+
   Widget _buildShareOption(IconData icon, String label, Color labelColor,
       bool isLight, VoidCallback onTap) {
     return GestureDetector(
@@ -944,7 +1005,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
     final audience = _postAudience(data);
     final authorIsPrivate = (data['isPrivate'] as bool?) ??
         (authorMap['isPrivate'] as bool?) ??
-        false;
+        true;
     final title = (data['title'] as String? ?? '').trim();
     final description =
         ((data['description'] as String?) ?? (data['caption'] as String?) ?? '')
@@ -1319,8 +1380,10 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
   }
 
   Future<void> _openParticipantsSheet(PostModel post) async {
+    final linkedGroupId = post.linkedGroupId.trim();
+    final hasLinkedGroup = linkedGroupId.isNotEmpty;
     final participantUids = _participantUidsForPost(post, includeAuthor: false);
-    if (participantUids.isEmpty) {
+    if (participantUids.isEmpty && !hasLinkedGroup) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('לא נבחרו חברים משתתפים לפופ הזה')),
@@ -1375,7 +1438,8 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
 
                     final profiles =
                         snapshot.data ?? const <PublicUserProfile>[];
-                    if (profiles.isEmpty) {
+                    final hasParticipants = profiles.isNotEmpty;
+                    if (profiles.isEmpty && !hasLinkedGroup) {
                       return Center(
                         child: Padding(
                           padding: const EdgeInsets.all(24),
@@ -1405,193 +1469,652 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                             fontWeight: FontWeight.w800,
                           ),
                         ),
-                        const SizedBox(height: 12),
-                        Expanded(
-                          child: ListView.builder(
-                            itemCount: profiles.length,
-                            itemBuilder: (context, index) {
-                              final profile = profiles[index];
-                              final isMe = currentUid.isNotEmpty &&
-                                  profile.userId == currentUid;
-                              final name = profile.displayName.isNotEmpty
-                                  ? profile.displayName
-                                  : profile.handle;
-
-                              return Container(
-                                margin: const EdgeInsets.only(bottom: 8),
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 10, vertical: 8),
-                                decoration: BoxDecoration(
-                                  color: isLight
-                                      ? const Color(0xFFEFF4FF)
-                                      : const Color(0xFF1A2435),
-                                  borderRadius: BorderRadius.circular(14),
-                                  border: Border.all(
-                                      color: const Color(0xFF53C1F9)
-                                          .withValues( alpha: 0.22)),
-                                ),
-                                child: Row(
-                                  children: [
-                                    CircleAvatar(
-                                      radius: 18,
-                                      backgroundColor: isLight
-                                          ? const Color(0xFFC8B5FF)
-                                          : const Color(0xFF9E7CFF),
-                                      backgroundImage:
-                                          profile.profilePictureUrl.isNotEmpty
-                                              ? NetworkImage(
-                                                  profile.profilePictureUrl)
-                                              : null,
-                                      child: profile.profilePictureUrl.isEmpty
-                                          ? Text(
-                                              name.isNotEmpty
-                                                  ? name.characters.first
-                                                  : '?',
-                                              style: const TextStyle(
-                                                color: Colors.white,
-                                                fontWeight: FontWeight.bold,
-                                              ),
-                                            )
-                                          : null,
-                                    ),
-                                    const SizedBox(width: 10),
-                                    Expanded(
-                                      child: InkWell(
-                                        onTap: () {
-                                          Navigator.of(sheetContext).pop();
-                                          _navigateToScreen(UserDetailScreen(
-                                              uid: profile.userId));
-                                        },
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              name,
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: TextStyle(
-                                                color: isLight
-                                                    ? const Color(0xFF273A5D)
-                                                    : Colors.white,
-                                                fontWeight: FontWeight.w700,
-                                              ),
-                                            ),
-                                            const SizedBox(height: 2),
-                                            Text(
-                                              profile.handle,
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: TextStyle(
-                                                color: isLight
-                                                    ? const Color(0xFF6C7A95)
-                                                    : Colors.grey[400],
-                                                fontSize: 12,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
+                        if (hasLinkedGroup) ...[
+                          const SizedBox(height: 8),
+                          FutureBuilder<_LinkedGroupMeta?>(
+                            future: _fetchLinkedGroupMeta(linkedGroupId),
+                            builder: (context, groupSnapshot) {
+                              final groupMeta = groupSnapshot.data;
+                              if (groupSnapshot.connectionState ==
+                                      ConnectionState.waiting &&
+                                  groupMeta == null) {
+                                return Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 12,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: isLight
+                                        ? const Color(0xFFEAF2FF)
+                                        : const Color(0xFF1A2435),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: const Center(
+                                    child: SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
                                       ),
                                     ),
-                                    const SizedBox(width: 8),
-                                    if (isMe)
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 8, vertical: 6),
-                                        decoration: BoxDecoration(
-                                          color: isLight
-                                              ? const Color(0xFFDDE7FF)
-                                              : Colors.white10,
-                                          borderRadius:
-                                              BorderRadius.circular(10),
-                                        ),
+                                  ),
+                                );
+                              }
+
+                              if (groupMeta == null) {
+                                return Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 7,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: isLight
+                                        ? const Color(0xFFEAF2FF)
+                                        : const Color(0xFF1A2435),
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: isLight
+                                          ? const Color(0xFFA9C3FF)
+                                          : const Color(0xFF53C1F9)
+                                              .withValues(alpha: 0.22),
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        Icons.link_rounded,
+                                        size: 16,
+                                        color: isLight
+                                            ? const Color(0xFF5A6CFF)
+                                            : const Color(0xFF9EDBFF),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Expanded(
                                         child: Text(
-                                          'אתה',
+                                          'קבוצה מקושרת',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
                                           style: TextStyle(
                                             color: isLight
-                                                ? const Color(0xFF546382)
-                                                : Colors.white70,
+                                                ? const Color(0xFF33466D)
+                                                : const Color(0xFFEAF4FF),
                                             fontWeight: FontWeight.w700,
-                                            fontSize: 12,
                                           ),
                                         ),
-                                      )
-                                    else
-                                      StreamBuilder<FollowRelationship>(
-                                        stream: _socialService
-                                            .watchFollowRelationship(
-                                                profile.userId),
-                                        builder: (context, followSnapshot) {
-                                          final relationship =
-                                              followSnapshot.data ??
-                                                  const FollowRelationship();
-                                          final isFollowing =
-                                              relationship.isFollowing;
-                                          final isRequestPending =
-                                              relationship.isRequestPending;
-                                          return ElevatedButton(
-                                            onPressed: () =>
-                                                _toggleFollowFromParticipantRow(
-                                              targetUid: profile.userId,
-                                              relationship: relationship,
-                                            ),
-                                            style: ElevatedButton.styleFrom(
-                                              elevation: 0,
-                                              minimumSize: const Size(68, 34),
-                                              tapTargetSize:
-                                                  MaterialTapTargetSize
-                                                      .shrinkWrap,
-                                              visualDensity:
-                                                  const VisualDensity(
-                                                horizontal: -2,
-                                                vertical: -2,
-                                              ),
-                                              backgroundColor: isFollowing
-                                                  ? (isLight
-                                                      ? const Color(0xFFD5E2FF)
-                                                      : const Color(0xFF26354D))
-                                                  : (isRequestPending
-                                                      ? (isLight
-                                                          ? const Color(
-                                                              0xFFE3ECF2)
-                                                          : const Color(
-                                                              0xFF3A4B57))
-                                                      : const Color(
-                                                          0xFF9E7CFF)),
-                                              foregroundColor: isFollowing
-                                                  ? (isLight
-                                                      ? const Color(0xFF2E3E63)
-                                                      : Colors.white)
-                                                  : Colors.white,
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                      horizontal: 10,
-                                                      vertical: 6),
-                                              shape: RoundedRectangleBorder(
-                                                borderRadius:
-                                                    BorderRadius.circular(10),
-                                              ),
-                                            ),
-                                            child: Text(
-                                              isFollowing
-                                                  ? 'עוקב'
-                                                  : (isRequestPending
-                                                      ? 'בקשה נשלחה'
-                                                      : 'עקוב'),
-                                              style: const TextStyle(
-                                                fontSize: 11,
-                                                fontWeight: FontWeight.w700,
-                                              ),
-                                            ),
-                                          );
-                                        },
                                       ),
+                                    ],
+                                  ),
+                                );
+                              }
+
+                              return Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  gradient: isLight
+                                      ? const LinearGradient(
+                                          colors: [
+                                            Color(0xFFEFF5FF),
+                                            Color(0xFFF6F1FF)
+                                          ],
+                                          begin: Alignment.topLeft,
+                                          end: Alignment.bottomRight,
+                                        )
+                                      : const LinearGradient(
+                                          colors: [
+                                            Color(0xFF1A2435),
+                                            Color(0xFF202B43)
+                                          ],
+                                          begin: Alignment.topLeft,
+                                          end: Alignment.bottomRight,
+                                        ),
+                                  borderRadius: BorderRadius.circular(14),
+                                  border: Border.all(
+                                    color: isLight
+                                        ? const Color(0xFFB4C5FF)
+                                        : const Color(0xFF53C1F9)
+                                            .withValues(alpha: 0.28),
+                                  ),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        CircleAvatar(
+                                          radius: 20,
+                                          backgroundColor:
+                                              const Color(0xFF9E7CFF),
+                                          backgroundImage:
+                                              groupMeta.imageUrl.isNotEmpty
+                                                  ? NetworkImage(
+                                                      groupMeta.imageUrl,
+                                                    )
+                                                  : null,
+                                          child: groupMeta.imageUrl.isEmpty
+                                              ? const Icon(
+                                                  Icons.groups_rounded,
+                                                  color: Colors.white,
+                                                  size: 20,
+                                                )
+                                              : null,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                groupMeta.name,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: TextStyle(
+                                                  color: isLight
+                                                      ? const Color(0xFF1E2A45)
+                                                      : Colors.white,
+                                                  fontWeight: FontWeight.w800,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 2),
+                                              Text(
+                                                'קבוצה מקושרת לפוסט',
+                                                style: TextStyle(
+                                                  color: isLight
+                                                      ? const Color(0xFF5A6CFF)
+                                                      : const Color(0xFF9EDBFF),
+                                                  fontSize: 11,
+                                                  fontWeight: FontWeight.w700,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                            vertical: 4,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: isLight
+                                                ? Colors.white
+                                                : Colors.white10,
+                                            borderRadius:
+                                                BorderRadius.circular(999),
+                                            border: Border.all(
+                                              color: isLight
+                                                  ? const Color(0xFFA9C3FF)
+                                                  : Colors.white24,
+                                            ),
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(
+                                                groupMeta.isPublic
+                                                    ? Icons.public_rounded
+                                                    : Icons
+                                                        .lock_outline_rounded,
+                                                size: 14,
+                                                color: isLight
+                                                    ? const Color(0xFF41557C)
+                                                    : Colors.white70,
+                                              ),
+                                              const SizedBox(width: 4),
+                                              Text(
+                                                groupMeta.isPublic
+                                                    ? 'ציבורית'
+                                                    : 'פרטית',
+                                                style: TextStyle(
+                                                  color: isLight
+                                                      ? const Color(0xFF41557C)
+                                                      : Colors.white70,
+                                                  fontSize: 12,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 10),
+                                    LayoutBuilder(
+                                      builder: (context, constraints) {
+                                        final isNarrowActions =
+                                            constraints.maxWidth < 350;
+
+                                        final detailsButton = OutlinedButton(
+                                          style: OutlinedButton.styleFrom(
+                                            minimumSize:
+                                                const Size.fromHeight(34),
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 8,
+                                              vertical: 6,
+                                            ),
+                                            tapTargetSize: MaterialTapTargetSize
+                                                .shrinkWrap,
+                                            visualDensity: const VisualDensity(
+                                              horizontal: -2,
+                                              vertical: -2,
+                                            ),
+                                          ),
+                                          onPressed: () {
+                                            _showLinkedGroupDetailsDialog(
+                                              groupMeta,
+                                            );
+                                          },
+                                          child: const Text(
+                                            'פרטים',
+                                            style: TextStyle(fontSize: 12),
+                                          ),
+                                        );
+
+                                        final groupActionButton = Builder(
+                                          builder: (_) {
+                                            if (groupMeta.isCurrentUserMember) {
+                                              return ElevatedButton(
+                                                style: ElevatedButton.styleFrom(
+                                                  minimumSize:
+                                                      const Size(72, 34),
+                                                  padding: const EdgeInsets
+                                                      .symmetric(
+                                                    horizontal: 10,
+                                                    vertical: 6,
+                                                  ),
+                                                  tapTargetSize:
+                                                      MaterialTapTargetSize
+                                                          .shrinkWrap,
+                                                  visualDensity:
+                                                      const VisualDensity(
+                                                    horizontal: -2,
+                                                    vertical: -2,
+                                                  ),
+                                                  backgroundColor: isLight
+                                                      ? Colors.white
+                                                      : const Color(0xFF26354D),
+                                                  foregroundColor: isLight
+                                                      ? const Color(0xFF2E3E63)
+                                                      : Colors.white,
+                                                  side: isLight
+                                                      ? const BorderSide(
+                                                          color:
+                                                              Color(0xFFA9C3FF),
+                                                        )
+                                                      : BorderSide.none,
+                                                ),
+                                                onPressed: () {
+                                                  Navigator.of(sheetContext)
+                                                      .pop();
+                                                  _navigateToScreen(
+                                                    ChatRoomScreen(
+                                                      chatName: groupMeta.name,
+                                                      avatarUrl: groupMeta
+                                                              .imageUrl.isEmpty
+                                                          ? null
+                                                          : groupMeta.imageUrl,
+                                                      chatId: groupMeta.groupId,
+                                                      isDirectChat: false,
+                                                    ),
+                                                  );
+                                                },
+                                                child: const Text(
+                                                  'צפה בקבוצה',
+                                                  style:
+                                                      TextStyle(fontSize: 12),
+                                                ),
+                                              );
+                                            }
+
+                                            if (groupMeta
+                                                .isCurrentUserPending) {
+                                              return ElevatedButton(
+                                                style: ElevatedButton.styleFrom(
+                                                  minimumSize:
+                                                      const Size(72, 34),
+                                                  tapTargetSize:
+                                                      MaterialTapTargetSize
+                                                          .shrinkWrap,
+                                                  visualDensity:
+                                                      const VisualDensity(
+                                                    horizontal: -2,
+                                                    vertical: -2,
+                                                  ),
+                                                  backgroundColor: isLight
+                                                      ? const Color(0xFFE8EEFF)
+                                                      : Colors.white10,
+                                                  foregroundColor: isLight
+                                                      ? const Color(0xFF4A5F8A)
+                                                      : Colors.white70,
+                                                  side: isLight
+                                                      ? const BorderSide(
+                                                          color:
+                                                              Color(0xFFA9C3FF),
+                                                        )
+                                                      : BorderSide.none,
+                                                ),
+                                                onPressed: null,
+                                                child: const Text(
+                                                  'בקשתך נשלחה',
+                                                  style:
+                                                      TextStyle(fontSize: 12),
+                                                ),
+                                              );
+                                            }
+
+                                            if (groupMeta.isPublic) {
+                                              return ElevatedButton(
+                                                style: ElevatedButton.styleFrom(
+                                                  minimumSize:
+                                                      const Size(72, 34),
+                                                  tapTargetSize:
+                                                      MaterialTapTargetSize
+                                                          .shrinkWrap,
+                                                  visualDensity:
+                                                      const VisualDensity(
+                                                    horizontal: -2,
+                                                    vertical: -2,
+                                                  ),
+                                                  backgroundColor: Colors.white,
+                                                  foregroundColor:
+                                                      const Color(0xFF9E7CFF),
+                                                  side: const BorderSide(
+                                                    color: Color(0xFF9E7CFF),
+                                                  ),
+                                                ),
+                                                onPressed: () async {
+                                                  try {
+                                                    await _groupService
+                                                        .joinGroup(
+                                                      groupMeta.groupId,
+                                                    );
+                                                    if (sheetContext.mounted) {
+                                                      Navigator.of(sheetContext)
+                                                          .pop();
+                                                    }
+                                                    if (!mounted) {
+                                                      return;
+                                                    }
+                                                    ScaffoldMessenger.of(
+                                                            this.context)
+                                                        .showSnackBar(
+                                                      const SnackBar(
+                                                        content: Text(
+                                                          'בקשת ההצטרפות נשלחה',
+                                                        ),
+                                                      ),
+                                                    );
+                                                  } catch (error) {
+                                                    if (sheetContext.mounted) {
+                                                      Navigator.of(sheetContext)
+                                                          .pop();
+                                                    }
+                                                    if (!mounted) {
+                                                      return;
+                                                    }
+                                                    ScaffoldMessenger.of(
+                                                            this.context)
+                                                        .showSnackBar(
+                                                      SnackBar(
+                                                        content: Text(
+                                                          'לא ניתן להצטרף לקבוצה: $error',
+                                                        ),
+                                                      ),
+                                                    );
+                                                  }
+                                                },
+                                                child: const Text(
+                                                  'הצטרף',
+                                                  style:
+                                                      TextStyle(fontSize: 12),
+                                                ),
+                                              );
+                                            }
+
+                                            return ElevatedButton(
+                                              style: ElevatedButton.styleFrom(
+                                                backgroundColor: Colors.white12,
+                                                foregroundColor: Colors.white70,
+                                              ),
+                                              onPressed: null,
+                                              child: const Text('קבוצה פרטית'),
+                                            );
+                                          },
+                                        );
+
+                                        if (isNarrowActions) {
+                                          return Column(
+                                            children: [
+                                              SizedBox(
+                                                width: double.infinity,
+                                                child: detailsButton,
+                                              ),
+                                              const SizedBox(height: 8),
+                                              SizedBox(
+                                                width: double.infinity,
+                                                child: groupActionButton,
+                                              ),
+                                            ],
+                                          );
+                                        }
+
+                                        return Row(
+                                          children: [
+                                            Expanded(child: detailsButton),
+                                            const SizedBox(width: 8),
+                                            Expanded(child: groupActionButton),
+                                          ],
+                                        );
+                                      },
+                                    ),
                                   ],
                                 ),
                               );
                             },
                           ),
-                        ),
+                        ],
+                        const SizedBox(height: 12),
+                        if (hasParticipants)
+                          Expanded(
+                            child: ListView.builder(
+                              itemCount: profiles.length,
+                              itemBuilder: (context, index) {
+                                final profile = profiles[index];
+                                final isMe = currentUid.isNotEmpty &&
+                                    profile.userId == currentUid;
+                                final name = profile.displayName.isNotEmpty
+                                    ? profile.displayName
+                                    : profile.handle;
+
+                                return Container(
+                                  margin: const EdgeInsets.only(bottom: 8),
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 10, vertical: 8),
+                                  decoration: BoxDecoration(
+                                    color: isLight
+                                        ? const Color(0xFFEFF4FF)
+                                        : const Color(0xFF1A2435),
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(
+                                        color: const Color(0xFF53C1F9)
+                                            .withValues(alpha: 0.22)),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      CircleAvatar(
+                                        radius: 18,
+                                        backgroundColor: isLight
+                                            ? const Color(0xFFC8B5FF)
+                                            : const Color(0xFF9E7CFF),
+                                        backgroundImage:
+                                            profile.profilePictureUrl.isNotEmpty
+                                                ? NetworkImage(
+                                                    profile.profilePictureUrl)
+                                                : null,
+                                        child: profile.profilePictureUrl.isEmpty
+                                            ? Text(
+                                                name.isNotEmpty
+                                                    ? name.characters.first
+                                                    : '?',
+                                                style: const TextStyle(
+                                                  color: Colors.white,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              )
+                                            : null,
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: InkWell(
+                                          onTap: () {
+                                            Navigator.of(sheetContext).pop();
+                                            _navigateToScreen(UserDetailScreen(
+                                                uid: profile.userId));
+                                          },
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                name,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: TextStyle(
+                                                  color: isLight
+                                                      ? const Color(0xFF273A5D)
+                                                      : Colors.white,
+                                                  fontWeight: FontWeight.w700,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 2),
+                                              Text(
+                                                profile.handle,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: TextStyle(
+                                                  color: isLight
+                                                      ? const Color(0xFF6C7A95)
+                                                      : Colors.grey[400],
+                                                  fontSize: 12,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      if (isMe)
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 8, vertical: 6),
+                                          decoration: BoxDecoration(
+                                            color: isLight
+                                                ? const Color(0xFFDDE7FF)
+                                                : Colors.white10,
+                                            borderRadius:
+                                                BorderRadius.circular(10),
+                                          ),
+                                          child: Text(
+                                            'אתה',
+                                            style: TextStyle(
+                                              color: isLight
+                                                  ? const Color(0xFF546382)
+                                                  : Colors.white70,
+                                              fontWeight: FontWeight.w700,
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                        )
+                                      else
+                                        StreamBuilder<FollowRelationship>(
+                                          stream: _socialService
+                                              .watchFollowRelationship(
+                                                  profile.userId),
+                                          builder: (context, followSnapshot) {
+                                            final relationship =
+                                                followSnapshot.data ??
+                                                    const FollowRelationship();
+                                            final isFollowing =
+                                                relationship.isFollowing;
+                                            final isRequestPending =
+                                                relationship.isRequestPending;
+                                            return ElevatedButton(
+                                              onPressed: () =>
+                                                  _toggleFollowFromParticipantRow(
+                                                targetUid: profile.userId,
+                                                relationship: relationship,
+                                              ),
+                                              style: ElevatedButton.styleFrom(
+                                                elevation: 0,
+                                                minimumSize: const Size(68, 34),
+                                                tapTargetSize:
+                                                    MaterialTapTargetSize
+                                                        .shrinkWrap,
+                                                visualDensity:
+                                                    const VisualDensity(
+                                                  horizontal: -2,
+                                                  vertical: -2,
+                                                ),
+                                                backgroundColor: isFollowing
+                                                    ? (isLight
+                                                        ? const Color(
+                                                            0xFFD5E2FF)
+                                                        : const Color(
+                                                            0xFF26354D))
+                                                    : (isRequestPending
+                                                        ? (isLight
+                                                            ? const Color(
+                                                                0xFFE3ECF2)
+                                                            : const Color(
+                                                                0xFF3A4B57))
+                                                        : const Color(
+                                                            0xFF9E7CFF)),
+                                                foregroundColor: isFollowing
+                                                    ? (isLight
+                                                        ? const Color(
+                                                            0xFF2E3E63)
+                                                        : Colors.white)
+                                                    : Colors.white,
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                        horizontal: 10,
+                                                        vertical: 6),
+                                                shape: RoundedRectangleBorder(
+                                                  borderRadius:
+                                                      BorderRadius.circular(10),
+                                                ),
+                                              ),
+                                              child: Text(
+                                                isFollowing
+                                                    ? 'עוקב'
+                                                    : (isRequestPending
+                                                        ? 'בקשה נשלחה'
+                                                        : 'עקוב'),
+                                                style: const TextStyle(
+                                                  fontSize: 11,
+                                                  fontWeight: FontWeight.w700,
+                                                ),
+                                              ),
+                                            );
+                                          },
+                                        ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
+                          )
+                        else
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 18),
+                            child: Text(
+                              'אין משתתפים מסומנים בפוסט זה',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: isLight
+                                    ? const Color(0xFF586784)
+                                    : Colors.white70,
+                              ),
+                            ),
+                          ),
                       ],
                     );
                   },
@@ -1601,6 +2124,444 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
           ),
         );
       },
+    );
+  }
+
+  String _groupFieldString(
+    Map<String, dynamic> groupData,
+    String key, {
+    String fallback = 'לא צוין',
+  }) {
+    final value = (groupData[key] as String?)?.trim() ?? '';
+    return value.isEmpty ? fallback : value;
+  }
+
+  DateTime? _extractDateField(Map<String, dynamic> data, String fieldName) {
+    final raw = data[fieldName];
+    if (raw is Timestamp) {
+      return raw.toDate();
+    }
+    if (raw is DateTime) {
+      return raw;
+    }
+    if (raw is String && raw.trim().isNotEmpty) {
+      return DateTime.tryParse(raw.trim());
+    }
+    return null;
+  }
+
+  String _formatDateTime(DateTime? dateTime) {
+    if (dateTime == null) {
+      return 'לא צוין';
+    }
+    final day = dateTime.day.toString().padLeft(2, '0');
+    final month = dateTime.month.toString().padLeft(2, '0');
+    final year = dateTime.year.toString();
+    final hour = dateTime.hour.toString().padLeft(2, '0');
+    final minute = dateTime.minute.toString().padLeft(2, '0');
+    return '$day/$month/$year, $hour:$minute';
+  }
+
+  Widget _detailCard({
+    required IconData icon,
+    required String title,
+    required String value,
+    required Color accent,
+  }) {
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    return Container(
+      padding: const EdgeInsets.all(11),
+      decoration: BoxDecoration(
+        color: isLight ? Colors.white : const Color(0xFF1A2435),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: accent.withValues(alpha: 0.35)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 16, color: accent),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    color: isLight ? Colors.black87 : const Color(0xFFB6C0D0),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            style: TextStyle(
+              color: isLight ? Colors.black : Colors.white,
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showLinkedGroupDetailsDialog(_LinkedGroupMeta groupMeta) async {
+    await showDialog<void>(
+      context: context,
+      barrierColor: Colors.black54,
+      builder: (dialogContext) {
+        final isLight = Theme.of(dialogContext).brightness == Brightness.light;
+        final dialogSize = MediaQuery.of(dialogContext).size;
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding:
+              const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+          child: Container(
+            constraints: BoxConstraints(
+              maxWidth: dialogSize.width * 0.92,
+              maxHeight: dialogSize.height * 0.82,
+            ),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(24),
+              color: isLight ? Colors.white : null,
+              gradient: isLight
+                  ? null
+                  : const LinearGradient(
+                      colors: [Color(0xFF53C1F9), Color(0xFF9E7CFF)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+              border:
+                  isLight ? Border.all(color: const Color(0xFFA9C3FF)) : null,
+            ),
+            padding: const EdgeInsets.all(1.8),
+            child: Container(
+              decoration: BoxDecoration(
+                color: isLight ? Colors.white : const Color(0xFF111A28),
+                borderRadius: BorderRadius.circular(22),
+              ),
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+              child: FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                future: FirebaseFirestore.instance
+                    .collection('groups')
+                    .doc(groupMeta.groupId)
+                    .get(),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+
+                  final groupData =
+                      snapshot.data?.data() ?? <String, dynamic>{};
+                  final category = _groupFieldString(groupData, 'category');
+                  final subCategory = _groupFieldString(
+                    groupData,
+                    'subCategory',
+                    fallback: 'ללא',
+                  );
+                  final location = _groupFieldString(groupData, 'location');
+                  final date = _extractDateField(groupData, 'date');
+                  final createdAt = _extractDateField(groupData, 'createdAt');
+                  final approvalRequired =
+                      (groupData['isAdminApprovalRequired'] as bool?) ?? false;
+                  final ageRange =
+                      (groupData['ageRange'] as Map<String, dynamic>?) ??
+                          const <String, dynamic>{};
+                  final minAge = (ageRange['min'] as num?)?.toInt();
+                  final maxAge = (ageRange['max'] as num?)?.toInt();
+                  final ageRangeText = (minAge == null || maxAge == null)
+                      ? 'לא הוגדר'
+                      : '$minAge-$maxAge';
+                  final membersList =
+                      (groupData['membersList'] as List<dynamic>? ??
+                              groupData['members'] as List<dynamic>? ??
+                              const <dynamic>[])
+                          .map((id) => id.toString().trim())
+                          .where((id) => id.isNotEmpty)
+                          .toSet();
+                  final membersCount =
+                      (groupData['membersCount'] as num?)?.toInt() ??
+                          membersList.length;
+
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(18),
+                          color: isLight ? Colors.white : null,
+                          gradient: isLight
+                              ? null
+                              : const LinearGradient(
+                                  colors: [
+                                    Color(0xFF223852),
+                                    Color(0xFF35254A)
+                                  ],
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                ),
+                          border: Border.all(
+                            color: isLight
+                                ? const Color(0xFFA9C3FF)
+                                : Colors.white24,
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            CircleAvatar(
+                              radius: 30,
+                              backgroundColor: const Color(0xFF9E7CFF),
+                              backgroundImage: groupMeta.imageUrl.isNotEmpty
+                                  ? NetworkImage(groupMeta.imageUrl)
+                                  : null,
+                              child: groupMeta.imageUrl.isEmpty
+                                  ? const Icon(
+                                      Icons.groups_rounded,
+                                      color: Colors.white,
+                                      size: 28,
+                                    )
+                                  : null,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    groupMeta.name,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color:
+                                          isLight ? Colors.black : Colors.white,
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    groupMeta.isPublic
+                                        ? 'קבוצה ציבורית'
+                                        : 'קבוצה פרטית',
+                                    style: TextStyle(
+                                      color: isLight
+                                          ? const Color(0xFF3D517A)
+                                          : const Color(0xFF9EDBFF),
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      Expanded(
+                        child: SingleChildScrollView(
+                          child: Column(
+                            children: [
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: _detailCard(
+                                      icon: Icons.people_alt_rounded,
+                                      title: 'חברים',
+                                      value: '$membersCount',
+                                      accent: const Color(0xFF53C1F9),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: _detailCard(
+                                      icon: Icons.verified_user_rounded,
+                                      title: 'אישור מנהל',
+                                      value: approvalRequired
+                                          ? 'נדרש אישור'
+                                          : 'הצטרפות פתוחה',
+                                      accent: const Color(0xFF9E7CFF),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 10),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: _detailCard(
+                                      icon: Icons.category_rounded,
+                                      title: 'קטגוריה',
+                                      value: '$category • $subCategory',
+                                      accent: const Color(0xFF5A8BFF),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: _detailCard(
+                                      icon: Icons.cake_rounded,
+                                      title: 'טווח גילאים',
+                                      value: ageRangeText,
+                                      accent: const Color(0xFFEC7F5A),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 10),
+                              _detailCard(
+                                icon: Icons.place_rounded,
+                                title: 'מיקום',
+                                value: location,
+                                accent: const Color(0xFF46D3FF),
+                              ),
+                              const SizedBox(height: 10),
+                              _detailCard(
+                                icon: Icons.event_rounded,
+                                title: 'תאריך מפגש',
+                                value: _formatDateTime(date),
+                                accent: const Color(0xFF9E7CFF),
+                              ),
+                              const SizedBox(height: 10),
+                              _detailCard(
+                                icon: Icons.access_time_rounded,
+                                title: 'נוצר בתאריך',
+                                value: _formatDateTime(createdAt),
+                                accent: const Color(0xFF53C1F9),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      ElevatedButton.icon(
+                        onPressed: () {
+                          Navigator.of(dialogContext).pop();
+                          _navigateToScreen(
+                            GroupDetailsScreen(
+                              groupId: groupMeta.groupId,
+                              isAdmin: false,
+                            ),
+                          );
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF5A8BFF),
+                          foregroundColor: Colors.white,
+                          minimumSize: const Size.fromHeight(42),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        icon: const Icon(Icons.open_in_new_rounded, size: 18),
+                        label: const Text('פתח מסך קבוצה מלא'),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<_LinkedGroupMeta?> _fetchLinkedGroupMeta(String groupId) async {
+    final normalizedGroupId = groupId.trim();
+    if (normalizedGroupId.isEmpty) {
+      return null;
+    }
+
+    final doc = await FirebaseFirestore.instance
+        .collection('groups')
+        .doc(normalizedGroupId)
+        .get();
+    if (!doc.exists) {
+      return null;
+    }
+
+    final data = doc.data() ?? <String, dynamic>{};
+
+    Set<String> stringSetFromDynamic(dynamic raw) {
+      if (raw is List) {
+        return raw
+            .map((item) => item.toString().trim())
+            .where((item) => item.isNotEmpty)
+            .toSet();
+      }
+      if (raw is Map) {
+        return raw.entries
+            .where((entry) {
+              final value = entry.value;
+              if (value is bool) {
+                return value;
+              }
+              final asText = value?.toString().trim().toLowerCase() ?? '';
+              return asText == 'approved' || asText == 'member';
+            })
+            .map((entry) => entry.key.toString().trim())
+            .where((item) => item.isNotEmpty)
+            .toSet();
+      }
+      return <String>{};
+    }
+
+    final membersRaw = stringSetFromDynamic(data['members']);
+    final membersListRaw = stringSetFromDynamic(data['membersList']);
+    final approvedMembersRaw = stringSetFromDynamic(data['approvedMembers']);
+    final memberUidsRaw = stringSetFromDynamic(data['memberUids']);
+    final participantsRaw = stringSetFromDynamic(data['participants']);
+
+    final currentUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    String membershipStatus = '';
+    if (currentUid.isNotEmpty) {
+      final memberDoc =
+          await doc.reference.collection('members').doc(currentUid).get();
+      membershipStatus =
+          ((memberDoc.data() ?? <String, dynamic>{})['status'] as String? ?? '')
+              .trim()
+              .toLowerCase();
+    }
+
+    Set<String> chatParticipants = <String>{};
+    final groupChatDoc =
+        await FirebaseFirestore.instance.collection('chats').doc(doc.id).get();
+    if (groupChatDoc.exists) {
+      chatParticipants = stringSetFromDynamic(
+        (groupChatDoc.data() ?? const <String, dynamic>{})['participants'],
+      );
+    }
+
+    final isMemberByStatus = membershipStatus == 'approved' ||
+        membershipStatus == 'member' ||
+        membershipStatus == 'admin' ||
+        membershipStatus == 'owner';
+
+    final isCurrentUserMember = isMemberByStatus ||
+        (currentUid.isNotEmpty &&
+            (membersRaw.contains(currentUid) ||
+                membersListRaw.contains(currentUid) ||
+                approvedMembersRaw.contains(currentUid) ||
+                memberUidsRaw.contains(currentUid) ||
+                participantsRaw.contains(currentUid) ||
+                chatParticipants.contains(currentUid)));
+    final isCurrentUserPending = membershipStatus == 'pending';
+
+    final name =
+        ((data['groupName'] as String?) ?? (data['name'] as String?) ?? '')
+            .trim();
+    final imageUrl = (data['groupImageUrl'] as String? ?? '').trim();
+
+    return _LinkedGroupMeta(
+      groupId: doc.id,
+      name: name.isNotEmpty ? name : 'קבוצה',
+      imageUrl: imageUrl,
+      isPublic: (data['isPublic'] as bool?) ?? false,
+      isCurrentUserMember: isCurrentUserMember,
+      isCurrentUserPending: isCurrentUserPending,
     );
   }
 
@@ -1646,6 +2607,23 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
   }
 
   Future<List<PostModel>> _applyAudienceFilter(List<PostModel> posts) async {
+    final authorIds = posts
+        .map((post) => post.authorId.trim())
+        .where((authorId) => authorId.isNotEmpty)
+        .toSet();
+
+    final profilesByAuthorId = <String, PublicUserProfile?>{
+      for (final entry in await Future.wait(
+        authorIds.map(
+          (authorId) async => MapEntry(
+            authorId,
+            await _publicUserProfileService.fetchProfile(authorId),
+          ),
+        ),
+      ))
+        entry.key: entry.value,
+    };
+
     final friendsOnlyAuthors = posts
         .where((post) {
           final audience = post.audience.trim().toLowerCase();
@@ -1657,7 +2635,18 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
 
     final privateAuthors = posts
         .where((post) {
-          return post.authorIsPrivate;
+          final authorId = post.authorId.trim();
+          if (authorId.isEmpty) {
+            return true;
+          }
+          final profile = profilesByAuthorId[authorId];
+          if (profile == null) {
+            return true;
+          }
+          if (!profile.exists) {
+            return true;
+          }
+          return profile.isPrivate;
         })
         .map((post) => post.authorId.trim())
         .where((authorId) => authorId.isNotEmpty)
@@ -1708,19 +2697,9 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
   }
 
   Future<List<PostModel>> _resolveAudienceFilteredPosts(List<PostModel> posts) {
-    final key = posts
-        .map((post) =>
-            '${post.id}:${post.authorId}:${post.audience}:${post.authorIsPrivate}')
-        .join('|');
-
-    if (_cachedAudienceFilterFuture != null &&
-        _cachedAudienceFilterKey == key) {
-      return _cachedAudienceFilterFuture!;
-    }
-
-    _cachedAudienceFilterKey = key;
-    _cachedAudienceFilterFuture = _applyAudienceFilter(posts);
-    return _cachedAudienceFilterFuture!;
+    // Privacy-sensitive filtering must always be recomputed because follow
+    // relationships can change without changing post payload signatures.
+    return _applyAudienceFilter(posts);
   }
 
   List<PostModel> _excludeCurrentUserPosts(List<PostModel> posts) {
@@ -2011,6 +2990,9 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
 
   Widget _buildPostBlock(PostModel post, {required bool isActive}) {
     final isLight = _isLightMode(context);
+    final currentUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    final canReportPost =
+        currentUid.isNotEmpty && post.authorId.trim() != currentUid;
     final isLiked = _isPostLiked(post);
     final isSaved = _isPostSaved(post);
     final likesDelta = (isLiked ? 1 : 0) - (post.likedByCurrentUser ? 1 : 0);
@@ -2030,6 +3012,8 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
       displayedComments: displayComments,
       displayedShares: displayShares,
     );
+    final linkedGroupId = post.linkedGroupId.trim();
+    final hasLinkedGroup = linkedGroupId.isNotEmpty;
     final participantsCount =
         _participantUidsForPost(post, includeAuthor: false).length;
     const overlayTop = _postTopOverlayOffset;
@@ -2095,25 +3079,25 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                               (isLight
                                       ? const Color(0xFFFDFEFF)
                                       : const Color(0xFF15263F))
-                                  .withValues( alpha: isLight ? 0.96 : 0.94),
+                                  .withValues(alpha: isLight ? 0.96 : 0.94),
                               (isLight
                                       ? const Color(0xFFE9F1FF)
                                       : const Color(0xFF2F1F54))
-                                  .withValues( alpha: isLight ? 0.96 : 0.94),
+                                  .withValues(alpha: isLight ? 0.96 : 0.94),
                             ],
                           ),
                           border: Border.all(
                             color: (isLight
                                     ? const Color(0xFF7D8DFF)
                                     : const Color(0xFF46D3FF))
-                                .withValues( alpha: isLight ? 0.26 : 0.34),
+                                .withValues(alpha: isLight ? 0.26 : 0.34),
                           ),
                           boxShadow: [
                             BoxShadow(
                               color: (isLight
                                       ? const Color(0xFF91BCFF)
                                       : const Color(0xFF46D3FF))
-                                  .withValues( alpha: isLight ? 0.24 : 0.24),
+                                  .withValues(alpha: isLight ? 0.24 : 0.24),
                               blurRadius: 12,
                               spreadRadius: 0.5,
                             ),
@@ -2144,7 +3128,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                             borderRadius: BorderRadius.circular(999),
                             border: Border.all(
                               color: const Color(0xFFFF8A2A)
-                                  .withValues( alpha: 0.72),
+                                  .withValues(alpha: 0.72),
                             ),
                           ),
                           child: const Text(
@@ -2184,25 +3168,28 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                                     (isLight
                                             ? const Color(0xFFFDFEFF)
                                             : const Color(0xFF15263F))
-                                        .withValues( alpha: isLight ? 0.96 : 0.94),
+                                        .withValues(
+                                            alpha: isLight ? 0.96 : 0.94),
                                     (isLight
                                             ? const Color(0xFFE9F1FF)
                                             : const Color(0xFF2F1F54))
-                                        .withValues( alpha: isLight ? 0.96 : 0.94),
+                                        .withValues(
+                                            alpha: isLight ? 0.96 : 0.94),
                                   ],
                                 ),
                                 border: Border.all(
                                   color: (isLight
                                           ? const Color(0xFF7D8DFF)
                                           : const Color(0xFF46D3FF))
-                                      .withValues( alpha: isLight ? 0.26 : 0.34),
+                                      .withValues(alpha: isLight ? 0.26 : 0.34),
                                 ),
                                 boxShadow: [
                                   BoxShadow(
                                     color: (isLight
                                             ? const Color(0xFF91BCFF)
                                             : const Color(0xFF46D3FF))
-                                        .withValues( alpha: isLight ? 0.24 : 0.24),
+                                        .withValues(
+                                            alpha: isLight ? 0.24 : 0.24),
                                     blurRadius: 12,
                                     spreadRadius: 0.5,
                                   ),
@@ -2317,7 +3304,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                               boxShadow: [
                                 BoxShadow(
                                   color: const Color(0xFF46D3FF)
-                                      .withValues( alpha: 0.35),
+                                      .withValues(alpha: 0.35),
                                   blurRadius: 16,
                                   spreadRadius: 1,
                                 ),
@@ -2345,8 +3332,8 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                         GestureDetector(
                           onTap: () => _openParticipantsSheet(post),
                           child: Container(
-                            width: 50,
-                            height: 50,
+                            width: hasLinkedGroup ? 56 : 50,
+                            height: hasLinkedGroup ? 56 : 50,
                             decoration: BoxDecoration(
                               gradient: const LinearGradient(
                                 colors: [Color(0xFF8C62FF), Color(0xFF46D3FF)],
@@ -2354,45 +3341,125 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                                 end: Alignment.bottomRight,
                               ),
                               shape: BoxShape.circle,
+                              border:
+                                  Border.all(color: const Color(0xFFA9C3FF)),
                               boxShadow: [
                                 BoxShadow(
                                   color: const Color(0xFF46D3FF)
-                                      .withValues( alpha: 0.35),
-                                  blurRadius: 16,
-                                  spreadRadius: 1,
+                                      .withValues(alpha: 0.35),
+                                  blurRadius: hasLinkedGroup ? 20 : 16,
+                                  spreadRadius: hasLinkedGroup ? 1.8 : 1,
                                 ),
                               ],
                             ),
                             child: Container(
-                              margin: const EdgeInsets.all(1.4),
+                              margin:
+                                  EdgeInsets.all(hasLinkedGroup ? 3.0 : 1.4),
                               decoration: BoxDecoration(
                                 color: isLight
                                     ? const Color(0xFFF6FAFF)
                                     : const Color(0xFF172235),
                                 shape: BoxShape.circle,
                               ),
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(
-                                    Icons.group_rounded,
-                                    color: isLight
-                                        ? const Color(0xFF33466D)
-                                        : const Color(0xFFEAF4FF),
-                                    size: 16,
-                                  ),
-                                  Text(
-                                    participantsCount.toString(),
-                                    style: TextStyle(
-                                      color: isLight
-                                          ? const Color(0xFF33466D)
-                                          : const Color(0xFFEAF4FF),
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w700,
+                              child: hasLinkedGroup
+                                  ? Stack(
+                                      alignment: Alignment.center,
+                                      children: [
+                                        const Positioned(
+                                          top: 8,
+                                          left: 8,
+                                          child: Icon(
+                                            Icons.person_rounded,
+                                            size: 10,
+                                            color: Color(0xFF5A6CFF),
+                                          ),
+                                        ),
+                                        const Positioned(
+                                          top: 8,
+                                          right: 8,
+                                          child: Icon(
+                                            Icons.person_rounded,
+                                            size: 10,
+                                            color: Color(0xFF5A6CFF),
+                                          ),
+                                        ),
+                                        const Positioned(
+                                          bottom: 8,
+                                          left: 8,
+                                          child: Icon(
+                                            Icons.person_rounded,
+                                            size: 10,
+                                            color: Color(0xFF5A6CFF),
+                                          ),
+                                        ),
+                                        const Positioned(
+                                          bottom: 8,
+                                          right: 8,
+                                          child: Icon(
+                                            Icons.person_rounded,
+                                            size: 10,
+                                            color: Color(0xFF5A6CFF),
+                                          ),
+                                        ),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 4,
+                                            vertical: 2,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFFEFF4FF),
+                                            borderRadius:
+                                                BorderRadius.circular(999),
+                                            border: Border.all(
+                                              color: const Color(0xFFA9C3FF),
+                                            ),
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              if (participantsCount > 0)
+                                                Text(
+                                                  participantsCount.toString(),
+                                                  style: const TextStyle(
+                                                    color: Color(0xFF5A6CFF),
+                                                    fontSize: 9,
+                                                    fontWeight: FontWeight.w800,
+                                                  ),
+                                                )
+                                              else
+                                                const Icon(
+                                                  Icons.link_rounded,
+                                                  size: 10,
+                                                  color: Color(0xFF5A6CFF),
+                                                ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    )
+                                  : Column(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      children: [
+                                        Icon(
+                                          Icons.group_rounded,
+                                          color: isLight
+                                              ? const Color(0xFF33466D)
+                                              : const Color(0xFFEAF4FF),
+                                          size: 16,
+                                        ),
+                                        Text(
+                                          participantsCount.toString(),
+                                          style: TextStyle(
+                                            color: isLight
+                                                ? const Color(0xFF33466D)
+                                                : const Color(0xFFEAF4FF),
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                      ],
                                     ),
-                                  ),
-                                ],
-                              ),
                             ),
                           ),
                         ),
@@ -2412,7 +3479,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                               boxShadow: [
                                 BoxShadow(
                                   color: const Color(0xFF46D3FF)
-                                      .withValues( alpha: 0.35),
+                                      .withValues(alpha: 0.35),
                                   blurRadius: 16,
                                   spreadRadius: 1,
                                 ),
@@ -2460,6 +3527,24 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                             ),
                           ),
                         ),
+                        if (canReportPost) const SizedBox(width: 10),
+                        if (canReportPost)
+                          GestureDetector(
+                            onTap: () => _reportPostFromFeed(post),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 4,
+                                vertical: 2,
+                              ),
+                              child: Icon(
+                                Icons.flag_outlined,
+                                size: 19,
+                                color: isLight
+                                    ? const Color(0xFF6B7891)
+                                    : Colors.white70,
+                              ),
+                            ),
+                          ),
                       ],
                     ),
                   ],
@@ -2618,19 +3703,19 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                   : (isLight
                           ? const Color(0xFFF8FBFF)
                           : const Color(0xFF121D2E))
-                      .withValues( alpha: isLight ? 0.92 : 0.84),
+                      .withValues(alpha: isLight ? 0.92 : 0.84),
               border: Border.all(
                 color: isActiveLight
                     ? Colors.transparent
                     : (isLight
                             ? const Color(0xFF8A96FF)
                             : const Color(0xFF46D3FF))
-                        .withValues( alpha: isLight ? 0.26 : 0.35),
+                        .withValues(alpha: isLight ? 0.26 : 0.35),
               ),
               boxShadow: isActiveLight
                   ? [
                       BoxShadow(
-                        color: const Color(0xFF6CCBFF).withValues( alpha: 0.36),
+                        color: const Color(0xFF6CCBFF).withValues(alpha: 0.36),
                         blurRadius: 14,
                         spreadRadius: 0.6,
                       ),
@@ -2650,7 +3735,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                         margin: const EdgeInsets.all(2.0),
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: Colors.white.withValues( alpha: 0.96),
+                          color: Colors.white.withValues(alpha: 0.96),
                         ),
                         child: Center(
                           child: ShaderMask(
@@ -2702,14 +3787,14 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
         gradient: LinearGradient(
           colors: [
             (isLight ? const Color(0xFFFFFFFF) : const Color(0xFF15263F))
-                .withValues( alpha: isLight ? 0.9 : 0.9),
+                .withValues(alpha: isLight ? 0.9 : 0.9),
             (isLight ? const Color(0xFFE8EEFF) : const Color(0xFF2F1F54))
-                .withValues( alpha: isLight ? 0.9 : 0.9),
+                .withValues(alpha: isLight ? 0.9 : 0.9),
           ],
         ),
         border: Border.all(
             color: (isLight ? const Color(0xFF8A96FF) : const Color(0xFF46D3FF))
-                .withValues( alpha: isLight ? 0.24 : 0.26)),
+                .withValues(alpha: isLight ? 0.24 : 0.26)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -2805,19 +3890,19 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
           borderRadius: BorderRadius.circular(999),
           border: Border.all(
             color: selected
-                ? Colors.white.withValues( alpha: 0.8)
+                ? Colors.white.withValues(alpha: 0.8)
                 : const Color(0xFFB6EFFF),
             width: selected ? 1.55 : 1.1,
           ),
           boxShadow: [
             BoxShadow(
-              color: timerTopColor.withValues( alpha: selected ? 0.28 : 0.16),
+              color: timerTopColor.withValues(alpha: selected ? 0.28 : 0.16),
               blurRadius: selected ? 16 : 10,
               offset: const Offset(0, 4),
             ),
             if (selected)
               BoxShadow(
-                color: timerBottomColor.withValues( alpha: 0.28),
+                color: timerBottomColor.withValues(alpha: 0.28),
                 blurRadius: 18,
                 spreadRadius: 0.3,
                 offset: const Offset(0, 7),
@@ -2875,12 +3960,12 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
         borderRadius: BorderRadius.circular(radius),
         boxShadow: [
           BoxShadow(
-            color: timerTopColor.withValues( alpha: 0.3),
+            color: timerTopColor.withValues(alpha: 0.3),
             blurRadius: 18,
             offset: const Offset(0, 6),
           ),
           BoxShadow(
-            color: timerBottomColor.withValues( alpha: 0.3),
+            color: timerBottomColor.withValues(alpha: 0.3),
             blurRadius: 22,
             offset: const Offset(0, 8),
           ),
@@ -2948,7 +4033,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                                     color: (isLight
                                             ? const Color(0xFF364565)
                                             : Colors.white)
-                                        .withValues( alpha: 0.96),
+                                        .withValues(alpha: 0.96),
                                     fontSize: 19,
                                     fontWeight: FontWeight.w800,
                                     letterSpacing: 3.2,
@@ -2956,11 +4041,12 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                                     shadows: [
                                       Shadow(
                                         color:
-                                            _themeCyan.withValues( alpha: 0.35),
+                                            _themeCyan.withValues(alpha: 0.35),
                                         blurRadius: 16,
                                       ),
                                       Shadow(
-                                        color: _themePurpleDeep.withValues( alpha: 0.35),
+                                        color: _themePurpleDeep.withValues(
+                                            alpha: 0.35),
                                         blurRadius: 20,
                                       ),
                                     ],
@@ -2997,7 +4083,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                                           ),
                                           border: Border.all(
                                             color: Colors.white
-                                                .withValues( alpha: 0.65),
+                                                .withValues(alpha: 0.65),
                                             width: 1.1,
                                           ),
                                         ),
@@ -3095,7 +4181,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                                             color: isLight
                                                 ? const Color(0xFFEFF4FF)
                                                 : Colors.white
-                                                    .withValues( alpha: 0.1),
+                                                    .withValues(alpha: 0.1),
                                           ),
                                           child: const Icon(
                                             Icons.star_rounded,
@@ -3142,7 +4228,8 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                                                 ? (isLight ? null : null)
                                                 : (isLight
                                                     ? const Color(0xFFF4F7FF)
-                                                    : Colors.white.withValues( alpha: 0.08)),
+                                                    : Colors.white.withValues(
+                                                        alpha: 0.08)),
                                             border: Border.all(
                                               color: isLight
                                                   ? (isForYouFeed
@@ -3158,7 +4245,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                                                     BoxShadow(
                                                       color: const Color(
                                                         0xFF8C62FF,
-                                                      ).withValues( alpha: 0.34),
+                                                      ).withValues(alpha: 0.34),
                                                       blurRadius: 12,
                                                       spreadRadius: 0.4,
                                                       offset:
@@ -3218,7 +4305,8 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                                                 ? (isLight ? null : null)
                                                 : (isLight
                                                     ? const Color(0xFFF4F7FF)
-                                                    : Colors.white.withValues( alpha: 0.08)),
+                                                    : Colors.white.withValues(
+                                                        alpha: 0.08)),
                                             border: Border.all(
                                               color: isLight
                                                   ? (!isForYouFeed
@@ -3234,7 +4322,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                                                     BoxShadow(
                                                       color: const Color(
                                                         0xFF8C62FF,
-                                                      ).withValues( alpha: 0.34),
+                                                      ).withValues(alpha: 0.34),
                                                       blurRadius: 12,
                                                       spreadRadius: 0.4,
                                                       offset:
@@ -3455,9 +4543,27 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
   }
 }
 
+class _LinkedGroupMeta {
+  final String groupId;
+  final String name;
+  final String imageUrl;
+  final bool isPublic;
+  final bool isCurrentUserMember;
+  final bool isCurrentUserPending;
+
+  const _LinkedGroupMeta({
+    required this.groupId,
+    required this.name,
+    required this.imageUrl,
+    required this.isPublic,
+    required this.isCurrentUserMember,
+    required this.isCurrentUserPending,
+  });
+}
+
 class AuthorInfoWidget extends StatelessWidget {
   final String authorId;
-  final Future<DocumentSnapshot<Map<String, dynamic>>> userFuture;
+  final Future<PublicUserProfile?> userFuture;
   final bool compact;
 
   const AuthorInfoWidget({
@@ -3476,19 +4582,6 @@ class AuthorInfoWidget extends StatelessWidget {
 
   bool _containsHebrew(String value) {
     return RegExp(r'[\u0590-\u05FF]').hasMatch(value);
-  }
-
-  String _formatHandleLabel(String rawUsername) {
-    final normalized = rawUsername.trim();
-    if (normalized.isEmpty) return normalized;
-
-    final core = normalized.replaceAll('@', '').trim();
-    if (core.isEmpty) return normalized;
-
-    if (_containsHebrew(core)) {
-      return '$core@';
-    }
-    return '@$core';
   }
 
   Widget _avatar(String imageUrl) {
@@ -3513,9 +4606,6 @@ class AuthorInfoWidget extends StatelessWidget {
 
   String _errorLabel(Object? error) {
     if (error is FirebaseException) {
-      if (error.code == 'permission-denied') {
-        return 'אין הרשאה';
-      }
       if (error.code == 'unavailable') {
         return 'אין חיבור';
       }
@@ -3528,7 +4618,7 @@ class AuthorInfoWidget extends StatelessWidget {
     final isLight = Theme.of(context).brightness == Brightness.light;
     final fallbackHandle = _fallbackHandle();
 
-    return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+    return FutureBuilder<PublicUserProfile?>(
       future: userFuture,
       builder: (context, snapshot) {
         String username = fallbackHandle;
@@ -3539,24 +4629,16 @@ class AuthorInfoWidget extends StatelessWidget {
           errorLabel = _errorLabel(snapshot.error);
         }
 
-        if (!snapshot.hasError && snapshot.hasData && snapshot.data!.exists) {
-          final userData = snapshot.data!.data() ?? <String, dynamic>{};
-          final isDeleted = (userData['isDeleted'] as bool?) ?? false;
-          final rawUsername = ((userData['username'] as String?) ??
-                  (userData['displayName'] as String?) ??
-                  '')
-              .trim();
-          final rawImageUrl = ((userData['profileImageUrl'] as String?) ??
-                  (userData['profilePictureUrl'] as String?) ??
-                  '')
-              .trim();
-
-          if (isDeleted) {
+        final profile = snapshot.data;
+        if (!snapshot.hasError && profile != null && profile.exists) {
+          if (profile.isDeleted) {
             username = 'משתמש מחוק';
             profileImageUrl = '';
-          } else if (rawUsername.isNotEmpty) {
-            username = _formatHandleLabel(rawUsername);
-            profileImageUrl = rawImageUrl;
+          } else {
+            username = profile.handle.trim().isNotEmpty
+                ? profile.handle
+                : fallbackHandle;
+            profileImageUrl = profile.profilePictureUrl.trim();
           }
         }
 
@@ -3582,16 +4664,16 @@ class AuthorInfoWidget extends StatelessWidget {
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(999),
                         color: isLight
-                            ? Colors.white.withValues( alpha: 0.92)
+                            ? Colors.white.withValues(alpha: 0.92)
                             : null,
                         gradient: isLight
                             ? null
                             : LinearGradient(
                                 colors: [
                                   const Color(0xFF14233A)
-                                      .withValues( alpha: 0.9),
+                                      .withValues(alpha: 0.9),
                                   const Color(0xFF281D49)
-                                      .withValues( alpha: 0.9),
+                                      .withValues(alpha: 0.9),
                                 ],
                                 begin: Alignment.centerLeft,
                                 end: Alignment.centerRight,
@@ -3599,7 +4681,7 @@ class AuthorInfoWidget extends StatelessWidget {
                         border: Border.all(
                           color: isLight
                               ? const Color(0xFFA9C3FF)
-                              : const Color(0xFF46D3FF).withValues( alpha: 0.35),
+                              : const Color(0xFF46D3FF).withValues(alpha: 0.35),
                         ),
                       ),
                       child: Text(

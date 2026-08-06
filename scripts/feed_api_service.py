@@ -11,12 +11,16 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Literal, Optional, Sequence
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
+
+from firebase_admin import auth as firebase_auth
+from firebase_admin import credentials, initialize_app as initialize_firebase_app
 
 from scripts.feed_recommendation_engine import (
     FeedRecommendationService,
@@ -33,6 +37,54 @@ from scripts.feed_metrics import PrometheusMetricsSink, attach_prometheus_route
 
 
 FeedMode = Literal["discovery", "following"]
+
+_FEED_REQUIRE_AUTH = os.getenv("FEED_REQUIRE_AUTH", "true").strip().lower() != "false"
+_firebase_initialized = False
+
+
+def _ensure_firebase_admin_initialized() -> None:
+    global _firebase_initialized
+    if _firebase_initialized:
+        return
+
+    # Uses ADC/service account in runtime environment.
+    initialize_firebase_app(credentials.ApplicationDefault())
+    _firebase_initialized = True
+
+
+def _verify_bearer_token(authorization_header: Optional[str], expected_uid: str) -> None:
+    if not _FEED_REQUIRE_AUTH:
+        return
+
+    auth_header = (authorization_header or "").strip()
+    if not auth_header.lower().startswith("bearer "):
+        raise HTTPException(
+            status_code=401,
+            detail=ApiError(code="UNAUTHORIZED", message="missing bearer token").model_dump(),
+        )
+
+    token = auth_header[7:].strip()
+    if not token:
+        raise HTTPException(
+            status_code=401,
+            detail=ApiError(code="UNAUTHORIZED", message="empty bearer token").model_dump(),
+        )
+
+    try:
+        _ensure_firebase_admin_initialized()
+        decoded = firebase_auth.verify_id_token(token, check_revoked=False)
+    except Exception:
+        raise HTTPException(
+            status_code=401,
+            detail=ApiError(code="UNAUTHORIZED", message="invalid token").model_dump(),
+        )
+
+    token_uid = str(decoded.get("uid", "")).strip()
+    if token_uid != expected_uid:
+        raise HTTPException(
+            status_code=403,
+            detail=ApiError(code="FORBIDDEN", message="user_id does not match token uid").model_dump(),
+        )
 
 
 class FeedQueryRequest(BaseModel):
@@ -115,12 +167,17 @@ def create_feed_app(
     attach_prometheus_route(app)
 
     @app.post("/v1/feed/query", response_model=FeedQueryResponse, responses={400: {"model": ApiError}, 500: {"model": ApiError}})
-    def query_feed(body: FeedQueryRequest) -> FeedQueryResponse:
+    def query_feed(
+        body: FeedQueryRequest,
+        authorization: Optional[str] = Header(default=None),
+    ) -> FeedQueryResponse:
         started = time.perf_counter()
         now_unix_s = body.now_unix_s or int(time.time())
         offset = _decode_cursor(body.cursor)
 
         try:
+            _verify_bearer_token(authorization, body.user_id)
+
             # Fetch a superset and page on top for stable cursor semantics.
             pull_size = min(100, max(body.page_size * 3, body.page_size + offset + 5))
             user = UserContext(

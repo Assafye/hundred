@@ -1,0 +1,135 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function postPath(postId) {
+      return /databases/(default)/documents/posts/$(postId);
+    }
+
+    function userPath(uid) {
+      return /databases/(default)/documents/users/$(uid);
+    }
+
+    function publicUserPath(uid) {
+      return /databases/(default)/documents/users_public/$(uid);
+    }
+
+    function chatPath(chatId) {
+      return /databases/(default)/documents/chats/$(chatId);
+    }
+
+    function postAuthorId(postId) {
+      return (
+        ('authorId' in firestore.get(postPath(postId)).data) &&
+        firestore.get(postPath(postId)).data.authorId is string
+      )
+        ? firestore.get(postPath(postId)).data.authorId
+        : (
+            (
+              ('uid' in firestore.get(postPath(postId)).data) &&
+              firestore.get(postPath(postId)).data.uid is string
+            )
+              ? firestore.get(postPath(postId)).data.uid
+              : (
+                  (
+                    ('userId' in firestore.get(postPath(postId)).data) &&
+                    firestore.get(postPath(postId)).data.userId is string
+                  )
+                    ? firestore.get(postPath(postId)).data.userId
+                    : ''
+                )
+          );
+    }
+
+    function normalizedAudience(postId) {
+      return (
+        ('audience' in firestore.get(postPath(postId)).data) &&
+        firestore.get(postPath(postId)).data.audience is string
+      )
+        ? firestore.get(postPath(postId)).data.audience.lower()
+        : 'public';
+    }
+
+    function followsAuthor(viewerUid, authorUid) {
+      return firestore.exists(userPath(authorUid)) &&
+        viewerUid in firestore.get(userPath(authorUid)).data.followers;
+    }
+
+    function isMutualFollow(viewerUid, authorUid) {
+      return firestore.exists(userPath(viewerUid)) &&
+        firestore.exists(userPath(authorUid)) &&
+        authorUid in firestore.get(userPath(viewerUid)).data.following &&
+        viewerUid in firestore.get(userPath(authorUid)).data.following;
+    }
+
+    function isAuthorPrivate(authorUid) {
+      return firestore.exists(publicUserPath(authorUid)) &&
+        (
+          ('isPrivate' in firestore.get(publicUserPath(authorUid)).data) &&
+          firestore.get(publicUserPath(authorUid)).data.isPrivate == true
+        );
+    }
+
+    function canReadPostMedia(postId) {
+      return isSignedIn() &&
+        firestore.exists(postPath(postId)) &&
+        (
+          postAuthorId(postId) == request.auth.uid ||
+          (
+            normalizedAudience(postId) == 'public' &&
+            (
+              !isAuthorPrivate(postAuthorId(postId)) ||
+              followsAuthor(request.auth.uid, postAuthorId(postId))
+            )
+          ) ||
+          (
+            normalizedAudience(postId) == 'friends' &&
+            isMutualFollow(request.auth.uid, postAuthorId(postId))
+          )
+        );
+    }
+
+    function isChatParticipant(chatId) {
+      return isSignedIn() &&
+        firestore.exists(chatPath(chatId)) &&
+        request.auth.uid in firestore.get(chatPath(chatId)).data.participants;
+    }
+
+    // User-owned profile media
+    match /users/{uid}/{allPaths=**} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && request.auth.uid == uid;
+    }
+
+    // Post media scoped by postId for server-side visibility checks.
+    match /posts/{uid}/{postId}/{allPaths=**} {
+      allow read: if canReadPostMedia(postId);
+      allow write: if isSignedIn() && request.auth.uid == uid;
+    }
+
+    // Legacy post media path (pre-postId folder): owner-only fallback.
+    match /posts/{uid}/{fileName} {
+      allow read, write: if isSignedIn() && request.auth.uid == uid;
+    }
+
+    // Chat attachments: only chat participants can read/write.
+    match /chats/{uid}/{chatId}/{allPaths=**} {
+      allow read: if isChatParticipant(chatId);
+      allow write: if request.auth != null && request.auth.uid == uid && isChatParticipant(chatId);
+    }
+
+    // Group media uploaded under uploader uid
+    match /groups/{uid}/{allPaths=**} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && request.auth.uid == uid;
+    }
+
+    // Deny all unspecified paths by default.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

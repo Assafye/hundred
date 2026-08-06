@@ -18,6 +18,7 @@ import 'saved_posts_screen.dart';
 import 'services/social_service.dart';
 import 'services/spontaneous_challenge_service.dart';
 import 'services/post_interaction_overlay_service.dart';
+import 'services/public_user_profile_service.dart';
 import 'stars_screen.dart' show showActiveSpontaneousTaskModal;
 import 'settings_screen.dart';
 import 'user_profile_screen.dart';
@@ -99,6 +100,8 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
   final Map<String, Future<String?>> _resolvedMediaFutureByPostKey = {};
   final Map<String, Future<Uint8List?>> _videoPreviewFutureByUrl = {};
   final SocialService _socialService = SocialService();
+  final PublicUserProfileService _publicUserProfileService =
+      PublicUserProfileService();
 
   static final List<_ProfileCategoryNavItem> _categoryItems = [
     const _ProfileCategoryNavItem(
@@ -405,7 +408,7 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
               border: Border.all(
                 color: isLight
                     ? const Color(0xFFA7BFFF)
-                    : const Color(0xFF53C1F9).withValues( alpha: 0.14),
+                    : const Color(0xFF53C1F9).withValues(alpha: 0.14),
                 width: 0.9,
               ),
             ),
@@ -937,10 +940,10 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                     end: Alignment.bottomRight,
                   ),
                   border: Border.all(
-                      color: Colors.white.withValues( alpha: 0.72), width: 1.2),
+                      color: Colors.white.withValues(alpha: 0.72), width: 1.2),
                   boxShadow: [
                     BoxShadow(
-                      color: const Color(0xFF76CFFF).withValues( alpha: 0.35),
+                      color: const Color(0xFF76CFFF).withValues(alpha: 0.35),
                       blurRadius: 15,
                       offset: const Offset(0, 7),
                     ),
@@ -995,7 +998,7 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                             end: Alignment.bottomRight,
                           ),
                     border:
-                        Border.all(color: Colors.white.withValues( alpha: 0.8)),
+                        Border.all(color: Colors.white.withValues(alpha: 0.8)),
                   ),
                   child: Text(
                     progress.isComplete
@@ -1058,12 +1061,12 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                     end: Alignment.bottomRight,
                   ),
             border: Border.all(
-                color: Colors.white.withValues( alpha: 0.72), width: 1.2),
+                color: Colors.white.withValues(alpha: 0.72), width: 1.2),
             boxShadow: [
               BoxShadow(
                 color:
                     (isDone ? const Color(0xFF8EA0B8) : const Color(0xFF76CFFF))
-                        .withValues( alpha: 0.3),
+                        .withValues(alpha: 0.3),
                 blurRadius: 14,
                 offset: const Offset(0, 6),
               ),
@@ -1499,7 +1502,7 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
         width: 46,
         height: 46,
         color: isLight
-            ? Colors.white.withValues( alpha: 0.62)
+            ? Colors.white.withValues(alpha: 0.62)
             : const Color(0xFF1A2230),
         child: mediaItems.isNotEmpty
             ? PostMediaViewer(
@@ -1595,7 +1598,7 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
                             color:
-                                const Color(0xFF9EEBFF).withValues( alpha: 0.14),
+                                const Color(0xFF9EEBFF).withValues(alpha: 0.14),
                           ),
                         ),
                       ),
@@ -1611,7 +1614,7 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
                             color:
-                                const Color(0xFFB9A9FF).withValues( alpha: 0.14),
+                                const Color(0xFFB9A9FF).withValues(alpha: 0.14),
                           ),
                         ),
                       ),
@@ -1619,7 +1622,7 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                   Container(
                     decoration: BoxDecoration(
                       color: isLight
-                          ? Colors.white.withValues( alpha: 0.78)
+                          ? Colors.white.withValues(alpha: 0.78)
                           : const Color(0xFF101826),
                       borderRadius: BorderRadius.circular(24),
                     ),
@@ -1689,7 +1692,7 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                                         decoration: BoxDecoration(
                                           color: isLight
                                               ? Colors.white
-                                                  .withValues( alpha: 0.62)
+                                                  .withValues(alpha: 0.62)
                                               : const Color(0xFF1A2435),
                                           borderRadius:
                                               BorderRadius.circular(14),
@@ -1697,7 +1700,7 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                                             color: isLight
                                                 ? const Color(0xFFA9C3FF)
                                                 : const Color(0xFF53C1F9)
-                                                    .withValues( alpha: 0.22),
+                                                    .withValues(alpha: 0.22),
                                           ),
                                         ),
                                         child: Row(
@@ -1948,13 +1951,14 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                         : hasUnread
                             ? const Color(0xFF53C1F9)
                             : Colors.black)
-                    .withValues( alpha: isLight ? 0.12 : (hasUnread ? 0.26 : 0.18)),
+                    .withValues(
+                        alpha: isLight ? 0.12 : (hasUnread ? 0.26 : 0.18)),
                 blurRadius: isLight ? 10 : (hasUnread ? 18 : 12),
                 offset: const Offset(0, 6),
               ),
               if (isLight)
                 BoxShadow(
-                  color: const Color(0xFFB79BFF).withValues( alpha: 0.09),
+                  color: const Color(0xFFB79BFF).withValues(alpha: 0.09),
                   blurRadius: 12,
                   offset: const Offset(0, 4),
                 ),
@@ -1963,8 +1967,8 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
               color: isLight
                   ? const Color(0xFFA7BFFF)
                   : hasUnread
-                      ? Colors.white.withValues( alpha: 0.22)
-                      : const Color(0xFF53C1F9).withValues( alpha: 0.14),
+                      ? Colors.white.withValues(alpha: 0.22)
+                      : const Color(0xFF53C1F9).withValues(alpha: 0.14),
               width: 0.9,
             ),
           ),
@@ -2052,53 +2056,16 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
       final trimmedUid = uid.trim();
       if (trimmedUid.isEmpty) continue;
 
-      final publicDoc = await FirebaseFirestore.instance
-          .collection('users_public')
-          .doc(trimmedUid)
-          .get();
-      final privateDoc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(trimmedUid)
-          .get();
-
-      final publicData = publicDoc.data() ?? <String, dynamic>{};
-      final privateData = privateDoc.data() ?? <String, dynamic>{};
-
-      String readString(List<String> keys) {
-        for (final key in keys) {
-          final fromPublic = (publicData[key] as String? ?? '').trim();
-          if (fromPublic.isNotEmpty) return fromPublic;
-          final fromPrivate = (privateData[key] as String? ?? '').trim();
-          if (fromPrivate.isNotEmpty) return fromPrivate;
-        }
-        return '';
-      }
-
-      final username = readString(const ['username']);
-      final displayName = readString(const ['displayName', 'fullName']);
-      final firstName = readString(const ['firstName']);
-      final lastName = readString(const ['lastName']);
-      final avatar = readString(
-          const ['profilePictureUrl', 'profileImageUrl', 'avatarUrl']);
-
-      final name = displayName.isNotEmpty
-          ? displayName
-          : ([firstName, lastName]
-                  .where((part) => part.isNotEmpty)
-                  .toList(growable: false)
-                  .join(' ')
-                  .trim()
-                  .isNotEmpty
-              ? [firstName, lastName]
-                  .where((part) => part.isNotEmpty)
-                  .toList(growable: false)
-                  .join(' ')
-                  .trim()
-              : (username.isNotEmpty ? username : trimmedUid));
-
-      final handle = username.isNotEmpty
-          ? (username.startsWith('@') ? username : '@$username')
+      final profile = await _publicUserProfileService.fetchProfile(trimmedUid);
+      final name = (profile?.displayName ?? '').trim().isNotEmpty
+          ? profile!.displayName
+          : ((profile?.username ?? '').trim().isNotEmpty
+              ? profile!.username
+              : trimmedUid);
+      final handle = profile != null
+          ? profile.handle
           : '@${trimmedUid.substring(0, trimmedUid.length > 6 ? 6 : trimmedUid.length)}';
+      final avatar = (profile?.profilePictureUrl ?? '').trim();
 
       users.add(
         _ProfileRelationUser(
@@ -2234,7 +2201,7 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                                 ),
                                 filled: true,
                                 fillColor: isLight
-                                    ? Colors.white.withValues( alpha: 0.62)
+                                    ? Colors.white.withValues(alpha: 0.62)
                                     : const Color(0xFF1A2435),
                                 border: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(12),
@@ -2242,7 +2209,7 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                                     color: isLight
                                         ? const Color(0xFFA9C3FF)
                                         : const Color(0xFF53C1F9)
-                                            .withValues( alpha: 0.22),
+                                            .withValues(alpha: 0.22),
                                   ),
                                 ),
                                 enabledBorder: OutlineInputBorder(
@@ -2251,7 +2218,7 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                                     color: isLight
                                         ? const Color(0xFFA9C3FF)
                                         : const Color(0xFF53C1F9)
-                                            .withValues( alpha: 0.22),
+                                            .withValues(alpha: 0.22),
                                   ),
                                 ),
                                 focusedBorder: OutlineInputBorder(
@@ -2304,7 +2271,7 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                                             decoration: BoxDecoration(
                                               color: isLight
                                                   ? Colors.white
-                                                      .withValues( alpha: 0.62)
+                                                      .withValues(alpha: 0.62)
                                                   : const Color(0xFF1A2435),
                                               borderRadius:
                                                   BorderRadius.circular(14),
@@ -2312,7 +2279,8 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                                                 color: isLight
                                                     ? const Color(0xFFA9C3FF)
                                                     : const Color(0xFF53C1F9)
-                                                        .withValues( alpha: 0.22),
+                                                        .withValues(
+                                                            alpha: 0.22),
                                               ),
                                             ),
                                             child: Row(
@@ -2470,8 +2438,8 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
             ? null
             : LinearGradient(
                 colors: [
-                  const Color(0xFF1A2E45).withValues( alpha: 0.98),
-                  const Color(0xFF30244A).withValues( alpha: 0.98),
+                  const Color(0xFF1A2E45).withValues(alpha: 0.98),
+                  const Color(0xFF30244A).withValues(alpha: 0.98),
                 ],
                 begin: Alignment.topRight,
                 end: Alignment.bottomLeft,
@@ -2480,18 +2448,18 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
         border: Border.all(
           color: isLight
               ? const Color(0xFFA7BFFF)
-              : const Color(0xFF53C1F9).withValues( alpha: 0.42),
+              : const Color(0xFF53C1F9).withValues(alpha: 0.42),
         ),
         boxShadow: [
           BoxShadow(
             color: const Color(0xFF53C1F9)
-                .withValues( alpha: isLight ? 0.08 : 0.12),
+                .withValues(alpha: isLight ? 0.08 : 0.12),
             blurRadius: 12,
             offset: const Offset(0, 4),
           ),
           if (isLight)
             BoxShadow(
-              color: const Color(0xFFB79BFF).withValues( alpha: 0.08),
+              color: const Color(0xFFB79BFF).withValues(alpha: 0.08),
               blurRadius: 14,
               offset: const Offset(0, 5),
             ),
@@ -2559,17 +2527,17 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
         border: Border.all(
           color: isLight
               ? const Color(0xFFA7BFFF)
-              : const Color(0xFF53C1F9).withValues( alpha: 0.26),
+              : const Color(0xFF53C1F9).withValues(alpha: 0.26),
         ),
         boxShadow: isLight
             ? [
                 BoxShadow(
-                  color: const Color(0xFF53C1F9).withValues( alpha: 0.08),
+                  color: const Color(0xFF53C1F9).withValues(alpha: 0.08),
                   blurRadius: 10,
                   offset: const Offset(0, 4),
                 ),
                 BoxShadow(
-                  color: const Color(0xFFB79BFF).withValues( alpha: 0.07),
+                  color: const Color(0xFFB79BFF).withValues(alpha: 0.07),
                   blurRadius: 12,
                   offset: const Offset(0, 5),
                 ),
@@ -2790,7 +2758,7 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
         border: isLight
             ? null
             : Border.all(
-                color: const Color(0xFF53C1F9).withValues( alpha: 0.12)),
+                color: const Color(0xFF53C1F9).withValues(alpha: 0.12)),
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(18),
@@ -2859,14 +2827,14 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                                         color: isLight
                                             ? const Color(0xFFEAF1FF)
                                             : const Color(0xFF141925)
-                                                .withValues( alpha: 0.92),
+                                                .withValues(alpha: 0.92),
                                         borderRadius:
                                             BorderRadius.circular(999),
                                         border: Border.all(
                                           color: isLight
                                               ? const Color(0xFFA9C3FF)
                                               : const Color(0xFF53C1F9)
-                                                  .withValues( alpha: 0.4),
+                                                  .withValues(alpha: 0.4),
                                         ),
                                       ),
                                       child: Text(
@@ -2889,14 +2857,14 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                                       decoration: BoxDecoration(
                                         color: isLight
                                             ? Colors.white
-                                                .withValues( alpha: 0.92)
+                                                .withValues(alpha: 0.92)
                                             : const Color(0xFF2A2248)
-                                                .withValues( alpha: 0.94),
+                                                .withValues(alpha: 0.94),
                                         borderRadius:
                                             BorderRadius.circular(999),
                                         border: Border.all(
                                           color: const Color(0xFF9E7CFF)
-                                              .withValues( alpha: 0.55),
+                                              .withValues(alpha: 0.55),
                                         ),
                                       ),
                                       child: Text(
@@ -2923,36 +2891,6 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                                 textDirection: TextDirection.rtl,
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  if (!isTaggedCategoryView)
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 9, vertical: 5),
-                                      decoration: BoxDecoration(
-                                        color: isLight
-                                            ? const Color(0xFFEAF1FF)
-                                            : const Color(0xFF141925)
-                                                .withValues( alpha: 0.92),
-                                        borderRadius:
-                                            BorderRadius.circular(999),
-                                        border: Border.all(
-                                          color: isLight
-                                              ? const Color(0xFFA9C3FF)
-                                              : const Color(0xFF53C1F9)
-                                                  .withValues( alpha: 0.4),
-                                        ),
-                                      ),
-                                      child: Text(
-                                        '+${_formatCompactCount(score)}',
-                                        style: TextStyle(
-                                          color: isLight
-                                              ? const Color(0xFF4E5ED6)
-                                              : const Color(0xFFBFE7FF),
-                                          fontWeight: FontWeight.w800,
-                                          fontSize: 11,
-                                        ),
-                                      ),
-                                    ),
-                                  const SizedBox(height: 6),
                                   ConstrainedBox(
                                     constraints:
                                         const BoxConstraints(maxWidth: 118),
@@ -2991,6 +2929,36 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                                       ),
                                     ),
                                   ),
+                                  const SizedBox(height: 6),
+                                  if (!isTaggedCategoryView)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 9, vertical: 5),
+                                      decoration: BoxDecoration(
+                                        color: isLight
+                                            ? const Color(0xFFEAF1FF)
+                                            : const Color(0xFF141925)
+                                                .withValues(alpha: 0.92),
+                                        borderRadius:
+                                            BorderRadius.circular(999),
+                                        border: Border.all(
+                                          color: isLight
+                                              ? const Color(0xFFA9C3FF)
+                                              : const Color(0xFF53C1F9)
+                                                  .withValues(alpha: 0.4),
+                                        ),
+                                      ),
+                                      child: Text(
+                                        '+${_formatCompactCount(score)}',
+                                        style: TextStyle(
+                                          color: isLight
+                                              ? const Color(0xFF4E5ED6)
+                                              : const Color(0xFFBFE7FF),
+                                          fontWeight: FontWeight.w800,
+                                          fontSize: 11,
+                                        ),
+                                      ),
+                                    ),
                                   if (isTaggedCategoryView &&
                                       taggedScore > 0) ...[
                                     const SizedBox(height: 6),
@@ -3002,14 +2970,14 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                                       decoration: BoxDecoration(
                                         color: isLight
                                             ? Colors.white
-                                                .withValues( alpha: 0.92)
+                                                .withValues(alpha: 0.92)
                                             : const Color(0xFF2A2248)
-                                                .withValues( alpha: 0.94),
+                                                .withValues(alpha: 0.94),
                                         borderRadius:
                                             BorderRadius.circular(999),
                                         border: Border.all(
                                           color: const Color(0xFF9E7CFF)
-                                              .withValues( alpha: 0.55),
+                                              .withValues(alpha: 0.55),
                                         ),
                                       ),
                                       child: Text(
@@ -3043,7 +3011,7 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                                     borderRadius: BorderRadius.circular(999),
                                     border: Border.all(
                                       color: const Color(0xFFFF8A2A)
-                                          .withValues( alpha: 0.72),
+                                          .withValues(alpha: 0.72),
                                     ),
                                   ),
                                   child: const Text(
@@ -3111,7 +3079,7 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
         border: Border.all(
           color: isLight
               ? const Color(0xFFA9C3FF)
-              : const Color(0xFF53C1F9).withValues( alpha: 0.18),
+              : const Color(0xFF53C1F9).withValues(alpha: 0.18),
         ),
       ),
       child: Padding(
@@ -3408,7 +3376,7 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
     }
     await showDialog<void>(
       context: context,
-      barrierColor: Colors.black.withValues( alpha: 0.78),
+      barrierColor: Colors.black.withValues(alpha: 0.78),
       builder: (dialogContext) {
         final isLight = Theme.of(dialogContext).brightness == Brightness.light;
         final size = MediaQuery.of(dialogContext).size;
@@ -3590,12 +3558,12 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
             boxShadow: isSelected
                 ? [
                     BoxShadow(
-                      color: const Color(0xFF7FE4FF).withValues( alpha: 0.24),
+                      color: const Color(0xFF7FE4FF).withValues(alpha: 0.24),
                       blurRadius: 10,
                       offset: const Offset(0, 4),
                     ),
                     BoxShadow(
-                      color: const Color(0xFFA993FF).withValues( alpha: 0.2),
+                      color: const Color(0xFFA993FF).withValues(alpha: 0.2),
                       blurRadius: 12,
                       offset: const Offset(0, 5),
                     ),
@@ -3632,7 +3600,8 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                           ? Colors.black
                           : (isSelected ? Colors.white : Colors.grey[400]),
                       fontSize: isCompact ? 9 : 10,
-                      fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                      fontWeight:
+                          isSelected ? FontWeight.w700 : FontWeight.w500,
                       height: 1.1,
                     ),
                   ),
@@ -3666,7 +3635,7 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
           itemCount: _categoryItems.length,
           padding: EdgeInsets.fromLTRB(
               0, isCompact ? 8 : 10, 0, isCompact ? 12 : 16),
-            itemExtent: isCompact ? 86 : 94,
+          itemExtent: isCompact ? 86 : 94,
           itemBuilder: (context, index) {
             final item = _categoryItems[index];
             return _buildCategorySidebarItem(
@@ -3868,7 +3837,7 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
                           border: Border.all(
-                            color: Colors.black.withValues( alpha: 0.7),
+                            color: Colors.black.withValues(alpha: 0.7),
                             width: 2.4,
                           ),
                         ),
@@ -4059,7 +4028,7 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                         style: ElevatedButton.styleFrom(
                           elevation: isLight ? 2 : 0,
                           shadowColor: isLight
-                              ? const Color(0xFFB79BFF).withValues( alpha: 0.22)
+                              ? const Color(0xFFB79BFF).withValues(alpha: 0.22)
                               : Colors.transparent,
                           backgroundColor:
                               isLight ? Colors.white : const Color(0xFF1B2D45),
@@ -4074,7 +4043,7 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                               color: isLight
                                   ? borderColor
                                   : const Color(0xFF53C1F9)
-                                      .withValues( alpha: 0.34),
+                                      .withValues(alpha: 0.34),
                             ),
                           ),
                         ),
@@ -4097,19 +4066,19 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                         border: Border.all(
                           color: isLight
                               ? borderColor
-                              : const Color(0xFF53C1F9).withValues( alpha: 0.3),
+                              : const Color(0xFF53C1F9).withValues(alpha: 0.3),
                         ),
                         boxShadow: isLight
                             ? [
                                 BoxShadow(
                                   color: const Color(0xFF53C1F9)
-                                      .withValues( alpha: 0.09),
+                                      .withValues(alpha: 0.09),
                                   blurRadius: 10,
                                   offset: const Offset(0, 4),
                                 ),
                                 BoxShadow(
                                   color: const Color(0xFFB79BFF)
-                                      .withValues( alpha: 0.08),
+                                      .withValues(alpha: 0.08),
                                   blurRadius: 12,
                                   offset: const Offset(0, 5),
                                 ),
@@ -4140,19 +4109,19 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                         border: Border.all(
                           color: isLight
                               ? borderColor
-                              : const Color(0xFF53C1F9).withValues( alpha: 0.3),
+                              : const Color(0xFF53C1F9).withValues(alpha: 0.3),
                         ),
                         boxShadow: isLight
                             ? [
                                 BoxShadow(
                                   color: const Color(0xFF53C1F9)
-                                      .withValues( alpha: 0.09),
+                                      .withValues(alpha: 0.09),
                                   blurRadius: 10,
                                   offset: const Offset(0, 4),
                                 ),
                                 BoxShadow(
                                   color: const Color(0xFFB79BFF)
-                                      .withValues( alpha: 0.08),
+                                      .withValues(alpha: 0.08),
                                   blurRadius: 12,
                                   offset: const Offset(0, 5),
                                 ),
@@ -4186,19 +4155,19 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                         border: Border.all(
                           color: isLight
                               ? borderColor
-                              : const Color(0xFF53C1F9).withValues( alpha: 0.3),
+                              : const Color(0xFF53C1F9).withValues(alpha: 0.3),
                         ),
                         boxShadow: isLight
                             ? [
                                 BoxShadow(
                                   color: const Color(0xFF53C1F9)
-                                      .withValues( alpha: 0.09),
+                                      .withValues(alpha: 0.09),
                                   blurRadius: 10,
                                   offset: const Offset(0, 4),
                                 ),
                                 BoxShadow(
                                   color: const Color(0xFFB79BFF)
-                                      .withValues( alpha: 0.08),
+                                      .withValues(alpha: 0.08),
                                   blurRadius: 12,
                                   offset: const Offset(0, 5),
                                 ),
@@ -4269,13 +4238,13 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                       boxShadow: [
                         BoxShadow(
                           color:
-                              const Color(0xFF7D72FF).withValues( alpha: 0.32),
+                              const Color(0xFF7D72FF).withValues(alpha: 0.32),
                           blurRadius: 14,
                           offset: const Offset(0, 7),
                         ),
                       ],
                       border: Border.all(
-                        color: Colors.white.withValues( alpha: 0.65),
+                        color: Colors.white.withValues(alpha: 0.65),
                         width: 1.1,
                       ),
                     ),
@@ -4321,13 +4290,13 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                       boxShadow: [
                         BoxShadow(
                           color:
-                              const Color(0xFF7D72FF).withValues( alpha: 0.32),
+                              const Color(0xFF7D72FF).withValues(alpha: 0.32),
                           blurRadius: 14,
                           offset: const Offset(0, 7),
                         ),
                       ],
                       border: Border.all(
-                        color: Colors.white.withValues( alpha: 0.65),
+                        color: Colors.white.withValues(alpha: 0.65),
                         width: 1.1,
                       ),
                     ),
@@ -4418,14 +4387,14 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
         boxShadow: [
           BoxShadow(
             color:
-                const Color(0xFF7D72FF).withValues( alpha: isLight ? 0.26 : 0.5),
+                const Color(0xFF7D72FF).withValues(alpha: isLight ? 0.26 : 0.5),
             blurRadius: 22,
             spreadRadius: 1.2,
             offset: const Offset(0, 9),
           ),
           BoxShadow(
             color:
-                const Color(0xFF4CD9FF).withValues( alpha: isLight ? 0.2 : 0.35),
+                const Color(0xFF4CD9FF).withValues(alpha: isLight ? 0.2 : 0.35),
             blurRadius: 18,
             spreadRadius: 0.8,
             offset: const Offset(0, 2),
@@ -4471,7 +4440,7 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                     ? [
                         Shadow(
                           color:
-                              const Color(0xFF4725A8).withValues( alpha: 0.35),
+                              const Color(0xFF4725A8).withValues(alpha: 0.35),
                           blurRadius: 10,
                           offset: const Offset(0, 2),
                         ),
@@ -4486,7 +4455,7 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 color: isComplete
-                    ? Colors.white.withValues( alpha: 0.98)
+                    ? Colors.white.withValues(alpha: 0.98)
                     : (isLight
                         ? const Color(0xFF2A355A)
                         : const Color(0xFFD6CDFF)),
@@ -4522,7 +4491,7 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                   height: orbSizeA,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: const Color(0xFFB9A9FF).withValues( alpha: 0.12),
+                    color: const Color(0xFFB9A9FF).withValues(alpha: 0.12),
                   ),
                 ),
               ),
@@ -4537,7 +4506,7 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                   height: orbSizeB,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: const Color(0xFF9EEBFF).withValues( alpha: 0.12),
+                    color: const Color(0xFF9EEBFF).withValues(alpha: 0.12),
                   ),
                 ),
               ),
@@ -4579,7 +4548,7 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                             borderRadius: BorderRadius.circular(20),
                             border: Border.all(
                               color: const Color(0xFF53C1F9)
-                                  .withValues( alpha: 0.22),
+                                  .withValues(alpha: 0.22),
                             ),
                           ),
                           child: const Text(

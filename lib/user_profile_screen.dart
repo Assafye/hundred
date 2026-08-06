@@ -17,10 +17,12 @@ import 'services/chat_service.dart';
 import 'services/group_service.dart';
 import 'services/post_interaction_overlay_service.dart';
 import 'services/public_user_profile_service.dart';
+import 'services/report_service.dart';
 import 'services/spontaneous_challenge_service.dart';
 import 'services/social_service.dart';
 import 'widgets/profile_images_viewer_dialog.dart';
 import 'widgets/post_media_viewer.dart';
+import 'widgets/report_dialogs.dart';
 import 'widgets/swipe_back_wrapper.dart';
 import 'video_preview_utils.dart';
 
@@ -107,6 +109,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   final GroupService _groupService = GroupService();
   final PublicUserProfileService _publicUserProfileService =
       PublicUserProfileService();
+  final ReportService _reportService = ReportService();
   final Map<String, Future<String?>> _resolvedMediaFutureByPostKey = {};
   final Map<String, Future<Uint8List?>> _videoPreviewFutureByUrl = {};
 
@@ -223,7 +226,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                     color: const Color(0xFF1A2435),
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(
-                      color: const Color(0xFF53C1F9).withValues(alpha:  0.22),
+                      color: const Color(0xFF53C1F9).withValues(alpha: 0.22),
                     ),
                   ),
                   child: Column(
@@ -309,31 +312,63 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   }
 
   Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>> _postsStream() {
-    final authoredStream = _db
+    final authoredByAuthorIdStream = _db
         .collection('posts')
         .where('authorId', isEqualTo: widget.uid)
         .snapshots();
-    final taggedStream = _db
+    final authoredByUidStream =
+        _db.collection('posts').where('uid', isEqualTo: widget.uid).snapshots();
+    final authoredByUserIdStream = _db
+        .collection('posts')
+        .where('userId', isEqualTo: widget.uid)
+        .snapshots();
+    final taggedByMembersStream = _db
         .collection('posts')
         .where('members', arrayContains: widget.uid)
         .snapshots();
+    final taggedByParticipantsStream = _db
+        .collection('posts')
+        .where('participants', arrayContains: widget.uid)
+        .snapshots();
 
     return Stream.multi((controller) {
-      QuerySnapshot<Map<String, dynamic>>? authoredSnapshot;
-      QuerySnapshot<Map<String, dynamic>>? taggedSnapshot;
+      QuerySnapshot<Map<String, dynamic>>? authoredByAuthorIdSnapshot;
+      QuerySnapshot<Map<String, dynamic>>? authoredByUidSnapshot;
+      QuerySnapshot<Map<String, dynamic>>? authoredByUserIdSnapshot;
+      QuerySnapshot<Map<String, dynamic>>? taggedByMembersSnapshot;
+      QuerySnapshot<Map<String, dynamic>>? taggedByParticipantsSnapshot;
 
       void emitMerged() {
-        if (authoredSnapshot == null || taggedSnapshot == null) {
+        if (authoredByAuthorIdSnapshot == null ||
+            authoredByUidSnapshot == null ||
+            authoredByUserIdSnapshot == null) {
           return;
         }
 
         final mergedById =
             <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
-        for (final doc in authoredSnapshot!.docs) {
+        for (final doc in authoredByAuthorIdSnapshot!.docs) {
           mergedById[doc.id] = doc;
         }
-        for (final doc in taggedSnapshot!.docs) {
+        for (final doc in authoredByUidSnapshot!.docs) {
           mergedById[doc.id] = doc;
+        }
+        for (final doc in authoredByUserIdSnapshot!.docs) {
+          mergedById[doc.id] = doc;
+        }
+        if (taggedByMembersSnapshot != null) {
+          for (final doc in taggedByMembersSnapshot!.docs) {
+            if (_isTaggedPostForViewedUser(doc.data())) {
+              mergedById[doc.id] = doc;
+            }
+          }
+        }
+        if (taggedByParticipantsSnapshot != null) {
+          for (final doc in taggedByParticipantsSnapshot!.docs) {
+            if (_isTaggedPostForViewedUser(doc.data())) {
+              mergedById[doc.id] = doc;
+            }
+          }
         }
 
         final merged = mergedById.values.toList(growable: false)
@@ -343,25 +378,60 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         controller.add(merged);
       }
 
-      final authoredSub = authoredStream.listen(
+      final authoredByAuthorIdSub = authoredByAuthorIdStream.listen(
         (snapshot) {
-          authoredSnapshot = snapshot;
+          authoredByAuthorIdSnapshot = snapshot;
           emitMerged();
         },
         onError: controller.addError,
       );
 
-      final taggedSub = taggedStream.listen(
+      final authoredByUidSub = authoredByUidStream.listen(
         (snapshot) {
-          taggedSnapshot = snapshot;
+          authoredByUidSnapshot = snapshot;
           emitMerged();
         },
         onError: controller.addError,
+      );
+
+      final authoredByUserIdSub = authoredByUserIdStream.listen(
+        (snapshot) {
+          authoredByUserIdSnapshot = snapshot;
+          emitMerged();
+        },
+        onError: controller.addError,
+      );
+
+      final taggedByMembersSub = taggedByMembersStream.listen(
+        (snapshot) {
+          taggedByMembersSnapshot = snapshot;
+          emitMerged();
+        },
+        onError: (error, stackTrace) {
+          debugPrint(
+            '[UserProfileScreen][taggedByMembers] stream error: $error',
+          );
+        },
+      );
+
+      final taggedByParticipantsSub = taggedByParticipantsStream.listen(
+        (snapshot) {
+          taggedByParticipantsSnapshot = snapshot;
+          emitMerged();
+        },
+        onError: (error, stackTrace) {
+          debugPrint(
+            '[UserProfileScreen][taggedByParticipants] stream error: $error',
+          );
+        },
       );
 
       controller.onCancel = () async {
-        await authoredSub.cancel();
-        await taggedSub.cancel();
+        await authoredByAuthorIdSub.cancel();
+        await authoredByUidSub.cancel();
+        await authoredByUserIdSub.cancel();
+        await taggedByMembersSub.cancel();
+        await taggedByParticipantsSub.cancel();
       };
     });
   }
@@ -868,10 +938,10 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                     end: Alignment.bottomRight,
                   ),
                   border: Border.all(
-                      color: Colors.white.withValues(alpha:  0.72), width: 1.2),
+                      color: Colors.white.withValues(alpha: 0.72), width: 1.2),
                   boxShadow: [
                     BoxShadow(
-                      color: const Color(0xFF76CFFF).withValues(alpha:  0.35),
+                      color: const Color(0xFF76CFFF).withValues(alpha: 0.35),
                       blurRadius: 15,
                       offset: const Offset(0, 7),
                     ),
@@ -926,7 +996,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                             end: Alignment.bottomRight,
                           ),
                     border:
-                        Border.all(color: Colors.white.withValues(alpha:  0.8)),
+                        Border.all(color: Colors.white.withValues(alpha: 0.8)),
                   ),
                   child: Text(
                     progress.isComplete
@@ -989,12 +1059,12 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                     end: Alignment.bottomRight,
                   ),
             border: Border.all(
-                color: Colors.white.withValues(alpha:  0.72), width: 1.2),
+                color: Colors.white.withValues(alpha: 0.72), width: 1.2),
             boxShadow: [
               BoxShadow(
                 color:
                     (isDone ? const Color(0xFF8EA0B8) : const Color(0xFF76CFFF))
-                        .withValues(alpha:  0.3),
+                        .withValues(alpha: 0.3),
                 blurRadius: 14,
                 offset: const Offset(0, 6),
               ),
@@ -1268,13 +1338,13 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
             ),
             boxShadow: [
               BoxShadow(
-                color: const Color(0xFF7D72FF).withValues(alpha:  0.32),
+                color: const Color(0xFF7D72FF).withValues(alpha: 0.32),
                 blurRadius: 14,
                 offset: const Offset(0, 7),
               ),
             ],
             border: Border.all(
-              color: Colors.white.withValues(alpha:  0.65),
+              color: Colors.white.withValues(alpha: 0.65),
               width: 1.1,
             ),
           ),
@@ -1304,13 +1374,13 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
             ),
             boxShadow: [
               BoxShadow(
-                color: const Color(0xFF7D72FF).withValues(alpha:  0.32),
+                color: const Color(0xFF7D72FF).withValues(alpha: 0.32),
                 blurRadius: 14,
                 offset: const Offset(0, 7),
               ),
             ],
             border: Border.all(
-              color: Colors.white.withValues(alpha:  0.65),
+              color: Colors.white.withValues(alpha: 0.65),
               width: 1.1,
             ),
           ),
@@ -1625,14 +1695,14 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                                         horizontal: 12, vertical: 10),
                                     decoration: BoxDecoration(
                                       color: isLight
-                                          ? Colors.white.withValues(alpha:  0.72)
+                                          ? Colors.white.withValues(alpha: 0.72)
                                           : const Color(0xFF1A2435),
                                       borderRadius: BorderRadius.circular(14),
                                       border: Border.all(
                                         color: isLight
                                             ? const Color(0xFFA9C3FF)
                                             : const Color(0xFF53C1F9)
-                                                .withValues(alpha:  0.22),
+                                                .withValues(alpha: 0.22),
                                       ),
                                     ),
                                     child: Row(
@@ -1657,13 +1727,14 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                                             borderRadius:
                                                 BorderRadius.circular(999),
                                             border: Border.all(
-                                              color: Colors.white.withValues(alpha:  isLight ? 0.78 : 0.3,
+                                              color: Colors.white.withValues(
+                                                alpha: isLight ? 0.78 : 0.3,
                                               ),
                                             ),
                                             boxShadow: [
                                               BoxShadow(
                                                 color: const Color(0xFF7BD6FF)
-                                                    .withValues(alpha:  0.24),
+                                                    .withValues(alpha: 0.24),
                                                 blurRadius: 12,
                                                 offset: const Offset(0, 4),
                                               ),
@@ -1944,7 +2015,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         border: Border.all(
           color: isLight
               ? const Color(0xFFA9C3FF)
-              : const Color(0xFF53C1F9).withValues(alpha:  0.12),
+              : const Color(0xFF53C1F9).withValues(alpha: 0.12),
         ),
       ),
       child: ClipRRect(
@@ -1976,7 +2047,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                               borderRadius: BorderRadius.circular(999),
                               border: Border.all(
                                 color: const Color(0xFFFF8A2A)
-                                    .withValues(alpha:  0.72),
+                                    .withValues(alpha: 0.72),
                               ),
                             ),
                             child: const Text(
@@ -1997,13 +2068,13 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                                   horizontal: 8, vertical: 5),
                               decoration: BoxDecoration(
                                 color: isLight
-                                    ? Colors.white.withValues(alpha:  0.92)
+                                    ? Colors.white.withValues(alpha: 0.92)
                                     : const Color(0xFF2A2248)
-                                        .withValues(alpha:  0.94),
+                                        .withValues(alpha: 0.94),
                                 borderRadius: BorderRadius.circular(999),
                                 border: Border.all(
                                   color: const Color(0xFF9E7CFF)
-                                      .withValues(alpha:  0.55),
+                                      .withValues(alpha: 0.55),
                                 ),
                               ),
                               child: Text(
@@ -2079,20 +2150,20 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                           decoration: BoxDecoration(
                             color: isTaggedCategoryView
                                 ? (isLight
-                                    ? Colors.white.withValues(alpha:  0.92)
+                                    ? Colors.white.withValues(alpha: 0.92)
                                     : const Color(0xFF2A2248)
-                                        .withValues(alpha:  0.94))
+                                        .withValues(alpha: 0.94))
                                 : (isLight
-                                    ? Colors.white.withValues(alpha:  0.92)
+                                    ? Colors.white.withValues(alpha: 0.92)
                                     : const Color(0xFF141925)
-                                        .withValues(alpha:  0.92)),
+                                        .withValues(alpha: 0.92)),
                             borderRadius: BorderRadius.circular(999),
                             border: Border.all(
                               color: isTaggedCategoryView
                                   ? const Color(0xFF9E7CFF)
-                                      .withValues(alpha:  0.55)
+                                      .withValues(alpha: 0.55)
                                   : const Color(0xFF53C1F9)
-                                      .withValues(alpha:  0.4),
+                                      .withValues(alpha: 0.4),
                             ),
                           ),
                           child: Text(
@@ -2166,7 +2237,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         border: Border.all(
           color: isLight
               ? const Color(0xFFA9C3FF)
-              : const Color(0xFF53C1F9).withValues(alpha:  0.18),
+              : const Color(0xFF53C1F9).withValues(alpha: 0.18),
         ),
       ),
       child: Padding(
@@ -2464,7 +2535,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     }
     await showDialog<void>(
       context: context,
-      barrierColor: Colors.black.withValues(alpha:  0.78),
+      barrierColor: Colors.black.withValues(alpha: 0.78),
       builder: (dialogContext) {
         final isLight = Theme.of(dialogContext).brightness == Brightness.light;
         final size = MediaQuery.of(dialogContext).size;
@@ -2666,7 +2737,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 28),
           child: Text(
-            'אין פוסטים להצגה בקטגוריה הזו',
+            'אין פוסטים להצגה',
             textAlign: TextAlign.center,
             style: TextStyle(color: Colors.grey[400], fontSize: 14),
           ),
@@ -3033,14 +3104,14 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                                     horizontal: 10, vertical: 10),
                                 decoration: BoxDecoration(
                                   color: isLight
-                                      ? Colors.white.withValues(alpha:  0.72)
+                                      ? Colors.white.withValues(alpha: 0.72)
                                       : const Color(0xFF1A2435),
                                   borderRadius: BorderRadius.circular(14),
                                   border: Border.all(
                                     color: isLight
                                         ? const Color(0xFFA9C3FF)
                                         : const Color(0xFF53C1F9)
-                                            .withValues(alpha:  0.22),
+                                            .withValues(alpha: 0.22),
                                   ),
                                 ),
                                 child: Row(
@@ -3164,7 +3235,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                                               border: Border.all(
                                                 color: isFollowCta
                                                     ? const Color(0xFFE6D9FF)
-                                                    : Colors.white.withValues(alpha:  isLight
+                                                    : Colors.white.withValues(
+                                                        alpha: isLight
                                                             ? 0.9
                                                             : 0.22,
                                                       ),
@@ -3175,7 +3247,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                                                       BoxShadow(
                                                         color: const Color(
                                                           0xFF9E7CFF,
-                                                        ).withValues(alpha:  0.3),
+                                                        ).withValues(
+                                                            alpha: 0.3),
                                                         blurRadius: 10,
                                                         offset:
                                                             const Offset(0, 3),
@@ -3252,8 +3325,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   }
 
   Future<void> _showFollowersSheet() async {
-    final userDoc = await _db.collection('users').doc(widget.uid).get();
-    final followers = _uidListFromData(userDoc.data(), 'followers');
+    final followers = await _followersForProfile(widget.uid);
     await _showRelationSheet(
       title: 'עוקבים',
       userIds: followers,
@@ -3262,8 +3334,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   }
 
   Future<void> _showFollowingSheet() async {
-    final userDoc = await _db.collection('users').doc(widget.uid).get();
-    final following = _uidListFromData(userDoc.data(), 'following');
+    final following = await _followingForProfile(widget.uid);
     await _showRelationSheet(
       title: 'נעקבים',
       userIds: following,
@@ -3272,17 +3343,209 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   }
 
   Future<void> _showFriendsOfUserSheet() async {
-    final userDoc = await _db.collection('users').doc(widget.uid).get();
-    final data = userDoc.data() ?? <String, dynamic>{};
-    final followers = _uidListFromData(data, 'followers').toSet();
-    final following = _uidListFromData(data, 'following').toSet();
-    final friends = followers.intersection(following).toList(growable: false);
+    final friends = await _friendIdsForProfile(widget.uid);
 
     await _showRelationSheet(
       title: 'חברים',
       userIds: friends,
       emptyMessage: 'אין חברים להצגה כרגע',
     );
+  }
+
+  Future<Map<String, dynamic>> _relationSourceDataForProfile(String uid) async {
+    final normalizedUid = uid.trim();
+    if (normalizedUid.isEmpty) {
+      return <String, dynamic>{};
+    }
+
+    final currentUid = FirebaseAuth.instance.currentUser?.uid;
+    if (currentUid != null && currentUid == normalizedUid) {
+      final privateDoc = await _db.collection('users').doc(normalizedUid).get();
+      return privateDoc.data() ?? <String, dynamic>{};
+    }
+
+    final publicDoc =
+        await _db.collection('users_public').doc(normalizedUid).get();
+    final publicData = publicDoc.data() ?? <String, dynamic>{};
+
+    final hasPublicRelations =
+        _uidListFromData(publicData, 'followers').isNotEmpty ||
+            _uidListFromData(publicData, 'following').isNotEmpty ||
+            ((publicData['followersCount'] as num?)?.toInt() ?? 0) > 0 ||
+            ((publicData['followingCount'] as num?)?.toInt() ?? 0) > 0;
+    if (hasPublicRelations) {
+      return publicData;
+    }
+
+    try {
+      final privateDoc = await _db.collection('users').doc(normalizedUid).get();
+      return privateDoc.data() ?? publicData;
+    } catch (_) {
+      return publicData;
+    }
+  }
+
+  Future<List<String>> _followersForProfile(String uid) async {
+    final data = await _relationSourceDataForProfile(uid);
+    final directFollowers = _uidListFromData(data, 'followers');
+    if (directFollowers.isNotEmpty) {
+      return directFollowers;
+    }
+
+    final normalizedUid = uid.trim();
+    if (normalizedUid.isEmpty) {
+      return const <String>[];
+    }
+
+    try {
+      final reverseSnapshot = await _db
+          .collection('users_public')
+          .where('following', arrayContains: normalizedUid)
+          .get();
+      final ids = reverseSnapshot.docs
+          .map((doc) => doc.id.trim())
+          .where((value) => value.isNotEmpty)
+          .toSet()
+          .toList(growable: false)
+        ..sort();
+      if (ids.isNotEmpty) {
+        return ids;
+      }
+
+      final privateReverseSnapshot = await _db
+          .collection('users')
+          .where('following', arrayContains: normalizedUid)
+          .get();
+      final privateIds = privateReverseSnapshot.docs
+          .map((doc) => doc.id.trim())
+          .where((value) => value.isNotEmpty)
+          .toSet()
+          .toList(growable: false)
+        ..sort();
+      return privateIds;
+    } catch (error) {
+      debugPrint(
+        '[UserProfileScreen][followersForProfile] reverse query failed for $normalizedUid: $error',
+      );
+      return const <String>[];
+    }
+  }
+
+  Future<List<String>> _followingForProfile(String uid) async {
+    final data = await _relationSourceDataForProfile(uid);
+    final directFollowing = _uidListFromData(data, 'following');
+    if (directFollowing.isNotEmpty) {
+      return directFollowing;
+    }
+
+    final normalizedUid = uid.trim();
+    if (normalizedUid.isEmpty) {
+      return const <String>[];
+    }
+
+    try {
+      final reverseSnapshot = await _db
+          .collection('users_public')
+          .where('followers', arrayContains: normalizedUid)
+          .get();
+      final ids = reverseSnapshot.docs
+          .map((doc) => doc.id.trim())
+          .where((value) => value.isNotEmpty)
+          .toSet()
+          .toList(growable: false)
+        ..sort();
+      if (ids.isNotEmpty) {
+        return ids;
+      }
+
+      final privateReverseSnapshot = await _db
+          .collection('users')
+          .where('followers', arrayContains: normalizedUid)
+          .get();
+      final privateIds = privateReverseSnapshot.docs
+          .map((doc) => doc.id.trim())
+          .where((value) => value.isNotEmpty)
+          .toSet()
+          .toList(growable: false)
+        ..sort();
+      return privateIds;
+    } catch (error) {
+      debugPrint(
+        '[UserProfileScreen][followingForProfile] reverse query failed for $normalizedUid: $error',
+      );
+      return const <String>[];
+    }
+  }
+
+  Future<List<String>> _friendIdsForProfile(
+    String uid, {
+    Map<String, dynamic>? preferredData,
+  }) async {
+    final normalizedUid = uid.trim();
+    if (normalizedUid.isEmpty) {
+      return const <String>[];
+    }
+
+    final relationData =
+        preferredData ?? await _relationSourceDataForProfile(uid);
+    final explicitFriends = _uidListFromData(relationData, 'friends').toSet();
+    if (explicitFriends.isNotEmpty) {
+      final ids = explicitFriends.toList(growable: false)..sort();
+      return ids;
+    }
+
+    final followers = (await _followersForProfile(normalizedUid)).toSet();
+    final following = (await _followingForProfile(normalizedUid)).toSet();
+    final ids = followers.intersection(following).toList(growable: false)
+      ..sort();
+    return ids;
+  }
+
+  Future<Set<String>> _groupIdsFromRootGroupQueriesForUser(String uid) async {
+    final normalizedUid = uid.trim();
+    if (normalizedUid.isEmpty) {
+      return const <String>{};
+    }
+
+    final ids = <String>{};
+
+    Future<void> collect(
+      Future<QuerySnapshot<Map<String, dynamic>>> future,
+    ) async {
+      try {
+        final snapshot = await future;
+        for (final doc in snapshot.docs) {
+          ids.add(doc.id);
+        }
+      } catch (_) {}
+    }
+
+    await collect(
+      _db
+          .collection('groups')
+          .where('members', arrayContains: normalizedUid)
+          .get(),
+    );
+    await collect(
+      _db
+          .collection('groups')
+          .where('membersList', arrayContains: normalizedUid)
+          .get(),
+    );
+    await collect(
+      _db
+          .collection('groups')
+          .where('participants', arrayContains: normalizedUid)
+          .get(),
+    );
+    await collect(
+      _db
+          .collection('groups')
+          .where('adminUid', isEqualTo: normalizedUid)
+          .get(),
+    );
+
+    return ids;
   }
 
   Future<void> _openDirectChat(Map<String, dynamic> profileData) async {
@@ -3361,26 +3624,108 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     }
   }
 
-  Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
-      _mutualGroups() async {
+  Future<List<DocumentSnapshot<Map<String, dynamic>>>> _mutualGroups() async {
     final currentUid = FirebaseAuth.instance.currentUser?.uid;
     if (currentUid == null || currentUid.isEmpty || currentUid == widget.uid) {
-      return const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+      return const <DocumentSnapshot<Map<String, dynamic>>>[];
     }
 
-    final snapshot = await _db
-        .collection('groups')
-        .where('members', arrayContains: currentUid)
-        .get();
-    return snapshot.docs.where((doc) {
-      final members = List<String>.from(
-          (doc.data()['members'] as List<dynamic>?) ?? const <String>[]);
-      return members.contains(widget.uid);
-    }).toList(growable: false);
+    final normalizedCurrentUid = currentUid.trim();
+    final targetUid = widget.uid.trim();
+
+    final currentRootIds =
+        await _groupIdsFromRootGroupQueriesForUser(normalizedCurrentUid);
+    final currentMemberIds =
+        await _groupIdsFromMembershipSubcollection(normalizedCurrentUid);
+    final currentChatIds = await _groupIdsFromMyChatParticipation();
+    final currentGroupIds = <String>{
+      ...currentRootIds,
+      ...currentMemberIds,
+      ...currentChatIds,
+    };
+    if (currentGroupIds.isEmpty) {
+      return const <DocumentSnapshot<Map<String, dynamic>>>[];
+    }
+
+    final resolved = <DocumentSnapshot<Map<String, dynamic>>>[];
+    for (final groupId in currentGroupIds) {
+      try {
+        final groupDoc = await _db.collection('groups').doc(groupId).get();
+        if (!groupDoc.exists) {
+          continue;
+        }
+        final containsTarget = await _groupHasUserMembership(
+          groupDoc,
+          targetUid,
+        );
+        if (containsTarget) {
+          resolved.add(groupDoc);
+        }
+      } catch (error) {
+        debugPrint(
+          '[UserProfileScreen][mutualGroups] failed to resolve groupId=$groupId targetUid=$targetUid error=$error',
+        );
+      }
+    }
+
+    resolved.sort((a, b) {
+      final aData = a.data() ?? const <String, dynamic>{};
+      final bData = b.data() ?? const <String, dynamic>{};
+      final aCreated = (aData['createdAt'] as Timestamp?)?.toDate() ??
+          DateTime.fromMillisecondsSinceEpoch(0);
+      final bCreated = (bData['createdAt'] as Timestamp?)?.toDate() ??
+          DateTime.fromMillisecondsSinceEpoch(0);
+      return bCreated.compareTo(aCreated);
+    });
+
+    debugPrint(
+      '[UserProfileScreen][mutualGroups] currentRoot=${currentRootIds.length} currentMembers=${currentMemberIds.length} currentChats=${currentChatIds.length} resolved=${resolved.length}',
+    );
+
+    return resolved;
   }
 
   Future<List<Map<String, String>>> _mutualFriends() async {
-    final ids = await _socialService.mutualFriendIds(widget.uid);
+    final ids = <String>{};
+
+    try {
+      final currentUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+      if (currentUid.isNotEmpty && currentUid != widget.uid.trim()) {
+        final currentData = await _relationSourceDataForProfile(currentUid);
+        final targetData = await _relationSourceDataForProfile(widget.uid);
+        final currentFriends = _uidListFromData(currentData, 'friends').toSet();
+        final targetFriends = _uidListFromData(targetData, 'friends').toSet();
+        if (currentFriends.isNotEmpty && targetFriends.isNotEmpty) {
+          ids.addAll(currentFriends.intersection(targetFriends));
+        }
+      }
+    } catch (_) {}
+
+    ids.addAll(await _socialService.mutualFriendIds(widget.uid));
+
+    if (ids.isEmpty) {
+      try {
+        final currentUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+        if (currentUid.isNotEmpty && currentUid != widget.uid.trim()) {
+          final currentData = await _relationSourceDataForProfile(currentUid);
+          final currentFollowing =
+              _uidListFromData(currentData, 'following').toSet();
+          final currentFollowers =
+              _uidListFromData(currentData, 'followers').toSet();
+          final currentFriends =
+              currentFollowing.intersection(currentFollowers);
+
+          final targetFollowers =
+              (await _followersForProfile(widget.uid)).toSet();
+          final targetFollowing =
+              (await _followingForProfile(widget.uid)).toSet();
+          final targetFriends = targetFollowers.intersection(targetFollowing);
+
+          ids.addAll(currentFriends.intersection(targetFriends));
+        }
+      } catch (_) {}
+    }
+
     if (ids.isEmpty) {
       return const <Map<String, String>>[];
     }
@@ -3410,7 +3755,13 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   }
 
   Future<void> _showMutualGroupsSheet() async {
-    final groups = await _mutualGroups();
+    List<DocumentSnapshot<Map<String, dynamic>>> groups;
+    try {
+      groups = await _mutualGroups();
+    } catch (error) {
+      debugPrint('[UserProfileScreen][mutualGroups] failed: $error');
+      groups = const <DocumentSnapshot<Map<String, dynamic>>>[];
+    }
     if (!mounted) return;
 
     showModalBottomSheet<void>(
@@ -3427,7 +3778,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         return _buildSheetList(
           title: 'קבוצות משותפות',
           children: groups.map((doc) {
-            final data = doc.data();
+            final data = doc.data() ?? const <String, dynamic>{};
             final name = (data['groupName'] as String? ?? 'קבוצה').trim();
             final description = (data['description'] as String? ?? '').trim();
             final imageUrl = (data['groupImageUrl'] as String? ?? '').trim();
@@ -3462,31 +3813,302 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     );
   }
 
-  Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+  Future<List<DocumentSnapshot<Map<String, dynamic>>>>
       _publicGroupsOfUser() async {
-    final snapshot = await _db
-        .collection('groups')
-        .where('isPublic', isEqualTo: true)
-        .where('members', arrayContains: widget.uid)
-        .get();
+    final targetUid = widget.uid.trim();
 
-    final docs = snapshot.docs.toList(growable: false);
+    final byId = <String, DocumentSnapshot<Map<String, dynamic>>>{};
+
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> chatDocs =
+        const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+    try {
+      final snapshot = await _db
+          .collection('chats')
+          .where('isPublic', isEqualTo: true)
+          .where('participants', arrayContains: targetUid)
+          .get();
+      chatDocs = snapshot.docs;
+    } catch (_) {
+      try {
+        final allPublicChats = await _db
+            .collection('chats')
+            .where('isPublic', isEqualTo: true)
+            .get();
+        chatDocs = allPublicChats.docs.where((doc) {
+          final participants = (doc.data()['participants'] as List<dynamic>? ??
+                  const <dynamic>[])
+              .map((value) => value.toString().trim())
+              .where((value) => value.isNotEmpty)
+              .toSet();
+          return participants.contains(targetUid);
+        }).toList(growable: false);
+      } catch (error) {
+        debugPrint(
+          '[UserProfileScreen][publicGroups] failed to read chats for targetUid=$targetUid error=$error',
+        );
+      }
+    }
+
+    for (final chatDoc in chatDocs) {
+      final chatData = chatDoc.data();
+      final sourceGroupId = (chatData['sourceGroupId'] as String? ?? '').trim();
+      final targetGroupId =
+          sourceGroupId.isNotEmpty ? sourceGroupId : chatDoc.id;
+
+      try {
+        final groupDoc =
+            await _db.collection('groups').doc(targetGroupId).get();
+        if (groupDoc.exists) {
+          byId[targetGroupId] = groupDoc;
+          continue;
+        }
+      } catch (_) {}
+
+      byId[targetGroupId] = chatDoc;
+    }
+
+    if (byId.isEmpty) {
+      try {
+        final groupsSnapshot = await _db
+            .collection('groups')
+            .where('isPublic', isEqualTo: true)
+            .get();
+        for (final doc in groupsSnapshot.docs) {
+          if (await _groupHasUserMembership(doc, targetUid)) {
+            byId[doc.id] = doc;
+          }
+        }
+      } catch (error) {
+        debugPrint(
+          '[UserProfileScreen][publicGroups] groups fallback failed for targetUid=$targetUid error=$error',
+        );
+      }
+    }
+
+    final docs = byId.values.toList(growable: false);
     docs.sort((a, b) {
-      final aCreated = (a.data()['createdAt'] as Timestamp?)?.toDate() ??
+      final aData = a.data() ?? const <String, dynamic>{};
+      final bData = b.data() ?? const <String, dynamic>{};
+      final aCreated = (aData['createdAt'] as Timestamp?)?.toDate() ??
           DateTime.fromMillisecondsSinceEpoch(0);
-      final bCreated = (b.data()['createdAt'] as Timestamp?)?.toDate() ??
+      final bCreated = (bData['createdAt'] as Timestamp?)?.toDate() ??
           DateTime.fromMillisecondsSinceEpoch(0);
       return bCreated.compareTo(aCreated);
     });
+    debugPrint(
+      '[UserProfileScreen][publicGroups] chatCandidates=${chatDocs.length} resolved=${docs.length}',
+    );
     return docs;
   }
 
-  List<String> _memberIdsFromGroupData(Map<String, dynamic> groupData) {
-    final membersList = (groupData['membersList'] as List<dynamic>?) ??
-        (groupData['members'] as List<dynamic>?) ??
-        const <dynamic>[];
+  Future<Set<String>> _groupIdsFromMyChatParticipation() async {
+    final currentUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    if (currentUid.isEmpty) {
+      return const <String>{};
+    }
 
-    return membersList
+    final ids = <String>{};
+    try {
+      final chats = await _db
+          .collection('chats')
+          .where('participants', arrayContains: currentUid)
+          .get();
+      for (final doc in chats.docs) {
+        final data = doc.data();
+        final sourceGroupId = (data['sourceGroupId'] as String? ?? '').trim();
+        if (sourceGroupId.isNotEmpty) {
+          ids.add(sourceGroupId);
+        }
+        final originType = (data['originType'] as String? ?? '').trim();
+        if (originType == 'regular' || originType.isEmpty) {
+          ids.add(doc.id);
+        }
+      }
+    } catch (_) {}
+
+    return ids;
+  }
+
+  Future<bool> _groupHasUserMembership(
+    DocumentSnapshot<Map<String, dynamic>> groupDoc,
+    String uid,
+  ) async {
+    final normalizedUid = uid.trim();
+    if (normalizedUid.isEmpty) {
+      return false;
+    }
+
+    final groupData = groupDoc.data() ?? const <String, dynamic>{};
+    final adminUid = (groupData['adminUid'] as String? ?? '').trim();
+    if (adminUid == normalizedUid) {
+      return true;
+    }
+
+    final memberIds = _memberIdsFromGroupData(groupData).toSet();
+    if (memberIds.contains(normalizedUid)) {
+      return true;
+    }
+
+    bool isApprovedStatus(Map<String, dynamic> data) {
+      final status = (data['status'] as String? ?? '').trim().toLowerCase();
+      if (status.isEmpty) return true;
+      const denied = <String>{
+        'pending',
+        'requested',
+        'invited',
+        'declined',
+        'denied',
+        'rejected',
+        'blocked',
+        'removed',
+        'left',
+      };
+      return !denied.contains(status);
+    }
+
+    try {
+      final memberDoc = await _db
+          .collection('groups')
+          .doc(groupDoc.id)
+          .collection('members')
+          .doc(normalizedUid)
+          .get();
+      if (!memberDoc.exists) {
+        return false;
+      }
+
+      final memberData = memberDoc.data() ?? const <String, dynamic>{};
+      if (isApprovedStatus(memberData)) {
+        return true;
+      }
+    } catch (_) {}
+
+    Future<bool> existsByMemberField(String fieldName) async {
+      try {
+        final snapshot = await _db
+            .collection('groups')
+            .doc(groupDoc.id)
+            .collection('members')
+            .where(fieldName, isEqualTo: normalizedUid)
+            .limit(5)
+            .get();
+        for (final doc in snapshot.docs) {
+          if (isApprovedStatus(doc.data())) {
+            return true;
+          }
+        }
+      } catch (_) {}
+      return false;
+    }
+
+    if (await existsByMemberField('uid')) {
+      return true;
+    }
+    if (await existsByMemberField('userId')) {
+      return true;
+    }
+    if (await existsByMemberField('memberUid')) {
+      return true;
+    }
+
+    try {
+      final allMembers = await _db
+          .collection('groups')
+          .doc(groupDoc.id)
+          .collection('members')
+          .limit(500)
+          .get();
+
+      for (final member in allMembers.docs) {
+        final data = member.data();
+        final candidateIds = <String>{
+          member.id.trim(),
+          (data['uid'] as String? ?? '').trim(),
+          (data['userId'] as String? ?? '').trim(),
+          (data['memberUid'] as String? ?? '').trim(),
+        }..removeWhere((value) => value.isEmpty);
+
+        if (candidateIds.contains(normalizedUid) && isApprovedStatus(data)) {
+          return true;
+        }
+      }
+    } catch (_) {}
+
+    try {
+      final chatDoc = await _db.collection('chats').doc(groupDoc.id).get();
+      final chatData = chatDoc.data() ?? const <String, dynamic>{};
+      final participants =
+          ((chatData['participants'] as List<dynamic>?) ?? const <dynamic>[])
+              .map((value) => value.toString().trim())
+              .where((value) => value.isNotEmpty)
+              .toSet();
+      if (participants.contains(normalizedUid)) {
+        return true;
+      }
+    } catch (_) {}
+
+    return false;
+  }
+
+  Future<Set<String>> _groupIdsFromMembershipSubcollection(String uid) async {
+    final normalizedUid = uid.trim();
+    if (normalizedUid.isEmpty) {
+      return const <String>{};
+    }
+
+    final groupIds = <String>{};
+
+    void collectApprovedGroupIds(
+      QuerySnapshot<Map<String, dynamic>> snapshot,
+    ) {
+      for (final doc in snapshot.docs) {
+        final data = doc.data();
+        final status = (data['status'] as String? ?? '').trim();
+        if (status.isNotEmpty && status != 'approved') {
+          continue;
+        }
+        final groupId = doc.reference.parent.parent?.id.trim() ?? '';
+        if (groupId.isNotEmpty) {
+          groupIds.add(groupId);
+        }
+      }
+    }
+
+    try {
+      final byUidField = await _db
+          .collectionGroup('members')
+          .where('uid', isEqualTo: normalizedUid)
+          .get();
+      collectApprovedGroupIds(byUidField);
+    } catch (_) {}
+
+    try {
+      final byUserIdField = await _db
+          .collectionGroup('members')
+          .where('userId', isEqualTo: normalizedUid)
+          .get();
+      collectApprovedGroupIds(byUserIdField);
+    } catch (_) {}
+
+    try {
+      final byDocId = await _db
+          .collectionGroup('members')
+          .where(FieldPath.documentId, isEqualTo: normalizedUid)
+          .get();
+      collectApprovedGroupIds(byDocId);
+    } catch (_) {}
+
+    return groupIds;
+  }
+
+  List<String> _memberIdsFromGroupData(Map<String, dynamic> groupData) {
+    final memberValues = <dynamic>[
+      ...((groupData['membersList'] as List<dynamic>?) ?? const <dynamic>[]),
+      ...((groupData['members'] as List<dynamic>?) ?? const <dynamic>[]),
+      ...((groupData['participants'] as List<dynamic>?) ?? const <dynamic>[]),
+    ];
+
+    return memberValues
         .map((id) => id.toString().trim())
         .where((id) => id.isNotEmpty)
         .toSet()
@@ -3761,7 +4383,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         decoration: BoxDecoration(
           color: const Color(0xFF1A2435),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: accent.withValues(alpha:  0.35)),
+          border: Border.all(color: accent.withValues(alpha: 0.35)),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -3869,7 +4491,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                                   borderRadius: BorderRadius.circular(12),
                                   border: Border.all(
                                     color: const Color(0xFF53C1F9)
-                                        .withValues(alpha:  0.25),
+                                        .withValues(alpha: 0.25),
                                   ),
                                 ),
                                 child: Row(
@@ -3981,7 +4603,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
               color: const Color(0xFF2A1622),
               borderRadius: BorderRadius.circular(14),
               border: Border.all(
-                  color: const Color(0xFFFF6B9E).withValues(alpha:  0.55)),
+                  color: const Color(0xFFFF6B9E).withValues(alpha: 0.55)),
             ),
             child: Text(
               joinErrorMessage,
@@ -4025,7 +4647,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
               color: const Color(0xFF2A1622),
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
-                color: const Color(0xFFFF6B9E).withValues(alpha:  0.62),
+                color: const Color(0xFFFF6B9E).withValues(alpha: 0.62),
               ),
             ),
             child: Text(
@@ -4071,34 +4693,42 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   }
 
   Widget _buildPublicGroupCardInProfile(
-      QueryDocumentSnapshot<Map<String, dynamic>> doc) {
+      DocumentSnapshot<Map<String, dynamic>> doc) {
     final isLight = Theme.of(context).brightness == Brightness.light;
-    final data = doc.data();
-    final groupName = (data['groupName'] as String? ?? 'קבוצה').trim();
+    final data = doc.data() ?? const <String, dynamic>{};
+    final groupName =
+        (data['groupName'] as String? ?? data['name'] as String? ?? 'קבוצה')
+            .trim();
     final description = (data['description'] as String? ?? '').trim();
     final imageUrl = (data['groupImageUrl'] as String? ?? '').trim();
-    final mainCategory =
-        ((data['category'] as String?) ?? kGeneralCategory).trim();
+    final mainCategory = ((data['category'] as String?) ??
+            (data['mainCategory'] as String?) ??
+            kGeneralCategory)
+        .trim();
     final subCategory = ((data['subCategory'] as String?) ?? '').trim();
     final categoryLabel =
         mainCategory.isEmpty ? kGeneralCategory : mainCategory;
+    final sourceGroupId = (data['sourceGroupId'] as String? ?? '').trim();
+    final targetGroupId = sourceGroupId.isNotEmpty ? sourceGroupId : doc.id;
     final memberIds = _memberIdsFromGroupData(data);
-    final memberCount =
-        (data['membersCount'] as num?)?.toInt() ?? memberIds.length;
-    final groupId = doc.id;
+    final memberCount = (data['membersCount'] as num?)?.toInt() ??
+        (memberIds.isNotEmpty
+            ? memberIds.length
+            : ((data['participants'] as List<dynamic>?) ?? const <dynamic>[])
+                .length);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: isLight
-            ? Colors.white.withValues(alpha:  0.82)
+            ? Colors.white.withValues(alpha: 0.82)
             : const Color(0xFF1E2632),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: isLight
               ? const Color(0xFFA9C3FF)
-              : const Color(0xFF53C1F9).withValues(alpha:  0.2),
+              : const Color(0xFF53C1F9).withValues(alpha: 0.2),
         ),
       ),
       child: Column(
@@ -4203,7 +4833,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                   border: Border.all(
                     color: isLight
                         ? const Color(0xFFA9C3FF)
-                        : const Color(0xFF53C1F9).withValues(alpha:  0.28),
+                        : const Color(0xFF53C1F9).withValues(alpha: 0.28),
                   ),
                 ),
                 child: Text(
@@ -4220,7 +4850,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                 style: OutlinedButton.styleFrom(
                   foregroundColor: const Color(0xFF53C1F9),
                   side: BorderSide(
-                      color: const Color(0xFF53C1F9).withValues(alpha:  0.7)),
+                      color: const Color(0xFF53C1F9).withValues(alpha: 0.7)),
                   padding:
                       const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
                   shape: RoundedRectangleBorder(
@@ -4238,7 +4868,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                 style: OutlinedButton.styleFrom(
                   foregroundColor: const Color(0xFFB6A3FF),
                   side: BorderSide(
-                      color: const Color(0xFF9E7CFF).withValues(alpha:  0.7)),
+                      color: const Color(0xFF9E7CFF).withValues(alpha: 0.7)),
                   padding:
                       const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
                   shape: RoundedRectangleBorder(
@@ -4252,7 +4882,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                 ),
               ),
               StreamBuilder<String?>(
-                stream: _groupService.myMembershipStatus(groupId),
+                stream: _groupService.myMembershipStatus(targetGroupId),
                 builder: (context, statusSnapshot) {
                   final status = statusSnapshot.data;
                   final isPending = status == 'pending';
@@ -4267,7 +4897,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                   String label = 'הצטרף';
                   Color backgroundColor = const Color(0xFF9E7CFF);
                   VoidCallback? onPressed =
-                      () => _joinPublicGroupFromProfile(groupId);
+                      () => _joinPublicGroupFromProfile(targetGroupId);
 
                   if (isPending) {
                     label = 'בקשתך נשלחה';
@@ -4277,7 +4907,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                     label = 'צפה בקבוצה';
                     backgroundColor = const Color(0xFF53C1F9);
                     onPressed = () => _openGroupChatFromProfile(
-                          groupId: groupId,
+                          groupId: targetGroupId,
                           groupName: groupName,
                           imageUrl: imageUrl,
                         );
@@ -4312,7 +4942,12 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   }
 
   Future<void> _showPublicGroupsSheet() async {
-    final groups = await _publicGroupsOfUser();
+    List<DocumentSnapshot<Map<String, dynamic>>> groups;
+    try {
+      groups = await _publicGroupsOfUser();
+    } catch (_) {
+      groups = const <DocumentSnapshot<Map<String, dynamic>>>[];
+    }
     if (!mounted) return;
 
     showModalBottomSheet<void>(
@@ -4375,7 +5010,12 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   }
 
   Future<void> _showMutualFriendsSheet() async {
-    final friends = await _mutualFriends();
+    List<Map<String, String>> friends;
+    try {
+      friends = await _mutualFriends();
+    } catch (_) {
+      friends = const <Map<String, String>>[];
+    }
     if (!mounted) return;
 
     showModalBottomSheet<void>(
@@ -4475,6 +5115,63 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     );
   }
 
+  Future<void> _reportUserProfile() async {
+    final currentUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    final targetUid = widget.uid.trim();
+    if (currentUid.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('יש להתחבר כדי לדווח.')),
+      );
+      return;
+    }
+    if (targetUid.isEmpty || targetUid == currentUid) {
+      return;
+    }
+
+    final shouldReport = await showReportConfirmationDialog(
+      context,
+      targetLabel: 'משתמש',
+    );
+    if (!shouldReport || !mounted) {
+      return;
+    }
+
+    final reason = await showReportReasonPicker(
+      context,
+      targetLabel: 'משתמש',
+    );
+    if (reason == null || !mounted) {
+      return;
+    }
+
+    final details = await showReportDetailsDialog(
+      context,
+      reason: reason,
+      targetLabel: 'משתמש',
+    );
+    if (details == null || !mounted) {
+      return;
+    }
+
+    try {
+      await _reportService.submitUserReport(
+        targetUserUid: targetUid,
+        reason: reason,
+        details: details,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('הדיווח נשלח. תודה שעזרת לשמור על הקהילה.')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('שליחת הדיווח נכשלה: $error')),
+      );
+    }
+  }
+
   Widget _buildActionButtons(Map<String, dynamic> profileData) {
     final isLight = Theme.of(context).brightness == Brightness.light;
     const quickMessageSurface = Color(0xFF0F1522);
@@ -4498,11 +5195,14 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
                           color:
-                              const Color(0xFF53C1F9).withValues(alpha:  0.55),
+                              const Color(0xFF53C1F9).withValues(alpha: 0.55),
                         ),
                       ),
-                      child: const Icon(Icons.chat_bubble_outline_rounded,
-                          color: Color(0xFF53C1F9), size: 18),
+                      child: const Icon(
+                        Icons.chat_bubble_outline_rounded,
+                        color: Color(0xFF53C1F9),
+                        size: 18,
+                      ),
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -4516,7 +5216,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
                           color:
-                              const Color(0xFF53C1F9).withValues(alpha:  0.55),
+                              const Color(0xFF53C1F9).withValues(alpha: 0.55),
                         ),
                       ),
                       child: TextField(
@@ -4555,7 +5255,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
                           color:
-                              const Color(0xFF53C1F9).withValues(alpha:  0.55),
+                              const Color(0xFF53C1F9).withValues(alpha: 0.55),
                         ),
                       ),
                       child: Center(
@@ -4803,7 +5503,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                 label: 'קבוצות ציבוריות',
                 icon: Icons.public_rounded,
                 onPressed: _showPublicGroupsSheet,
-                borderColor: const Color(0xFF53C1F9).withValues(alpha:  0.75),
+                borderColor: const Color(0xFF53C1F9).withValues(alpha: 0.75),
                 isLight: isLight,
               ),
             ),
@@ -4813,7 +5513,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                 label: 'קבוצות משותפות',
                 icon: Icons.groups_2_rounded,
                 onPressed: _showMutualGroupsSheet,
-                borderColor: const Color(0xFF9E7CFF).withValues(alpha:  0.75),
+                borderColor: const Color(0xFF9E7CFF).withValues(alpha: 0.75),
                 isLight: isLight,
               ),
             ),
@@ -4823,7 +5523,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                 label: 'חברים משותפים',
                 icon: Icons.people_alt_rounded,
                 onPressed: _showMutualFriendsSheet,
-                borderColor: const Color(0xFF53C1F9).withValues(alpha:  0.75),
+                borderColor: const Color(0xFF53C1F9).withValues(alpha: 0.75),
                 isLight: isLight,
               ),
             ),
@@ -4913,7 +5613,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
             border: Border.all(
               color: isLight
                   ? const Color(0xFFA9C3FF)
-                  : accent.withValues(alpha:  0.34),
+                  : accent.withValues(alpha: 0.34),
             ),
           ),
           child: Column(
@@ -4973,8 +5673,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
             ? null
             : LinearGradient(
                 colors: [
-                  const Color(0xFF1A2E45).withValues(alpha:  0.98),
-                  const Color(0xFF30244A).withValues(alpha:  0.98),
+                  const Color(0xFF1A2E45).withValues(alpha: 0.98),
+                  const Color(0xFF30244A).withValues(alpha: 0.98),
                 ],
                 begin: Alignment.topRight,
                 end: Alignment.bottomLeft,
@@ -4983,18 +5683,18 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         border: Border.all(
           color: isLight
               ? const Color(0xFFA9C3FF)
-              : const Color(0xFF53C1F9).withValues(alpha:  0.42),
+              : const Color(0xFF53C1F9).withValues(alpha: 0.42),
         ),
         boxShadow: [
           BoxShadow(
             color: const Color(0xFF53C1F9)
-                .withValues(alpha:  isLight ? 0.08 : 0.14),
+                .withValues(alpha: isLight ? 0.08 : 0.14),
             blurRadius: 12,
             offset: const Offset(0, 4),
           ),
           if (isLight)
             BoxShadow(
-              color: const Color(0xFF9E7CFF).withValues(alpha:  0.08),
+              color: const Color(0xFF9E7CFF).withValues(alpha: 0.08),
               blurRadius: 12,
               offset: const Offset(0, 5),
             ),
@@ -5134,7 +5834,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                   child: Container(
                     decoration: BoxDecoration(
                       color: isLight
-                          ? Colors.white.withValues(alpha:  0.94)
+                          ? Colors.white.withValues(alpha: 0.94)
                           : const Color(0xFF111A28),
                       borderRadius: BorderRadius.circular(24),
                     ),
@@ -5369,10 +6069,19 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                         ),
                         const SizedBox(height: 12),
                         StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                          stream: _db
-                              .collection('users')
-                              .doc(widget.uid)
-                              .snapshots(),
+                          stream: (() {
+                            final currentUid =
+                                FirebaseAuth.instance.currentUser?.uid.trim() ??
+                                    '';
+                            final isSelf = currentUid.isNotEmpty &&
+                                currentUid == widget.uid;
+                            final sourceCollection =
+                                isSelf ? 'users' : 'users_public';
+                            return _db
+                                .collection(sourceCollection)
+                                .doc(widget.uid)
+                                .snapshots();
+                          })(),
                           builder: (context, relationSnapshot) {
                             final relationData =
                                 relationSnapshot.data?.data() ??
@@ -5380,63 +6089,115 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                             final followersSet =
                                 _uidListFromData(relationData, 'followers')
                                     .toSet();
+                            final profileFollowersSet =
+                                _uidListFromData(profileData, 'followers')
+                                    .toSet();
                             final followingSet =
                                 _uidListFromData(relationData, 'following')
                                     .toSet();
-                            final friendsCount =
-                                followersSet.intersection(followingSet).length;
+                            final profileFollowingSet =
+                                _uidListFromData(profileData, 'following')
+                                    .toSet();
+                            final relationFriendsSet =
+                                _uidListFromData(relationData, 'friends')
+                                    .toSet();
+                            final profileFriendsSet =
+                                _uidListFromData(profileData, 'friends')
+                                    .toSet();
+                            final explicitFriends = {
+                              ...relationFriendsSet,
+                              ...profileFriendsSet,
+                            };
+                            final mergedRelationData = <String, dynamic>{
+                              ...profileData,
+                              ...relationData,
+                            };
+                            final fallbackFriendsCount =
+                                (relationData['friendsCount'] as num?)
+                                        ?.toInt() ??
+                                    (profileData['friendsCount'] as num?)
+                                        ?.toInt() ??
+                                    0;
+
+                            final syncFriendsCount = explicitFriends.isNotEmpty
+                                ? explicitFriends.length
+                                : (followersSet
+                                            .intersection(followingSet)
+                                            .length >
+                                        0
+                                    ? followersSet
+                                        .intersection(followingSet)
+                                        .length
+                                    : fallbackFriendsCount);
 
                             final baseFollowersCount = followersSet.isNotEmpty
                                 ? followersSet.length
-                                : serverFollowersCount;
+                                : (profileFollowersSet.isNotEmpty
+                                    ? profileFollowersSet.length
+                                    : serverFollowersCount);
                             final followersCount = (baseFollowersCount +
                                     _optimisticFollowersAdjustment)
                                 .clamp(0, 1 << 30);
                             final followingCount = followingSet.isNotEmpty
                                 ? followingSet.length
-                                : serverFollowingCount;
+                                : (profileFollowingSet.isNotEmpty
+                                    ? profileFollowingSet.length
+                                    : (serverFollowingCount > 0
+                                        ? serverFollowingCount
+                                        : profile.followingCount));
 
-                            return Container(
-                              padding: const EdgeInsets.all(10),
-                              decoration: BoxDecoration(
-                                color: isLight
-                                    ? Colors.white.withValues(alpha:  0.82)
-                                    : const Color(0xFF0F1522),
-                                borderRadius: BorderRadius.circular(18),
-                                border: Border.all(
-                                  color: isLight
-                                      ? const Color(0xFFA9C3FF)
-                                      : const Color(0xFF53C1F9)
-                                          .withValues(alpha:  0.2),
-                                ),
-                              ),
-                              child: Row(
-                                children: [
-                                  _buildInteractiveRelationStat(
-                                    label: 'עוקבים',
-                                    value: followersCount,
-                                    icon: Icons.people_alt_rounded,
-                                    onTap: _showFollowersSheet,
-                                    accent: const Color(0xFF53C1F9),
+                            return FutureBuilder<int>(
+                              future: _friendIdsForProfile(
+                                widget.uid,
+                                preferredData: mergedRelationData,
+                              ).then((ids) => ids.length),
+                              initialData: syncFriendsCount,
+                              builder: (context, friendsSnapshot) {
+                                final friendsCount =
+                                    friendsSnapshot.data ?? syncFriendsCount;
+                                return Container(
+                                  padding: const EdgeInsets.all(10),
+                                  decoration: BoxDecoration(
+                                    color: isLight
+                                        ? Colors.white.withValues(alpha: 0.82)
+                                        : const Color(0xFF0F1522),
+                                    borderRadius: BorderRadius.circular(18),
+                                    border: Border.all(
+                                      color: isLight
+                                          ? const Color(0xFFA9C3FF)
+                                          : const Color(0xFF53C1F9)
+                                              .withValues(alpha: 0.2),
+                                    ),
                                   ),
-                                  const SizedBox(width: 8),
-                                  _buildInteractiveRelationStat(
-                                    label: 'נעקבים',
-                                    value: followingCount,
-                                    icon: Icons.person_add_alt_1_rounded,
-                                    onTap: _showFollowingSheet,
-                                    accent: const Color(0xFF9E7CFF),
+                                  child: Row(
+                                    children: [
+                                      _buildInteractiveRelationStat(
+                                        label: 'עוקבים',
+                                        value: followersCount,
+                                        icon: Icons.people_alt_rounded,
+                                        onTap: _showFollowersSheet,
+                                        accent: const Color(0xFF53C1F9),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      _buildInteractiveRelationStat(
+                                        label: 'נעקבים',
+                                        value: followingCount,
+                                        icon: Icons.person_add_alt_1_rounded,
+                                        onTap: _showFollowingSheet,
+                                        accent: const Color(0xFF9E7CFF),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      _buildInteractiveRelationStat(
+                                        label: 'חברים',
+                                        value: friendsCount,
+                                        icon: Icons.handshake_rounded,
+                                        onTap: _showFriendsOfUserSheet,
+                                        accent: const Color(0xFF75A8FF),
+                                      ),
+                                    ],
                                   ),
-                                  const SizedBox(width: 8),
-                                  _buildInteractiveRelationStat(
-                                    label: 'חברים',
-                                    value: friendsCount,
-                                    icon: Icons.handshake_rounded,
-                                    onTap: _showFriendsOfUserSheet,
-                                    accent: const Color(0xFF75A8FF),
-                                  ),
-                                ],
-                              ),
+                                );
+                              },
                             );
                           },
                         ),
@@ -5509,14 +6270,14 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         boxShadow: [
           BoxShadow(
             color:
-                const Color(0xFF7D72FF).withValues(alpha:  isLight ? 0.26 : 0.5),
+                const Color(0xFF7D72FF).withValues(alpha: isLight ? 0.26 : 0.5),
             blurRadius: 22,
             spreadRadius: 1.2,
             offset: const Offset(0, 9),
           ),
           BoxShadow(
             color:
-                const Color(0xFF4CD9FF).withValues(alpha:  isLight ? 0.2 : 0.35),
+                const Color(0xFF4CD9FF).withValues(alpha: isLight ? 0.2 : 0.35),
             blurRadius: 18,
             spreadRadius: 0.8,
             offset: const Offset(0, 2),
@@ -5567,7 +6328,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 color: isComplete
-                    ? Colors.white.withValues(alpha:  0.95)
+                    ? Colors.white.withValues(alpha: 0.95)
                     : (isLight ? Colors.black87 : Colors.white70),
                 fontSize: 11.5,
                 fontWeight: FontWeight.w700,
@@ -5582,6 +6343,9 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   @override
   Widget build(BuildContext context) {
     final isLight = Theme.of(context).brightness == Brightness.light;
+    final currentUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    final canReportInAppBar =
+        currentUid.isNotEmpty && widget.uid.trim() != currentUid;
     return SwipeBackWrapper(
       child: Scaffold(
         backgroundColor: isLight ? Colors.white : const Color(0xFF0B1019),
@@ -5591,6 +6355,25 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
           elevation: 0,
           title: const SizedBox.shrink(),
           centerTitle: false,
+          leading: IconButton(
+            onPressed: () => Navigator.of(context).maybePop(),
+            icon: const Icon(Icons.arrow_back_rounded),
+          ),
+          actions: [
+            if (canReportInAppBar)
+              Padding(
+                padding: const EdgeInsetsDirectional.only(end: 4),
+                child: IconButton(
+                  tooltip: 'דיווח על משתמש',
+                  onPressed: _reportUserProfile,
+                  icon: Icon(
+                    Icons.flag_outlined,
+                    size: 18,
+                    color: isLight ? const Color(0xFF6E7A90) : Colors.white70,
+                  ),
+                ),
+              ),
+          ],
           iconTheme:
               IconThemeData(color: isLight ? Colors.black : Colors.white),
         ),
@@ -5633,13 +6416,13 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                   padding: const EdgeInsets.all(18),
                   decoration: BoxDecoration(
                     color: isLight
-                        ? Colors.white.withValues(alpha:  0.84)
+                        ? Colors.white.withValues(alpha: 0.84)
                         : const Color(0xFF1A2435),
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(
                       color: isLight
                           ? const Color(0xFFA9C3FF)
-                          : const Color(0xFF53C1F9).withValues(alpha:  0.22),
+                          : const Color(0xFF53C1F9).withValues(alpha: 0.22),
                     ),
                   ),
                   child: Text(

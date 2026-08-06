@@ -587,6 +587,7 @@ class PostService {
 
   Future<List<PostMediaItem>> _uploadMediaItems({
     required String authorId,
+    required String postId,
     required List<PostUploadMediaItem> selectedMediaItems,
   }) async {
     final uploaded = <PostMediaItem>[];
@@ -600,8 +601,8 @@ class PostService {
 
       final extension = _fileExtension(
           media.file.name.isNotEmpty ? media.file.name : media.file.path);
-      final storagePath =
-          'posts/$authorId/${DateTime.now().millisecondsSinceEpoch}_$index.$extension';
+        final storagePath =
+          'posts/$authorId/$postId/${DateTime.now().millisecondsSinceEpoch}_$index.$extension';
       final mediaRef = _storage.ref().child(storagePath);
       await mediaRef.putData(mediaBytes);
       final mediaUrl = await mediaRef.getDownloadURL();
@@ -751,6 +752,7 @@ class PostService {
 
       final uploadedMediaItems = await _uploadMediaItems(
         authorId: normalizedAuthorId,
+        postId: postRef.id,
         selectedMediaItems: normalizedSelectedMedia,
       );
       if (uploadedMediaItems.isEmpty) {
@@ -1921,7 +1923,7 @@ class PostService {
         );
       }
 
-      if (normalizedAuthorId.isNotEmpty && normalizedAuthorId != uid) {
+      if (normalizedAuthorId.isNotEmpty) {
         await _safeIncrementScoreForExistingUsers(
           userIds: <String>[normalizedAuthorId],
           delta: 2,
@@ -2010,6 +2012,7 @@ class PostService {
           'likes': <String>[],
           'likesCount': 0,
           'replyCount': 0,
+          'sideEffectsApplied': false,
           'createdAt': FieldValue.serverTimestamp(),
           'updatedAt': FieldValue.serverTimestamp(),
         });
@@ -2042,7 +2045,7 @@ class PostService {
           dedupeKey: 'comment_sync:$uid:$normalizedPostId:${commentRef.id}',
         );
 
-        if (normalizedAuthorId.isNotEmpty && normalizedAuthorId != uid) {
+        if (normalizedAuthorId.isNotEmpty) {
           PublicUserProfileService.addOptimisticScoreDelta(
             uid: normalizedAuthorId,
             delta: 2,

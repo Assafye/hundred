@@ -56,7 +56,8 @@ class LocationService with WidgetsBindingObserver {
 
     final lastSyncAt = _lastSyncAt;
     if (!force && lastSyncAt != null) {
-      final secondsSinceLastSync = DateTime.now().difference(lastSyncAt).inSeconds;
+      final secondsSinceLastSync =
+          DateTime.now().difference(lastSyncAt).inSeconds;
       if (secondsSinceLastSync < 90) {
         return;
       }
@@ -109,8 +110,19 @@ class LocationService with WidgetsBindingObserver {
       };
 
       await Future.wait([
-        _firestore.collection('users').doc(uid).set(payload, SetOptions(merge: true)),
-        _firestore.collection('users_public').doc(uid).set(payload, SetOptions(merge: true)),
+        _firestore
+            .collection('users')
+            .doc(uid)
+            .set(payload, SetOptions(merge: true)),
+        _firestore.collection('users_public').doc(uid).set(
+          {
+            'geo': FieldValue.delete(),
+            'latitude': FieldValue.delete(),
+            'longitude': FieldValue.delete(),
+            'locationUpdatedAt': FieldValue.delete(),
+          },
+          SetOptions(merge: true),
+        ),
       ]);
     } catch (error) {
       debugPrint('[LocationService] sync failed: $error');

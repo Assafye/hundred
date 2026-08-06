@@ -9,8 +9,32 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == uid;
     }
 
+    function userDoc(uid) {
+      return /databases/$(database)/documents/users/$(uid);
+    }
+
+    function isFriendWith(uid) {
+      return isSignedIn() && (
+        request.auth.uid == uid ||
+        (
+          exists(userDoc(uid)) &&
+          request.auth.uid in get(userDoc(uid)).data.friends
+        ) ||
+        (
+          exists(userDoc(uid)) &&
+          exists(userDoc(request.auth.uid)) &&
+          request.auth.uid in get(userDoc(uid)).data.following &&
+          uid in get(userDoc(request.auth.uid)).data.following
+        )
+      );
+    }
+
     function groupDoc(groupId) {
       return /databases/$(database)/documents/groups/$(groupId);
+    }
+
+    function publicUserDoc(uid) {
+      return /databases/$(database)/documents/users_public/$(uid);
     }
 
     function isGroupAdmin(groupId) {
@@ -23,18 +47,174 @@ service cloud.firestore {
       return /databases/$(database)/documents/groups/$(groupId)/members/$(request.auth.uid);
     }
 
+    function isLegacyGroupMember(groupId) {
+      return isSignedIn() &&
+        exists(groupDoc(groupId)) &&
+        (
+          (
+            ('members' in get(groupDoc(groupId)).data) &&
+            request.auth.uid in get(groupDoc(groupId)).data.members
+          ) ||
+          (
+            ('membersList' in get(groupDoc(groupId)).data) &&
+            request.auth.uid in get(groupDoc(groupId)).data.membersList
+          ) ||
+          (
+            ('participants' in get(groupDoc(groupId)).data) &&
+            request.auth.uid in get(groupDoc(groupId)).data.participants
+          ) ||
+          (
+            exists(chatDoc(groupId)) &&
+            request.auth.uid in get(chatDoc(groupId)).data.participants
+          )
+        );
+    }
+
     function isApprovedMember(groupId) {
       return isSignedIn() &&
+        (
+          (
+            exists(memberDoc(groupId)) &&
+            get(memberDoc(groupId)).data.status == 'approved'
+          ) ||
+          isLegacyGroupMember(groupId)
+        );
+    }
+
+    function isPendingMember(groupId) {
+      return isSignedIn() &&
         exists(memberDoc(groupId)) &&
-        get(memberDoc(groupId)).data.status == 'approved';
+        get(memberDoc(groupId)).data.status == 'pending';
+    }
+
+    function isInvitedToGroup(groupId) {
+      return isSignedIn() &&
+        exists(groupDoc(groupId)) &&
+        ('invitedFriendUids' in get(groupDoc(groupId)).data) &&
+        request.auth.uid in get(groupDoc(groupId)).data.invitedFriendUids;
+    }
+
+    function canReadGroup(groupId) {
+      return isSignedIn() &&
+        exists(groupDoc(groupId)) &&
+        (
+          get(groupDoc(groupId)).data.isPublic == true ||
+          isGroupAdmin(groupId) ||
+          isApprovedMember(groupId) ||
+          isPendingMember(groupId) ||
+          isInvitedToGroup(groupId)
+        );
     }
 
     function groupAllowsAutoJoin(groupId) {
       return exists(groupDoc(groupId)) &&
-        get(groupDoc(groupId)).data.isPublic == true &&
+        (
+          !('isPublic' in get(groupDoc(groupId)).data) ||
+          get(groupDoc(groupId)).data.isPublic == true
+        ) &&
         (
           !('isAdminApprovalRequired' in get(groupDoc(groupId)).data) ||
           get(groupDoc(groupId)).data.isAdminApprovalRequired != true
+        );
+    }
+
+    function groupRequiresApproval(groupId) {
+      return exists(groupDoc(groupId)) &&
+        ('isAdminApprovalRequired' in get(groupDoc(groupId)).data) &&
+        get(groupDoc(groupId)).data.isAdminApprovalRequired == true;
+    }
+
+    function isSelfJoinMembershipCreate(groupId, uid) {
+      return isSignedIn() &&
+        request.auth.uid == uid &&
+        request.resource.data.keys().hasOnly([
+          'uid',
+          'status',
+          'role',
+          'joinedAt',
+          'updatedAt'
+        ]) &&
+        request.resource.data.uid == uid &&
+        request.resource.data.role == 'member' &&
+        (
+          (
+            request.resource.data.status == 'approved' &&
+            groupAllowsAutoJoin(groupId)
+          ) ||
+          (
+            request.resource.data.status == 'pending' &&
+            groupRequiresApproval(groupId)
+          )
+        );
+    }
+
+    function isAdminSelfMembershipCreate(groupId, uid) {
+      return isSignedIn() &&
+        request.auth.uid == uid &&
+        request.resource.data.keys().hasOnly([
+          'uid',
+          'status',
+          'role',
+          'joinedAt',
+          'updatedAt'
+        ]) &&
+        request.resource.data.uid == uid &&
+        request.resource.data.status == 'approved' &&
+        request.resource.data.role == 'admin' &&
+        getAfter(groupDoc(groupId)).data.adminUid == request.auth.uid;
+    }
+
+    function isSelfAutoJoinGroupMetadataUpdate(groupId) {
+      return isSignedIn() &&
+        groupAllowsAutoJoin(groupId) &&
+        request.auth.uid in request.resource.data.members &&
+        request.auth.uid in request.resource.data.membersList &&
+        request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'members',
+          'membersList',
+          'membersCount'
+        ]);
+    }
+
+    function isSelfPendingJoinCounterUpdate(groupId) {
+      return isSignedIn() &&
+        groupRequiresApproval(groupId) &&
+        request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'pendingCount'
+        ]);
+    }
+
+    function isSelfLeaveGroupMetadataUpdate(groupId) {
+      return isSignedIn() &&
+        (
+          isApprovedMember(groupId) ||
+          isPendingMember(groupId)
+        ) &&
+        (
+          !('members' in request.resource.data) ||
+          !(request.auth.uid in request.resource.data.members)
+        ) &&
+        (
+          !('membersList' in request.resource.data) ||
+          !(request.auth.uid in request.resource.data.membersList)
+        ) &&
+        request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'members',
+          'membersList',
+          'membersCount',
+          'pendingCount',
+          'invitedFriendUids',
+          'updatedAt'
+        ]);
+    }
+
+    function isSelfLeaveMemberDoc(groupId) {
+      return isSignedIn() &&
+        (
+          request.auth.uid == resource.id ||
+          (resource.data.uid == request.auth.uid) ||
+          (resource.data.userId == request.auth.uid) ||
+          (resource.data.memberUid == request.auth.uid)
         );
     }
 
@@ -45,16 +225,58 @@ service cloud.firestore {
     function isChatParticipant(chatId) {
       return isSignedIn() &&
         exists(chatDoc(chatId)) &&
-        request.auth.uid in get(chatDoc(chatId)).data.participants;
+        (
+          (
+            ('participants' in get(chatDoc(chatId)).data) &&
+            request.auth.uid in get(chatDoc(chatId)).data.participants
+          ) ||
+          isApprovedMember(chatId)
+        );
+    }
+
+    function isChatGroupAdmin(chatId) {
+      return isSignedIn() &&
+        exists(groupDoc(chatId)) &&
+        get(groupDoc(chatId)).data.adminUid == request.auth.uid;
+    }
+
+    function isSelfAutoJoinChatParticipantsUpdate(chatId) {
+      return isSignedIn() &&
+        groupAllowsAutoJoin(chatId) &&
+        request.auth.uid in request.resource.data.participants &&
+        request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'participants',
+          'updatedAt'
+        ]);
     }
 
     function isPostOwner() {
-      return isSignedIn() && resource.data.authorId == request.auth.uid;
+      return isSignedIn() && (
+        resource.data.authorId == request.auth.uid ||
+        (
+          ('uid' in resource.data) &&
+          resource.data.uid == request.auth.uid
+        ) ||
+        (
+          ('userId' in resource.data) &&
+          resource.data.userId == request.auth.uid
+        )
+      );
     }
 
     function isPostOwnerById(postId) {
       return isSignedIn() &&
-        get(/databases/$(database)/documents/posts/$(postId)).data.authorId == request.auth.uid;
+        (
+          get(/databases/$(database)/documents/posts/$(postId)).data.authorId == request.auth.uid ||
+          (
+            ('uid' in get(/databases/$(database)/documents/posts/$(postId)).data) &&
+            get(/databases/$(database)/documents/posts/$(postId)).data.uid == request.auth.uid
+          ) ||
+          (
+            ('userId' in get(/databases/$(database)/documents/posts/$(postId)).data) &&
+            get(/databases/$(database)/documents/posts/$(postId)).data.userId == request.auth.uid
+          )
+        );
     }
 
     function isCommentOnMyPost(postId) {
@@ -71,9 +293,110 @@ service cloud.firestore {
       return isSignedIn() && request.resource.data.authorId == request.auth.uid;
     }
 
+    function postDoc(postId) {
+      return /databases/$(database)/documents/posts/$(postId);
+    }
+
+    function postAuthorUidById(postId) {
+      return (
+        ('authorId' in get(postDoc(postId)).data) &&
+        get(postDoc(postId)).data.authorId is string
+      )
+        ? get(postDoc(postId)).data.authorId
+        : (
+            (
+              ('uid' in get(postDoc(postId)).data) &&
+              get(postDoc(postId)).data.uid is string
+            )
+              ? get(postDoc(postId)).data.uid
+              : (
+                  (
+                    ('userId' in get(postDoc(postId)).data) &&
+                    get(postDoc(postId)).data.userId is string
+                  )
+                    ? get(postDoc(postId)).data.userId
+                    : ''
+                )
+          );
+    }
+
+    function postAudienceById(postId) {
+      return (
+        ('audience' in get(postDoc(postId)).data) &&
+        get(postDoc(postId)).data.audience is string
+      )
+        ? get(postDoc(postId)).data.audience.lower()
+        : 'public';
+    }
+
+    function viewerFollowsAuthor(authorUid) {
+      return isSignedIn() &&
+        exists(userDoc(request.auth.uid)) &&
+        authorUid in get(userDoc(request.auth.uid)).data.following;
+    }
+
+    function isMutualFollowWithAuthor(authorUid) {
+      return isSignedIn() &&
+        exists(userDoc(request.auth.uid)) &&
+        authorUid in get(userDoc(request.auth.uid)).data.following &&
+        authorUid in get(userDoc(request.auth.uid)).data.followers;
+    }
+
+    function authorProfileIsPrivate(authorUid) {
+      return exists(publicUserDoc(authorUid)) &&
+        ('isPrivate' in get(publicUserDoc(authorUid)).data) &&
+        get(publicUserDoc(authorUid)).data.isPrivate == true;
+    }
+
+    function canReadPost(postId) {
+      return isSignedIn() &&
+        exists(postDoc(postId)) &&
+        (
+          isPostOwnerById(postId) ||
+          (
+            postAudienceById(postId) == 'friends' &&
+            isMutualFollowWithAuthor(postAuthorUidById(postId))
+          ) ||
+          (
+            postAudienceById(postId) == 'public' &&
+            (
+              !authorProfileIsPrivate(postAuthorUidById(postId)) ||
+              viewerFollowsAuthor(postAuthorUidById(postId))
+            )
+          )
+        );
+    }
+
+    function isMeetNowLinkingUpdate() {
+      return isSignedIn() &&
+        (
+          !('linkedGroupId' in resource.data) ||
+          resource.data.linkedGroupId == ''
+        ) &&
+        request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'linkedGroupId',
+          'updatedAt'
+        ]) &&
+        request.resource.data.linkedGroupId is string &&
+        request.resource.data.linkedGroupId != '';
+    }
+
+    function isPopGroupCreateForAuthorAdmin() {
+      return isSignedIn() &&
+        request.resource.data.originType == 'pop' &&
+        request.resource.data.originMeetPostId is string &&
+        request.resource.data.originMeetPostId != '' &&
+        request.resource.data.adminUid is string &&
+        request.resource.data.originAuthorUid is string &&
+        request.resource.data.adminUid == request.resource.data.originAuthorUid &&
+        exists(/databases/$(database)/documents/meet_now_posts/$(request.resource.data.originMeetPostId)) &&
+        get(/databases/$(database)/documents/meet_now_posts/$(request.resource.data.originMeetPostId)).data.authorUid == request.resource.data.adminUid;
+    }
+
     match /groups/{groupId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn() && request.resource.data.adminUid == request.auth.uid;
+      allow read: if canReadGroup(groupId);
+      allow create: if (isSignedIn() && request.resource.data.adminUid == request.auth.uid) ||
+        isPopGroupCreateForAuthorAdmin();
       allow update: if isGroupAdmin(groupId) || (
         isApprovedMember(groupId) &&
         request.resource.data.diff(resource.data).changedKeys().hasOnly([
@@ -85,12 +408,16 @@ service cloud.firestore {
           'pendingCount',
           'invitedFriendUids'
         ])
-      );
+      ) || isSelfAutoJoinGroupMetadataUpdate(groupId) ||
+        isSelfPendingJoinCounterUpdate(groupId) ||
+        isSelfLeaveGroupMetadataUpdate(groupId);
       allow delete: if isGroupAdmin(groupId);
 
       match /members/{uid} {
-        allow read: if isSignedIn();
-        allow create: if isGroupAdmin(groupId) || (
+        allow read: if canReadGroup(groupId);
+        allow create: if isAdminSelfMembershipCreate(groupId, uid) ||
+          isSelfJoinMembershipCreate(groupId, uid) ||
+          isGroupAdmin(groupId) || (
           isApprovedMember(groupId) &&
           request.resource.data.keys().hasOnly([
             'uid',
@@ -111,11 +438,12 @@ service cloud.firestore {
             )
           )
         );
-        allow update, delete: if isGroupAdmin(groupId);
+        allow update: if isGroupAdmin(groupId);
+        allow delete: if isGroupAdmin(groupId) || isSelfLeaveMemberDoc(groupId);
       }
 
       match /attendance/{uid} {
-        allow read: if isSignedIn();
+        allow read: if canReadGroup(groupId);
         allow create, update: if isSignedIn() && request.auth.uid == uid;
         allow delete: if isGroupAdmin(groupId);
       }
@@ -147,11 +475,18 @@ service cloud.firestore {
     match /meet_now_posts/{postId} {
       allow read: if isSignedIn();
       allow create: if isSignedIn() && request.resource.data.authorUid == request.auth.uid;
-      allow update, delete: if isSignedIn() && resource.data.authorUid == request.auth.uid;
+      allow update: if (isSignedIn() && resource.data.authorUid == request.auth.uid) ||
+        isMeetNowLinkingUpdate();
+      allow delete: if isSignedIn() && resource.data.authorUid == request.auth.uid;
     }
 
     match /users_public/{uid} {
-      allow read: if true;
+      allow read: if isSignedIn();
+      allow create, update, delete: if isSelf(uid);
+    }
+
+    match /user_presence/{uid} {
+      allow read: if isSelf(uid) || isFriendWith(uid);
       allow create, update, delete: if isSelf(uid);
     }
 
@@ -195,27 +530,88 @@ service cloud.firestore {
       allow read, update, delete: if false;
     }
 
+    match /reports/{reportId} {
+      allow create: if isSignedIn() &&
+        request.resource.data.reporterUid == request.auth.uid &&
+        request.resource.data.keys().hasOnly([
+          'reporterUid',
+          'targetType',
+          'targetUserUid',
+          'targetPostId',
+          'reasonKey',
+          'reasonLabel',
+          'details',
+          'status',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        request.resource.data.targetType in ['user', 'post'] &&
+        request.resource.data.targetUserUid is string &&
+        request.resource.data.reasonKey is string &&
+        request.resource.data.reasonLabel is string &&
+        request.resource.data.details is string &&
+        request.resource.data.status == 'open';
+      allow read, update, delete: if false;
+    }
+
     match /chats/{chatId} {
       allow read: if isSignedIn() &&
-        (resource.data.isPublic == true || request.auth.uid in resource.data.participants);
+        (
+          resource.data.isPublic == true ||
+          request.auth.uid in resource.data.participants ||
+          canReadGroup(chatId)
+        );
 
       allow create: if isSignedIn() &&
         request.resource.data.id == chatId &&
         request.auth.uid in request.resource.data.participants;
 
-      allow update: if isChatParticipant(chatId);
+      allow update: if (
+        isChatParticipant(chatId) &&
+        request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'participants',
+          'lastMessage',
+          'lastMessageSenderName',
+          'lastMessageSenderId',
+          'lastMessageAt',
+          'lastMessageType',
+          'updatedAt'
+        ])
+      ) || (
+        isChatParticipant(chatId) &&
+        request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'groupImageUrl',
+          'updatedAt'
+        ]) &&
+        request.resource.data.groupImageUrl is string
+      ) || (
+        isChatGroupAdmin(chatId) &&
+        request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'isPublic',
+          'groupImageUrl',
+          'name',
+          'description',
+          'participants',
+          'lastMessage',
+          'lastMessageSenderName',
+          'lastMessageSenderId',
+          'lastMessageAt',
+          'lastMessageType',
+          'updatedAt'
+        ])
+      ) || isSelfAutoJoinChatParticipantsUpdate(chatId);
       allow delete: if false;
 
       match /messages/{messageId} {
-        allow read: if isChatParticipant(chatId);
-        allow create: if isChatParticipant(chatId) &&
+        allow read: if isChatParticipant(chatId) || isGroupAdmin(chatId);
+        allow create: if (isChatParticipant(chatId) || isGroupAdmin(chatId)) &&
           request.resource.data.senderId == request.auth.uid;
         allow update, delete: if false;
       }
 
       match /readReceipts/{uid} {
-        allow read: if isChatParticipant(chatId);
-        allow create, update: if isChatParticipant(chatId) &&
+        allow read: if isChatParticipant(chatId) || isGroupAdmin(chatId);
+        allow create, update: if (isChatParticipant(chatId) || isGroupAdmin(chatId)) &&
           request.auth.uid == uid &&
           request.resource.data.uid == request.auth.uid;
         allow delete: if false;

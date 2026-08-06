@@ -4,3 +4,4 @@ prometheus-client>=0.20.0
 numpy>=1.26.0
 redis>=5.0.0
 qdrant-client>=1.10.0
+firebase-admin>=6.5.0

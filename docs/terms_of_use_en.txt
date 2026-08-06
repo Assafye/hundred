@@ -1,0 +1,67 @@
+Terms of Use - Hundred
+
+Last updated: August 6, 2026
+
+These Terms of Use govern your use of the Hundred application and related services (the "Service").
+Operator: Assaf Yehoshua
+Official contact address: 10 Beit HaArava St, Rishon LeZion, Israel.
+Contact: assafyeho@gmail.com
+
+1. Acceptance
+By downloading, registering, or using the Service, you agree to these Terms and the Privacy Policy.
+
+2. Eligibility
+The Service is for users aged 13 and above only. You represent that you meet this requirement.
+
+3. Permitted and Prohibited Use
+1. You must use the Service lawfully, fairly, and in good faith.
+2. You must not upload or distribute unlawful, abusive, threatening, harassing, infringing, deceptive, or privacy-violating content.
+3. You must not attempt to disrupt service availability, bypass security, scrape data without authorization, or manipulate system behavior.
+4. You are solely responsible for content you upload, share, or publish.
+
+4. Permissions and Functionality
+1. Certain features require device permissions, including location, camera, microphone, and photos/gallery.
+2. Without certain permissions, especially location, key parts of the Service may function partially or not properly.
+
+5. Account Security
+1. You are responsible for safeguarding your login credentials and all activity under your account.
+2. You must provide accurate account data and keep it updated.
+3. We may apply verification and restrictions to protect account security.
+
+6. User Content and License
+1. You retain ownership of your content.
+2. You grant the Operator a non-exclusive, worldwide, royalty-free license to host, store, reproduce, process, display, and distribute your content as necessary to operate, secure, enforce, and improve the Service.
+3. You represent that you have all rights required for the content you submit.
+
+7. Enforcement and Community Safety
+1. We may, at our reasonable discretion and for community safety, remove content, limit exposure, suspend or terminate accounts, restrict feature access, and take any operational or legal action reasonably required.
+2. This applies especially in case of policy violations, user risk, fraud, security incidents, or legal requirements.
+3. The App may include a report flow for users/posts, and reports may be stored for moderation, enforcement, and community safety purposes.
+
+8. Account Deletion
+1. You may request/initiate account deletion through available in-app mechanisms.
+2. Deletion may include profile anonymization and removal of identifying profile data, and may not always mean immediate erasure of every historical content item already distributed in the system.
+3. Limited backup/log retention may apply for security, recovery, or legal compliance.
+
+9. Service Availability and Changes
+1. The Service is provided on an "AS IS" and "AS AVAILABLE" basis.
+2. We do not guarantee uninterrupted operation, error-free performance, or fitness for every purpose.
+3. We may modify, suspend, or discontinue features or parts of the Service at any time.
+
+10. Limitation of Liability
+1. Use of the Service is at your own risk.
+2. The Operator is not liable for indirect, consequential, incidental, special, or punitive damages, loss of profits/data, or harm arising from user-to-user interactions or reliance on user content.
+3. Where full exclusion is not permitted by law, liability is limited to the maximum extent permitted.
+
+11. Indemnity
+You agree to indemnify the Operator against losses, costs, claims, and damages arising from your breach of these Terms, your content, or your violation of law/third-party rights.
+
+12. Governing Law and Jurisdiction
+These Terms are governed exclusively by the laws of the State of Israel.
+Exclusive jurisdiction is granted to the competent courts in the Tel Aviv district.
+
+13. Changes to Terms
+We may update these Terms from time to time. In case of a material change, we will make reasonable efforts to provide notice in-app and/or by email. Continued use after updates constitutes acceptance of the updated Terms.
+
+14. Contact
+For legal/operational inquiries: assafyeho@gmail.com
