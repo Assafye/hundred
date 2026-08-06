@@ -233,6 +233,64 @@ class PostService {
     );
   }
 
+  _PublishScoreAwardResult _fallbackPublishScoreAward({
+    required String category,
+    required String subCategory,
+    required String eventGroupId,
+  }) {
+    final normalizedCategory = category.trim();
+    if (normalizedCategory == kGeneralCategory) {
+      return const _PublishScoreAwardResult(score: 200);
+    }
+
+    final weeklyMultiplier = WeeklyChallengeService.publishMultiplier(
+      category: category,
+      subCategory: subCategory,
+    );
+    final baseScore = pointsForCategory(
+          category: category,
+          subCategory: subCategory,
+        ) *
+        weeklyMultiplier;
+    if (baseScore <= 0) {
+      return const _PublishScoreAwardResult(score: 0);
+    }
+
+    final normalizedEventGroupId = eventGroupId.trim();
+    if (normalizedEventGroupId.isEmpty) {
+      return _PublishScoreAwardResult(score: baseScore);
+    }
+    return _PublishScoreAwardResult(score: (baseScore * 0.25).round());
+  }
+
+  Future<_PublishScoreAwardResult> _safePublishScoreAward({
+    required String category,
+    required String subCategory,
+    required String authorId,
+    required String eventGroupId,
+  }) async {
+    try {
+      return await _publishScoreAward(
+        category: category,
+        subCategory: subCategory,
+        authorId: authorId,
+        eventGroupId: eventGroupId,
+      );
+    } catch (error) {
+      if (kDebugMode) {
+        debugPrint(
+          '[PostService] publish score computation failed; using fallback. '
+          'authorId=$authorId category=$category subCategory=$subCategory error=$error',
+        );
+      }
+      return _fallbackPublishScoreAward(
+        category: category,
+        subCategory: subCategory,
+        eventGroupId: eventGroupId,
+      );
+    }
+  }
+
   String? _postedSubCategoryKey({
     required String category,
     required String subCategory,
@@ -585,6 +643,35 @@ class PostService {
     return path.substring(dotIndex + 1).toLowerCase();
   }
 
+  bool _isHttpUrl(String value) {
+    final normalized = value.trim().toLowerCase();
+    return normalized.startsWith('http://') ||
+        normalized.startsWith('https://');
+  }
+
+  Future<List<PostMediaItem>> _hydrateMediaDownloadUrls(
+    List<PostMediaItem> items,
+  ) async {
+    final hydrated = <PostMediaItem>[];
+
+    for (final item in items) {
+      final storagePath = item.storagePath.trim();
+      if (storagePath.isEmpty || _isHttpUrl(item.url)) {
+        hydrated.add(item);
+        continue;
+      }
+
+      try {
+        final resolvedUrl = await _storage.ref(storagePath).getDownloadURL();
+        hydrated.add(item.copyWith(url: resolvedUrl));
+      } catch (_) {
+        hydrated.add(item);
+      }
+    }
+
+    return hydrated;
+  }
+
   Future<List<PostMediaItem>> _uploadMediaItems({
     required String authorId,
     required String postId,
@@ -601,12 +688,34 @@ class PostService {
 
       final extension = _fileExtension(
           media.file.name.isNotEmpty ? media.file.name : media.file.path);
-        final storagePath =
-          'posts/$authorId/$postId/${DateTime.now().millisecondsSinceEpoch}_$index.$extension';
-      final mediaRef = _storage.ref().child(storagePath);
-      await mediaRef.putData(mediaBytes);
-      final mediaUrl = await mediaRef.getDownloadURL();
-      uploaded.add(media.toUploaded(url: mediaUrl, storagePath: storagePath));
+      final timeToken = DateTime.now().millisecondsSinceEpoch;
+      final primaryPath =
+          'posts/$authorId/$postId/${timeToken}_$index.$extension';
+      final fallbackPath =
+          'posts/$authorId/${postId}_${timeToken}_$index.$extension';
+
+      Future<PostMediaItem> uploadToPath(String storagePath) async {
+        final mediaRef = _storage.ref().child(storagePath);
+        await mediaRef.putData(mediaBytes);
+        // The post doc is not created yet, so media read rules that depend on
+        // post visibility may reject getDownloadURL at this stage.
+        return media.toUploaded(url: storagePath, storagePath: storagePath);
+      }
+
+      try {
+        uploaded.add(await uploadToPath(primaryPath));
+      } on FirebaseException catch (error) {
+        if (error.code != 'permission-denied' && error.code != 'unauthorized') {
+          rethrow;
+        }
+        if (kDebugMode) {
+          debugPrint(
+            '[PostService][uploadMediaItems] primary storage path denied; retrying legacy path. '
+            'uid=$authorId postId=$postId code=${error.code} plugin=${error.plugin} message=${error.message}',
+          );
+        }
+        uploaded.add(await uploadToPath(fallbackPath));
+      }
     }
 
     return uploaded;
@@ -690,9 +799,20 @@ class PostService {
     String? eventGroupId,
     String? linkedGroupId,
   }) async {
+    final traceId = DateTime.now().millisecondsSinceEpoch.toString();
     try {
-      final normalizedAuthorId =
-          authorId.trim().isNotEmpty ? authorId.trim() : _requireUid();
+      final currentUid = _requireUid();
+      if (kDebugMode) {
+        debugPrint('[PostService][createPost][$traceId] start uid=$currentUid');
+      }
+      final requestedAuthorId = authorId.trim();
+      if (requestedAuthorId.isNotEmpty && requestedAuthorId != currentUid) {
+        throw FirebaseAuthException(
+          code: 'permission-denied',
+          message: 'Authenticated user does not match post author.',
+        );
+      }
+      final normalizedAuthorId = currentUid;
       final normalizedSelectedMedia = <PostUploadMediaItem>[
         ...?uploadMediaItems,
         if (selectedMedia != null)
@@ -750,11 +870,18 @@ class PostService {
         throw StateError('Could not allocate post document id');
       }
 
+      if (kDebugMode) {
+        debugPrint('[PostService][createPost][$traceId] allocated postId=${postRef.id}');
+      }
+
       final uploadedMediaItems = await _uploadMediaItems(
         authorId: normalizedAuthorId,
         postId: postRef.id,
         selectedMediaItems: normalizedSelectedMedia,
       );
+      if (kDebugMode) {
+        debugPrint('[PostService][createPost][$traceId] media uploaded count=${uploadedMediaItems.length}');
+      }
       if (uploadedMediaItems.isEmpty) {
         throw StateError('No media items were uploaded');
       }
@@ -791,8 +918,8 @@ class PostService {
         linkedGroupId: (linkedGroupId ?? '').trim(),
       );
 
-      final publishResult = normalizedStatus == 'published'
-          ? await _publishScoreAward(
+        final publishResult = normalizedStatus == 'published'
+          ? await _safePublishScoreAward(
               category: post.category,
               subCategory: post.subCategory,
               authorId: normalizedAuthorId,
@@ -801,31 +928,63 @@ class PostService {
           : const _PublishScoreAwardResult(score: 0);
       final scoreToAdd = publishResult.score;
       final postData = post.toMap();
+      postData['uid'] = normalizedAuthorId;
+      postData['userId'] = normalizedAuthorId;
+      postData['authorUid'] = normalizedAuthorId;
       postData['scoreAwarded'] = scoreToAdd;
 
-      // ignore: avoid_print
-      print('Step 3: Saving to Firestore...');
-      final batch = _db.batch();
-      batch.set(postRef, postData);
-      if (normalizedStatus == 'published') {
-        batch.set(
-          _db
-              .collection('users')
-              .doc(normalizedAuthorId)
-              .collection('activity')
-              .doc(),
-          _activityPayload(
-            type: 'pop',
-            postId: postRef.id,
-            uid: normalizedAuthorId,
-            title: post.title,
-            description: post.caption,
-            imageUrl: post.mediaUrl,
-          ),
+      if (kDebugMode) {
+        debugPrint('[PostService][createPost][$traceId] writing post doc to Firestore');
+      }
+      await postRef.set(postData);
+      if (kDebugMode) {
+        debugPrint('[PostService][createPost][$traceId] post write success');
+      }
+
+      // Backfill public download URLs after the post doc exists.
+      final hydratedMediaItems = await _hydrateMediaDownloadUrls(uploadedMediaItems);
+      final hydratedMediaUrls = hydratedMediaItems
+          .map((item) => item.url.trim())
+          .where((url) => url.isNotEmpty)
+          .toList(growable: false);
+      if (hydratedMediaUrls.isNotEmpty &&
+          hydratedMediaUrls.first != mediaUrl) {
+        await postRef.set(
+          <String, dynamic>{
+            'mediaUrl': hydratedMediaUrls.first,
+            'mediaUrls': hydratedMediaUrls,
+            'mediaItems': hydratedMediaItems.map((item) => item.toMap()).toList(growable: false),
+            'primaryMediaUrl': hydratedMediaUrls.first,
+            'imageUrl': hydratedMediaUrls.first,
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
         );
       }
 
-      await batch.commit();
+      if (normalizedStatus == 'published') {
+        try {
+          await _db
+              .collection('users')
+              .doc(normalizedAuthorId)
+              .collection('activity')
+              .doc()
+              .set(
+            _activityPayload(
+              type: 'pop',
+              postId: postRef.id,
+              uid: normalizedAuthorId,
+              title: post.title,
+              description: post.caption,
+              imageUrl: post.mediaUrl,
+            ),
+          );
+        } catch (error) {
+          if (kDebugMode) {
+            debugPrint('Post activity logging skipped: $error');
+          }
+        }
+      }
 
       if (normalizedStatus == 'published' && post.linkedGroupId.isNotEmpty) {
         await _announceGroupPostPublished(
@@ -863,11 +1022,19 @@ class PostService {
       }
 
       return postRef.id;
+    } on FirebaseException catch (error, stackTrace) {
+      if (kDebugMode) {
+        debugPrint(
+          '[PostService][createPost][$traceId] FirebaseException code=${error.code} plugin=${error.plugin} message=${error.message}',
+        );
+        debugPrint('$stackTrace');
+      }
+      rethrow;
     } catch (e, stackTrace) {
-      // ignore: avoid_print
-      print('CRITICAL ERROR: $e');
-      // ignore: avoid_print
-      print(stackTrace);
+      if (kDebugMode) {
+        debugPrint('[PostService][createPost][$traceId] CRITICAL ERROR: $e');
+        debugPrint('$stackTrace');
+      }
       rethrow;
     }
   }
@@ -956,7 +1123,7 @@ class PostService {
             '')
         .trim();
     final publishResult = isDraftToPublished
-        ? await _publishScoreAward(
+      ? await _safePublishScoreAward(
             category: normalizedCategory,
             subCategory: normalizedSubCategory,
             authorId: uid,
@@ -1075,40 +1242,16 @@ class PostService {
       );
     }
 
-    final savedBy = ((postData['savedBy'] as List<dynamic>?) ?? const <dynamic>[])
-        .map((item) => item.toString().trim())
-        .where((item) => item.isNotEmpty)
-        .toSet()
-        .toList(growable: false);
-
-    final saverUids = <String>{
-      ...savedBy,
-      uid,
-    }.where((value) => value.trim().isNotEmpty).toList(growable: false);
-
     final postScoreToRemove = _postScoreFromData(postData);
     final taggedBonusToRemove = _taggedBonusForPostScore(postScoreToRemove);
     final taggedParticipantUids =
         _taggedParticipantUidsFromPostData(postData).toList(growable: false);
 
+    final ownSavedPostRef =
+        _db.collection('users').doc(uid).collection('saved_posts').doc(normalizedPostId);
+    await ownSavedPostRef.delete();
+
     const int batchChunk = 350;
-    for (var index = 0; index < saverUids.length; index += batchChunk) {
-      final end = (index + batchChunk < saverUids.length)
-          ? index + batchChunk
-          : saverUids.length;
-      final chunk = saverUids.sublist(index, end);
-      final batch = _db.batch();
-      for (final saverUid in chunk) {
-        batch.delete(
-          _db
-              .collection('users')
-              .doc(saverUid)
-              .collection('saved_posts')
-              .doc(normalizedPostId),
-        );
-      }
-      await batch.commit();
-    }
 
     while (true) {
       final commentsSnapshot =

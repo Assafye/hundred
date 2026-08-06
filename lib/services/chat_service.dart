@@ -934,8 +934,46 @@ class ChatService {
       summaries.addAll(aliasAdds);
     } catch (_) {
       for (final uid in uniqueIds) {
-        summaries.putIfAbsent(
-            uid, () => <String, String>{'name': '', 'avatarUrl': ''});
+        final existing = summaries[uid] ?? const <String, String>{};
+        final existingName = (existing['name'] ?? '').trim();
+        final existingAvatar = (existing['avatarUrl'] ?? '').trim();
+        if (existingName.isNotEmpty && existingAvatar.isNotEmpty) {
+          continue;
+        }
+
+        Map<String, dynamic> data = const <String, dynamic>{};
+        try {
+          final publicDoc = await _publicUsers.doc(uid).get();
+          data = publicDoc.data() ?? const <String, dynamic>{};
+        } catch (_) {
+          data = const <String, dynamic>{};
+        }
+
+        if (data.isEmpty) {
+          try {
+            final privateDoc = await _users.doc(uid).get();
+            data = privateDoc.data() ?? const <String, dynamic>{};
+          } catch (_) {
+            data = const <String, dynamic>{};
+          }
+        }
+
+        if (data.isEmpty) {
+          summaries.putIfAbsent(
+            uid,
+            () => <String, String>{'name': '', 'avatarUrl': ''},
+          );
+          continue;
+        }
+
+        summaries[uid] = <String, String>{
+          'name': existingName.isNotEmpty
+              ? existingName
+              : _displayNameForProfile(data, fallback: ''),
+          'avatarUrl': existingAvatar.isNotEmpty
+              ? existingAvatar
+              : _avatarUrlForProfile(data),
+        };
       }
     }
 

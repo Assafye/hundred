@@ -47,11 +47,18 @@ class _OnlineScreenState extends State<OnlineScreen>
   late final ValueNotifier<int> _sectionRefreshTick;
   late final TextEditingController _meetTitleController;
   late final TextEditingController _meetDetailsController;
+  late final Stream<List<HomeFriendEntry>> _connectedFriendsStream;
+  late final Stream<DateTime?> _forcedOnlineUntilStream;
+  late final Stream<List<HomePublicGroupEntry>> _upcomingGroupsStream;
+  late final Stream<List<MeetNowPostEntry>> _meetNowPostsStream;
 
   Timer? _meetNowRefreshTimer;
   StreamSubscription<Set<String>>? _joinedMeetPostsSub;
   Set<String> _joinedMeetPostIds = <String>{};
   final Set<String> _locallyHiddenMeetPostIds = <String>{};
+  final Map<String, String> _groupMemberAvatarByUid = <String, String>{};
+  final Set<String> _groupMemberAvatarLoadInFlight = <String>{};
+  String _lastUpcomingPrefetchKey = '';
 
   int? _meetFilterMinScore;
   String? _meetFilterCategory;
@@ -83,6 +90,11 @@ class _OnlineScreenState extends State<OnlineScreen>
     _upcomingGroupsScrollController = ScrollController();
     _meetTitleController = TextEditingController();
     _meetDetailsController = TextEditingController();
+    _connectedFriendsStream = _homeService.streamConnectedFriends();
+    _forcedOnlineUntilStream = _homeService.streamMyForcedOnlineUntil();
+    _upcomingGroupsStream =
+      _homeService.streamUpcomingPublicGroups(withinDays: 7);
+    _meetNowPostsStream = _homeService.streamMeetNowPosts();
     _meetNowRefreshTimer = Timer.periodic(_meetNowRefreshInterval, (_) {
       if (!mounted) {
         return;
@@ -188,6 +200,63 @@ class _OnlineScreenState extends State<OnlineScreen>
         ),
       ),
     );
+  }
+
+  void _prefetchUpcomingGroupMemberAvatars(
+    List<HomePublicGroupEntry> groups,
+  ) {
+    final missingUids = <String>{};
+    for (final group in groups.take(10)) {
+      for (final raw in group.participants) {
+        final uid = raw.toString().trim();
+        if (uid.isEmpty) {
+          continue;
+        }
+        if (_groupMemberAvatarByUid.containsKey(uid) ||
+            _groupMemberAvatarLoadInFlight.contains(uid)) {
+          continue;
+        }
+        missingUids.add(uid);
+        if (missingUids.length >= 70) {
+          break;
+        }
+      }
+      if (missingUids.length >= 70) {
+        break;
+      }
+    }
+
+    if (missingUids.isEmpty) {
+      return;
+    }
+
+    _groupMemberAvatarLoadInFlight.addAll(missingUids);
+    _chatService
+        .fetchUserSummaries(missingUids.toList(growable: false))
+        .then((summaries) {
+      if (!mounted || summaries.isEmpty) {
+        return;
+      }
+
+      var hasChanges = false;
+      for (final uid in missingUids) {
+        final avatar = (summaries[uid]?['avatarUrl'] ?? '').trim();
+        if (avatar.isEmpty) {
+          continue;
+        }
+        if (_groupMemberAvatarByUid[uid] == avatar) {
+          continue;
+        }
+        _groupMemberAvatarByUid[uid] = avatar;
+        hasChanges = true;
+      }
+
+      if (hasChanges && mounted) {
+        setState(() {});
+      }
+    }).whenComplete(() {
+      _groupMemberAvatarLoadInFlight.removeAll(missingUids);
+    });
   }
 
   Future<void> _openForceOnlineSheet() async {
@@ -2919,7 +2988,7 @@ class _OnlineScreenState extends State<OnlineScreen>
   Widget _buildFriendsSection() {
     final isLight = Theme.of(context).brightness == Brightness.light;
     return StreamBuilder<List<HomeFriendEntry>>(
-      stream: _homeService.streamConnectedFriends(),
+      stream: _connectedFriendsStream,
       builder: (context, snapshot) {
         final friends = snapshot.data ?? const <HomeFriendEntry>[];
 
@@ -3110,7 +3179,7 @@ class _OnlineScreenState extends State<OnlineScreen>
       valueListenable: _sectionRefreshTick,
       builder: (context, _, __) {
         return StreamBuilder<DateTime?>(
-          stream: _homeService.streamMyForcedOnlineUntil(),
+          stream: _forcedOnlineUntilStream,
           builder: (context, onlineSnapshot) {
             final forcedUntil = onlineSnapshot.data;
             final isForcedOnline =
@@ -3313,209 +3382,224 @@ class _OnlineScreenState extends State<OnlineScreen>
     final isLight = Theme.of(context).brightness == Brightness.light;
     final isDesktopWide = MediaQuery.of(context).size.width >= 1000;
     return StreamBuilder<List<HomePublicGroupEntry>>(
-      stream: _homeService.streamUpcomingPublicGroups(withinDays: 7),
+      stream: _upcomingGroupsStream,
       builder: (context, snapshot) {
         final groups = snapshot.data ?? const <HomePublicGroupEntry>[];
-        final visibleGroups = groups.take(10).toList(growable: false);
+        final visibleGroups = groups.take(7).toList(growable: false);
+        final prefetchKey = visibleGroups
+            .map((group) => '${group.groupId}:${group.participants.length}')
+            .join('|');
+        if (prefetchKey != _lastUpcomingPrefetchKey) {
+          _lastUpcomingPrefetchKey = prefetchKey;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) {
+              return;
+            }
+            _prefetchUpcomingGroupMemberAvatars(visibleGroups);
+          });
+        }
 
         return _sectionShell(
           title: 'עושים משהו בקרוב',
           trailing: TextButton(
             onPressed: _openUpcomingGroupsPage,
-            child: const Text('כל הקבוצות'),
+            child: const Text('הצג עוד'),
           ),
           child: SizedBox(
             height: 236,
             child: snapshot.connectionState == ConnectionState.waiting &&
                     !snapshot.hasData
                 ? const Center(child: CircularProgressIndicator())
-                : groups.isEmpty
-                    ? _emptyCard('אין קבוצות להצגה כרגע')
-                    : Column(
-                        children: [
-                          SizedBox(
-                            height: 170,
-                            child: Stack(
-                              children: [
-                                ListView.builder(
-                                  controller: _upcomingGroupsScrollController,
-                                  scrollDirection: Axis.horizontal,
-                                  itemCount: visibleGroups.length,
-                                  itemBuilder: (context, index) {
-                                    final group = visibleGroups[index];
-                                    return Padding(
-                                      padding: const EdgeInsets.only(left: 10),
-                                      child: GestureDetector(
-                                        onTap: () =>
-                                            _showUpcomingGroupDialog(group),
-                                        child: Container(
-                                          width: 150,
-                                          padding: const EdgeInsets.all(12),
-                                          decoration: BoxDecoration(
-                                            borderRadius:
-                                                BorderRadius.circular(20),
-                                            color:
-                                                isLight ? Colors.white : null,
-                                            gradient: isLight
-                                                ? null
-                                                : const LinearGradient(
-                                                    colors: [
-                                                      Color(0xFF18243D),
-                                                      Color(0xFF302455)
-                                                    ],
-                                                    begin: Alignment.topRight,
-                                                    end: Alignment.bottomLeft,
-                                                  ),
-                                            border: Border.all(
-                                              color: isLight
-                                                  ? const Color(0xFFA9C3FF)
-                                                  : const Color(0xFF69A4EA)
-                                                      .withValues(alpha: 0.45),
-                                            ),
-                                            boxShadow: [
-                                              BoxShadow(
-                                                color: const Color(0xFF8A74FF)
-                                                    .withValues(alpha: 0.22),
-                                                blurRadius: 14,
-                                                offset: const Offset(0, 6),
+              : groups.isNotEmpty
+                ? Column(
+                    children: [
+                      SizedBox(
+                        height: 170,
+                        child: Stack(
+                          children: [
+                            ListView.builder(
+                              controller: _upcomingGroupsScrollController,
+                              scrollDirection: Axis.horizontal,
+                              itemCount: visibleGroups.length,
+                              itemBuilder: (context, index) {
+                                final group = visibleGroups[index];
+                                return Padding(
+                                  padding: const EdgeInsets.only(left: 10),
+                                  child: GestureDetector(
+                                    onTap: () =>
+                                        _showUpcomingGroupDialog(group),
+                                    child: Container(
+                                      width: 150,
+                                      padding: const EdgeInsets.all(12),
+                                      decoration: BoxDecoration(
+                                        borderRadius:
+                                            BorderRadius.circular(20),
+                                        color:
+                                            isLight ? Colors.white : null,
+                                        gradient: isLight
+                                            ? null
+                                            : const LinearGradient(
+                                                colors: [
+                                                  Color(0xFF18243D),
+                                                  Color(0xFF302455)
+                                                ],
+                                                begin: Alignment.topRight,
+                                                end: Alignment.bottomLeft,
                                               ),
-                                            ],
-                                          ),
-                                          child: Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              _buildGroupParticipantsAvatars(
-                                                  group),
-                                              const SizedBox(height: 10),
-                                              Text(
-                                                group.name,
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: TextStyle(
-                                                  color: isLight
-                                                      ? Colors.black
-                                                      : Colors.white,
-                                                  fontSize: 14,
-                                                  fontWeight: FontWeight.w800,
-                                                ),
-                                              ),
-                                              const SizedBox(height: 3),
-                                              Text(
-                                                group.category.isNotEmpty
-                                                    ? group.category
-                                                    : 'ללא קטגוריה',
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: TextStyle(
-                                                  color: isLight
-                                                      ? Colors.black54
-                                                      : const Color(0xFFD0DAF0),
-                                                  fontSize: 11,
-                                                  fontWeight: FontWeight.w600,
-                                                ),
-                                              ),
-                                              const Spacer(),
-                                              Text(
-                                                _formatGroupDateTime(
-                                                    group.date),
-                                                style: TextStyle(
-                                                  color: isLight
-                                                      ? Colors.black54
-                                                      : const Color(0xFFBDD2F3),
-                                                  fontSize: 11,
-                                                  fontWeight: FontWeight.w600,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
+                                        border: Border.all(
+                                          color: isLight
+                                              ? const Color(0xFFA9C3FF)
+                                              : const Color(0xFF69A4EA)
+                                                  .withValues(alpha: 0.45),
                                         ),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: const Color(0xFF8A74FF)
+                                                .withValues(alpha: 0.22),
+                                            blurRadius: 14,
+                                            offset: const Offset(0, 6),
+                                          ),
+                                        ],
                                       ),
-                                    );
-                                  },
-                                ),
-                                if (isDesktopWide && visibleGroups.length > 1)
-                                  Positioned(
-                                    left: 2,
-                                    top: 60,
-                                    child: Material(
-                                      color: Colors.transparent,
-                                      child: InkWell(
-                                        borderRadius: BorderRadius.circular(12),
-                                        onTap: _scrollUpcomingGroupsForward,
-                                        child: Container(
-                                          width: 26,
-                                          height: 50,
-                                          decoration: BoxDecoration(
-                                            color: isLight
-                                                ? Colors.white
-                                                    .withValues(alpha: 0.92)
-                                                : const Color(0xFF0D1727)
-                                                    .withValues(alpha: 0.86),
-                                            borderRadius:
-                                                BorderRadius.circular(12),
-                                            border: Border.all(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          _buildGroupParticipantsAvatars(
+                                              group),
+                                          const SizedBox(height: 10),
+                                          Text(
+                                            group.name,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
                                               color: isLight
-                                                  ? const Color(0xFF9EBBFF)
-                                                  : const Color(0xFF7A95C9)
-                                                      .withValues(alpha: 0.7),
+                                                  ? Colors.black
+                                                  : Colors.white,
+                                              fontSize: 14,
+                                              fontWeight: FontWeight.w800,
                                             ),
                                           ),
-                                          child: Icon(
-                                            Icons.chevron_left_rounded,
-                                            size: 20,
-                                            color: isLight
-                                                ? const Color(0xFF3560C9)
-                                                : const Color(0xFFE3EBFF),
+                                          const SizedBox(height: 3),
+                                          Text(
+                                            group.category.isNotEmpty
+                                                ? group.category
+                                                : 'ללא קטגוריה',
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              color: isLight
+                                                  ? Colors.black54
+                                                  : const Color(0xFFD0DAF0),
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.w600,
+                                            ),
                                           ),
-                                        ),
+                                          const Spacer(),
+                                          Text(
+                                            _formatGroupDateTime(group.date),
+                                            style: TextStyle(
+                                              color: isLight
+                                                  ? Colors.black54
+                                                  : const Color(0xFFBDD2F3),
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                        ],
                                       ),
                                     ),
                                   ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          DecoratedBox(
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(14),
-                              gradient: const LinearGradient(
-                                colors: [Color(0xFF4F75FF), Color(0xFF985DFF)],
-                              ),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: const Color(0xFF805CFF)
-                                      .withValues(alpha: 0.34),
-                                  blurRadius: 14,
-                                  offset: const Offset(0, 6),
-                                ),
-                              ],
-                            ),
-                            child: ElevatedButton.icon(
-                              onPressed: () {
-                                Navigator.of(context).push(
-                                  MaterialPageRoute(
-                                    builder: (_) => const CreateGroupScreen(),
-                                  ),
                                 );
                               },
-                              icon: const Icon(Icons.add_circle_rounded,
-                                  size: 18),
-                              label: const Text('יצירת קבוצה חדשה'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.transparent,
-                                shadowColor: Colors.transparent,
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 14, vertical: 10),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(14),
+                            ),
+                            if (isDesktopWide && visibleGroups.length > 1)
+                              Positioned(
+                                left: 2,
+                                top: 60,
+                                child: Material(
+                                  color: Colors.transparent,
+                                  child: InkWell(
+                                    borderRadius: BorderRadius.circular(12),
+                                    onTap: _scrollUpcomingGroupsForward,
+                                    child: Container(
+                                      width: 26,
+                                      height: 50,
+                                      decoration: BoxDecoration(
+                                        color: isLight
+                                            ? Colors.white
+                                                .withValues(alpha: 0.92)
+                                            : const Color(0xFF0D1727)
+                                                .withValues(alpha: 0.86),
+                                        borderRadius:
+                                            BorderRadius.circular(12),
+                                        border: Border.all(
+                                          color: isLight
+                                              ? const Color(0xFF9EBBFF)
+                                              : const Color(0xFF7A95C9)
+                                                  .withValues(alpha: 0.7),
+                                        ),
+                                      ),
+                                      child: Icon(
+                                        Icons.chevron_left_rounded,
+                                        size: 20,
+                                        color: isLight
+                                            ? const Color(0xFF3560C9)
+                                            : const Color(0xFFE3EBFF),
+                                      ),
+                                    ),
+                                  ),
                                 ),
                               ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      DecoratedBox(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(14),
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFF4F75FF), Color(0xFF985DFF)],
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: const Color(0xFF805CFF)
+                                  .withValues(alpha: 0.34),
+                              blurRadius: 14,
+                              offset: const Offset(0, 6),
+                            ),
+                          ],
+                        ),
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => const CreateGroupScreen(),
+                              ),
+                            );
+                          },
+                          icon: const Icon(Icons.add_circle_rounded,
+                              size: 18),
+                          label: const Text('יצירת קבוצה חדשה'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.transparent,
+                            shadowColor: Colors.transparent,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 14, vertical: 10),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
                             ),
                           ),
-                        ],
+                        ),
                       ),
+                    ],
+                  )
+              : snapshot.hasError
+                ? _emptyCard('טעינת הקבוצות נכשלה כרגע. נסה שוב עוד רגע')
+                : groups.isEmpty
+                    ? _emptyCard('אין קבוצות להצגה כרגע')
+                    : _emptyCard('אין קבוצות להצגה כרגע'),
           ),
         );
       },
@@ -3534,6 +3618,33 @@ class _OnlineScreenState extends State<OnlineScreen>
   }
 
   List<String> _groupParticipantAvatarUrls(HomePublicGroupEntry group) {
+    final resolvedUrls = group.participantAvatarUrls
+        .map((url) => url.trim())
+        .where((url) => url.isNotEmpty)
+        .toList(growable: false);
+    if (resolvedUrls.isNotEmpty) {
+      return resolvedUrls.take(7).toList(growable: false);
+    }
+
+    final byUid = <String>[];
+    for (final raw in group.participants) {
+      final uid = raw.toString().trim();
+      if (uid.isEmpty) {
+        continue;
+      }
+      final avatar = (_groupMemberAvatarByUid[uid] ?? '').trim();
+      if (avatar.isEmpty || byUid.contains(avatar)) {
+        continue;
+      }
+      byUid.add(avatar);
+      if (byUid.length >= 7) {
+        break;
+      }
+    }
+    if (byUid.isNotEmpty) {
+      return byUid;
+    }
+
     final urls = <String>[];
     for (final participant in group.participants) {
       if (participant is Map) {
@@ -3550,9 +3661,6 @@ class _OnlineScreenState extends State<OnlineScreen>
       if (urls.length >= 7) {
         break;
       }
-    }
-    if (urls.isEmpty && group.imageUrl.isNotEmpty) {
-      urls.add(group.imageUrl);
     }
     return urls;
   }
@@ -3766,7 +3874,7 @@ class _OnlineScreenState extends State<OnlineScreen>
   Widget _buildMeetNowGrid() {
     final isLight = Theme.of(context).brightness == Brightness.light;
     return StreamBuilder<List<MeetNowPostEntry>>(
-      stream: _homeService.streamMeetNowPosts(),
+      stream: _meetNowPostsStream,
       builder: (context, snapshot) {
         final allEntries = snapshot.data ?? const <MeetNowPostEntry>[];
 
@@ -3869,80 +3977,41 @@ class _OnlineScreenState extends State<OnlineScreen>
                                   Positioned(
                                     top: 8,
                                     right: 8,
-                                    child: entry.linkedGroupId.isNotEmpty
-                                        ? StreamBuilder<int>(
-                                            stream: _groupService
-                                                .approvedMembersCount(
-                                                    entry.linkedGroupId),
-                                            initialData:
-                                                entry.linkedGroupMembersCount,
-                                            builder: (context, memberSnapshot) {
-                                              final liveCount = memberSnapshot
-                                                      .data ??
-                                                  entry.linkedGroupMembersCount;
-                                              final count =
-                                                  math.max(1, liveCount);
-                                              final countLabel = count == 1
-                                                  ? '1 חבר'
-                                                  : '$count חברים';
-                                              return Container(
-                                                padding:
-                                                    const EdgeInsets.symmetric(
-                                                  horizontal: 8,
-                                                  vertical: 5,
-                                                ),
-                                                decoration: BoxDecoration(
-                                                  color: isLight
-                                                      ? Colors.white.withValues(
-                                                          alpha: 0.9)
-                                                      : const Color(0xCC111A28),
-                                                  borderRadius:
-                                                      BorderRadius.circular(
-                                                          999),
-                                                  border: Border.all(
-                                                      color: _cyan.withValues(
-                                                          alpha: 0.45)),
-                                                ),
-                                                child: Text(
-                                                  countLabel,
-                                                  style: TextStyle(
-                                                    color: isLight
-                                                        ? Colors.black
-                                                        : Colors.white,
-                                                    fontSize: 10,
-                                                    fontWeight: FontWeight.w800,
-                                                  ),
-                                                ),
-                                              );
-                                            },
-                                          )
-                                        : Container(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 8,
-                                              vertical: 5,
-                                            ),
-                                            decoration: BoxDecoration(
-                                              color: isLight
-                                                  ? Colors.white
-                                                      .withValues(alpha: 0.9)
-                                                  : const Color(0xCC111A28),
-                                              borderRadius:
-                                                  BorderRadius.circular(999),
-                                              border: Border.all(
-                                                  color: _cyan.withValues(
-                                                      alpha: 0.45)),
-                                            ),
-                                            child: Text(
-                                              '1 חבר',
-                                              style: TextStyle(
-                                                color: isLight
-                                                    ? Colors.black
-                                                    : Colors.white,
-                                                fontSize: 10,
-                                                fontWeight: FontWeight.w800,
-                                              ),
-                                            ),
+                                    child: () {
+                                      final count = math.max(
+                                        1,
+                                        entry.linkedGroupMembersCount,
+                                      );
+                                      final countLabel =
+                                          count == 1 ? '1 חבר' : '$count חברים';
+                                      return Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 5,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: isLight
+                                              ? Colors.white
+                                                  .withValues(alpha: 0.9)
+                                              : const Color(0xCC111A28),
+                                          borderRadius:
+                                              BorderRadius.circular(999),
+                                          border: Border.all(
+                                            color: _cyan.withValues(alpha: 0.45),
                                           ),
+                                        ),
+                                        child: Text(
+                                          countLabel,
+                                          style: TextStyle(
+                                            color: isLight
+                                                ? Colors.black
+                                                : Colors.white,
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                        ),
+                                      );
+                                    }(),
                                   ),
                                 ],
                               ),

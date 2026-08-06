@@ -508,7 +508,7 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
       setState(() {
         _optimisticGroupImageUrl = url;
       });
-      final message = 'תמונת הקבוצה עודכנה';
+      const message = 'תמונת הקבוצה עודכנה';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(message)),
       );

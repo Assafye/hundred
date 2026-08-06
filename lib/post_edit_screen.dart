@@ -2266,6 +2266,46 @@ class _PostEditScreenState extends State<PostEditScreen> {
       );
     }
 
+    String userFriendlyPostError(Object error, {required bool isEditFlow}) {
+      if (error is FirebaseException) {
+        if (error.code == 'permission-denied' || error.code == 'unauthorized') {
+          return isEditFlow
+              ? 'אין הרשאה לעדכן את הפוסט כרגע.'
+              : 'אין הרשאה לפרסום כרגע. ודא/י שהחשבון מחובר ונסה/י שוב.';
+        }
+      }
+
+      if (error is StateError) {
+        final message = error.message.toString().toLowerCase();
+        if (message.contains('logged in') || message.contains('authenticated')) {
+          return 'צריך להתחבר כדי לפרסם פוסט.';
+        }
+      }
+
+      if (error is ArgumentError) {
+        final message = error.message.toString().toLowerCase();
+        if (message.contains('title is required')) {
+          return 'חסרה כותרת לפוסט.';
+        }
+        if (message.contains('caption is required')) {
+          return 'חסר תיאור לפוסט.';
+        }
+        if (message.contains('category is required')) {
+          return 'חסרה קטגוריה לפוסט.';
+        }
+        if (message.contains('at least one media item is required')) {
+          return 'יש להוסיף לפחות תמונה או וידאו אחד.';
+        }
+        if (message.contains('up to 10 media')) {
+          return 'אפשר להוסיף עד 10 פריטי מדיה לפוסט.';
+        }
+      }
+
+      return isEditFlow
+          ? 'שגיאה בעדכון הפוסט. נסה/י שוב.'
+          : 'שגיאה בפרסום הפוסט. נסה/י שוב.';
+    }
+
     if (widget.isEdit) {
       final postId = (widget.post?.id ?? '').trim();
       final title = _titleController.text.trim();
@@ -2361,7 +2401,7 @@ class _PostEditScreenState extends State<PostEditScreen> {
             _isPublishing = false;
           });
         }
-        showSnackBar('שגיאה בעדכון הפוסט: $error');
+        showSnackBar(userFriendlyPostError(error, isEditFlow: true));
         return;
       }
 
@@ -2483,11 +2523,20 @@ class _PostEditScreenState extends State<PostEditScreen> {
         (route) => false,
       );
     } catch (error) {
+      if (kDebugMode) {
+        if (error is FirebaseException) {
+          debugPrint(
+            '[PostEditScreen][submitPost] FirebaseException code=${error.code} plugin=${error.plugin} message=${error.message}',
+          );
+        } else {
+          debugPrint('[PostEditScreen][submitPost] error=$error');
+        }
+      }
       if (mounted) {
         setState(() {
           _isPublishing = false;
         });
-        showSnackBar('שגיאה בפרסום: $error');
+        showSnackBar(userFriendlyPostError(error, isEditFlow: false));
       }
     }
   }

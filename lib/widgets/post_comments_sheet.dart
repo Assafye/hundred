@@ -3,10 +3,12 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 
 import '../models/public_user_profile.dart';
+import '../services/report_service.dart';
 import '../services/firestore_rule_feedback.dart';
 import '../services/post_service.dart';
 import '../services/public_user_profile_service.dart';
 import '../user_profile_screen.dart';
+import 'report_dialogs.dart';
 
 class PostCommentsSheet extends StatefulWidget {
   final String postId;
@@ -31,6 +33,7 @@ class _PostCommentsSheetState extends State<PostCommentsSheet> {
   final FocusNode _commentFocusNode = FocusNode();
   final PostService _postService = PostService();
   final PublicUserProfileService _profileService = PublicUserProfileService();
+  final ReportService _reportService = ReportService();
   final Map<String, Future<PublicUserProfile?>> _profileFutureByUid =
       <String, Future<PublicUserProfile?>>{};
   final Set<String> _expandedCommentIds = <String>{};
@@ -348,6 +351,79 @@ class _PostCommentsSheetState extends State<PostCommentsSheet> {
     }
   }
 
+  Future<void> _reportComment({
+    required String commentId,
+    required String commentAuthorId,
+  }) async {
+    final currentUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    final normalizedCommentId = commentId.trim();
+    final normalizedCommentAuthorId = commentAuthorId.trim();
+    final normalizedPostId = widget.postId.trim();
+    if (currentUid.isEmpty ||
+        normalizedCommentId.isEmpty ||
+        normalizedCommentAuthorId.isEmpty ||
+        normalizedPostId.isEmpty) {
+      return;
+    }
+    if (normalizedCommentAuthorId == currentUid) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('לא ניתן לדווח על תגובה של עצמך.')),
+      );
+      return;
+    }
+
+    final shouldReport = await showReportConfirmationDialog(
+      context,
+      targetLabel: 'תגובה',
+    );
+    if (!shouldReport || !mounted) {
+      return;
+    }
+
+    final reason = await showReportReasonPicker(
+      context,
+      targetLabel: 'תגובה',
+    );
+    if (reason == null || !mounted) {
+      return;
+    }
+
+    final details = await showReportDetailsDialog(
+      context,
+      reason: reason,
+      targetLabel: 'תגובה',
+    );
+    if (details == null || details.trim().isEmpty || !mounted) {
+      return;
+    }
+
+    try {
+      await _reportService.submitCommentReport(
+        targetPostId: normalizedPostId,
+        targetCommentId: normalizedCommentId,
+        targetUserUid: normalizedCommentAuthorId,
+        reason: reason,
+        details: details,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('הדיווח על התגובה נשלח. תודה שעזרת לשמור על הקהילה.'),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      final message = FirestoreRuleFeedback.actionMessage(
+        error,
+        'שליחת הדיווח על התגובה נכשלה. נסה שוב בעוד רגע.',
+      );
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
+    }
+  }
+
   Widget _buildAvatar(String imageUrl) {
     if (imageUrl.isEmpty) {
       return Container(
@@ -577,6 +653,23 @@ class _PostCommentsSheetState extends State<PostCommentsSheet> {
                                   ),
                                 ),
                               ),
+                              if (authorId != currentUid) ...[
+                                const SizedBox(width: 14),
+                                GestureDetector(
+                                  onTap: () => _reportComment(
+                                    commentId: commentId,
+                                    commentAuthorId: authorId,
+                                  ),
+                                  child: const Text(
+                                    'דווח',
+                                    style: TextStyle(
+                                      color: Color(0xFFFFB86B),
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                              ],
                               if (canDelete) ...[
                                 const SizedBox(width: 14),
                                 GestureDetector(

@@ -6122,9 +6122,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                             final syncFriendsCount = explicitFriends.isNotEmpty
                                 ? explicitFriends.length
                                 : (followersSet
-                                            .intersection(followingSet)
-                                            .length >
-                                        0
+                                            .intersection(followingSet).isNotEmpty
                                     ? followersSet
                                         .intersection(followingSet)
                                         .length

@@ -73,8 +73,6 @@ class _ChatsScreenState extends State<ChatsScreen> {
       <String, Future<DocumentSnapshot<Map<String, dynamic>>>>{};
   final Map<String, Future<List<_GlobalSearchResult>>> _globalSearchCache =
       <String, Future<List<_GlobalSearchResult>>>{};
-  List<Map<String, dynamic>> _lastResolvedPublicGroupEntries =
-      const <Map<String, dynamic>>[];
   String _streamsUid = '';
   Stream<QuerySnapshot<Map<String, dynamic>>>? _userChatsStream;
   Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>>? _publicChatsStream;
@@ -1403,6 +1401,17 @@ class _ChatsScreenState extends State<ChatsScreen> {
             return FutureBuilder<Map<String, Map<String, String>>>(
               future: _directChatSummaries(filteredDocs, currentUser.uid),
               builder: (context, summarySnapshot) {
+                if (summarySnapshot.connectionState != ConnectionState.done &&
+                    !summarySnapshot.hasData) {
+                  return _buildChatsLoadingSkeleton();
+                }
+
+                if (summarySnapshot.hasError) {
+                  return _buildErrorState(
+                    'שגיאה בטעינת פרטי הצאטים: ${summarySnapshot.error}',
+                  );
+                }
+
                 final summaries = summarySnapshot.data ??
                     const <String, Map<String, String>>{};
 
@@ -1432,19 +1441,26 @@ class _ChatsScreenState extends State<ChatsScreen> {
                         (!isPublic && participants.length == 2);
                     final otherUserId =
                         _directChatOtherUserId(chatData, currentUser.uid);
+                    if (isDirectChat && !summaries.containsKey(otherUserId)) {
+                      return const Padding(
+                      padding:
+                        EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      child: _ChatLoadingTile(),
+                      );
+                    }
                     final otherUserSummary =
                         summaries[otherUserId] ?? const <String, String>{};
                     final chatName = isDirectChat
                         ? ((otherUserSummary['name'] ?? '').trim().isNotEmpty
                             ? (otherUserSummary['name'] ?? '').trim()
-                            : ((chatData['name'] as String?) ?? 'Chat'))
+                        : 'טוען...')
                         : ((chatData['name'] as String?) ?? 'Chat');
                     final imageUrl = isDirectChat
                         ? ((otherUserSummary['avatarUrl'] ?? '')
                                 .trim()
                                 .isNotEmpty
                             ? (otherUserSummary['avatarUrl'] ?? '').trim()
-                            : ((chatData['groupImageUrl'] as String?) ?? ''))
+                        : '')
                         : ((chatData['groupImageUrl'] as String?) ?? '');
                     final activityDate = _chatActivityDate(chatData);
                     final lastReadAt = readReceipts[chatDoc.id];
@@ -1454,15 +1470,14 @@ class _ChatsScreenState extends State<ChatsScreen> {
                       lastReadAt: lastReadAt,
                     );
 
-                    final senderLabel = lastMessageSenderId == currentUser.uid
-                        ? 'את/ה'
-                        : lastMessageSenderName;
-
-                    final subtitleText = lastMessage.isNotEmpty
-                        ? (senderLabel.isNotEmpty
-                            ? '$senderLabel: $lastMessage'
-                            : lastMessage)
-                        : (description.isEmpty ? 'קבוצה פעילה' : description);
+                    final directSubtitleText = lastMessage.isNotEmpty
+                      ? lastMessage
+                      : (description.isEmpty ? 'צאט פעיל' : description);
+                    final groupSubtitleText = lastMessage.isNotEmpty
+                      ? (lastMessageSenderName.isNotEmpty
+                        ? '$lastMessageSenderName: $lastMessage'
+                        : lastMessage)
+                      : (description.isEmpty ? 'קבוצה פעילה' : description);
 
                     final tile = Container(
                       decoration: BoxDecoration(
@@ -1514,34 +1529,9 @@ class _ChatsScreenState extends State<ChatsScreen> {
                             ],
                           ],
                         ),
-                        subtitle: (lastMessage.isNotEmpty &&
-                                lastMessageSenderName.isEmpty)
-                            ? StreamBuilder<String>(
-                                stream: _lastSenderNameStream(
-                                  chatDoc.id,
-                                  currentUser.uid,
-                                ),
-                                builder: (context, senderSnapshot) {
-                                  final resolvedSender =
-                                      (senderSnapshot.data ?? '').trim();
-                                  final resolvedSubtitle =
-                                      resolvedSender.isNotEmpty
-                                          ? '$resolvedSender: $lastMessage'
-                                          : lastMessage;
-                                  return Text(
-                                    resolvedSubtitle,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      color: isLight
-                                          ? Colors.black87
-                                          : Colors.grey[400],
-                                    ),
-                                  );
-                                },
-                              )
-                            : Text(
-                                subtitleText,
+                        subtitle: isDirectChat
+                            ? Text(
+                                directSubtitleText,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
@@ -1549,20 +1539,49 @@ class _ChatsScreenState extends State<ChatsScreen> {
                                       ? Colors.black87
                                       : Colors.grey[400],
                                 ),
-                              ),
+                              )
+                            : (lastMessage.isNotEmpty &&
+                                    lastMessageSenderId != currentUser.uid)
+                                ? StreamBuilder<String>(
+                                    stream: _lastSenderNameStream(
+                                      chatDoc.id,
+                                      currentUser.uid,
+                                    ),
+                                    builder: (context, senderSnapshot) {
+                                      final resolvedSender =
+                                          (senderSnapshot.data ?? '').trim();
+                                      final resolvedSubtitle =
+                                          resolvedSender.isNotEmpty
+                                              ? '$resolvedSender: $lastMessage'
+                                              : groupSubtitleText;
+                                      return Text(
+                                        resolvedSubtitle,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          color: isLight
+                                              ? Colors.black87
+                                              : Colors.grey[400],
+                                        ),
+                                      );
+                                    },
+                                  )
+                                : Text(
+                                    groupSubtitleText,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: isLight
+                                          ? Colors.black87
+                                          : Colors.grey[400],
+                                    ),
+                                  ),
                         trailing: SizedBox(
                           height: double.infinity,
                           child: Column(
-                            mainAxisAlignment: MainAxisAlignment.end,
+                            mainAxisAlignment: MainAxisAlignment.start,
                             crossAxisAlignment: CrossAxisAlignment.end,
                             children: [
-                              if (hasUnread) ...[
-                                _buildUnreadOverlayBadge(
-                                  chatId: chatDoc.id,
-                                  lastReadAt: lastReadAt,
-                                ),
-                                const SizedBox(height: 6),
-                              ],
                               SizedBox(
                                 width: 92,
                                 child: Text(
@@ -1576,6 +1595,13 @@ class _ChatsScreenState extends State<ChatsScreen> {
                                   ),
                                 ),
                               ),
+                              if (hasUnread) ...[
+                                const SizedBox(height: 6),
+                                _buildUnreadOverlayBadge(
+                                  chatId: chatDoc.id,
+                                  lastReadAt: lastReadAt,
+                                ),
+                              ],
                             ],
                           ),
                         ),
@@ -1651,14 +1677,24 @@ class _ChatsScreenState extends State<ChatsScreen> {
         return FutureBuilder<List<Map<String, dynamic>>>(
           future: _resolvePublicGroupEntries(filteredDocs),
           builder: (context, resolvedSnapshot) {
-            final resolvedEntries = resolvedSnapshot.data ??
-                (_lastResolvedPublicGroupEntries.isNotEmpty
-                    ? _lastResolvedPublicGroupEntries
-                    : const <Map<String, dynamic>>[]);
-            if (resolvedSnapshot.hasData) {
-              _lastResolvedPublicGroupEntries =
-                  resolvedSnapshot.data ?? const <Map<String, dynamic>>[];
+            if (resolvedSnapshot.connectionState != ConnectionState.done &&
+                !resolvedSnapshot.hasData) {
+              return Column(
+                children: [
+                  _buildPublicGroupsFiltersBar(),
+                  _buildChatsLoadingSkeleton(),
+                ],
+              );
             }
+
+            if (resolvedSnapshot.hasError) {
+              return _buildErrorState(
+                'שגיאה בטעינת קבוצות ציבוריות: ${resolvedSnapshot.error}',
+              );
+            }
+
+            final resolvedEntries =
+                resolvedSnapshot.data ?? const <Map<String, dynamic>>[];
             final visibleEntries = _applyPublicGroupsFilters(resolvedEntries);
 
             return Column(
@@ -3277,23 +3313,27 @@ class _ChatsScreenState extends State<ChatsScreen> {
                         color: isLight ? Colors.black87 : Colors.grey[400],
                       ),
                     ),
-                    trailing: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        SizedBox(
-                          width: 92,
-                          child: Text(
-                            _formatRelativeTime(activityDate),
-                            textAlign: TextAlign.end,
-                            style: TextStyle(
-                              color:
-                                  isLight ? Colors.black54 : Colors.grey[500],
-                              fontSize: 12,
+                    trailing: SizedBox(
+                      height: double.infinity,
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.start,
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          SizedBox(
+                            width: 92,
+                            child: Text(
+                              _formatRelativeTime(activityDate),
+                              textAlign: TextAlign.end,
+                              style: TextStyle(
+                                color: isLight
+                                    ? Colors.black54
+                                    : Colors.grey[500],
+                                fontSize: 12,
+                              ),
                             ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 );
@@ -3431,6 +3471,20 @@ class _ChatsScreenState extends State<ChatsScreen> {
     );
   }
 
+  Widget _buildChatsLoadingSkeleton() {
+    return ListView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: 5,
+      itemBuilder: (context, index) {
+        return const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: _ChatLoadingTile(),
+        );
+      },
+    );
+  }
+
   Stream<int> _unreadMessagesCountStream({
     required String chatId,
     required DateTime? lastReadAt,
@@ -3463,14 +3517,10 @@ class _ChatsScreenState extends State<ChatsScreen> {
       }
 
       final data = snapshot.docs.first.data();
-      final senderName = ((data['senderName'] as String?) ?? '').trim();
-      if (senderName.isNotEmpty) {
-        return senderName;
-      }
-
       final senderId = ((data['senderId'] as String?) ?? '').trim();
+      final senderName = ((data['senderName'] as String?) ?? '').trim();
       if (senderId.isEmpty) {
-        return '';
+        return senderName;
       }
       if (senderId == currentUserId) {
         return 'את.ה';
@@ -3479,7 +3529,13 @@ class _ChatsScreenState extends State<ChatsScreen> {
       final summaries =
           await _chatService.fetchUserSummaries(<String>[senderId]);
       final resolvedName = ((summaries[senderId]?['name'] ?? '')).trim();
-      return resolvedName.isNotEmpty ? resolvedName : 'משתמש';
+      if (resolvedName.isNotEmpty) {
+        return resolvedName;
+      }
+      if (senderName.isNotEmpty) {
+        return senderName;
+      }
+      return 'משתמש';
     });
   }
 
@@ -3975,6 +4031,59 @@ class _ChatsScreenState extends State<ChatsScreen> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ChatLoadingTile extends StatelessWidget {
+  const _ChatLoadingTile();
+
+  @override
+  Widget build(BuildContext context) {
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final baseColor = isLight
+        ? const Color(0xFFE8EEF8)
+        : const Color(0xFF1E2632);
+    final lineColor = isLight
+        ? const Color(0xFFD7E1F1)
+        : const Color(0xFF2B3545);
+
+    return Container(
+      decoration: BoxDecoration(
+        color: baseColor,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: ListTile(
+        leading: CircleAvatar(
+          radius: 28,
+          backgroundColor: lineColor,
+        ),
+        title: Align(
+          alignment: Alignment.centerLeft,
+          child: Container(
+            width: 132,
+            height: 12,
+            decoration: BoxDecoration(
+              color: lineColor,
+              borderRadius: BorderRadius.circular(6),
+            ),
+          ),
+        ),
+        subtitle: Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Container(
+              width: 188,
+              height: 10,
+              decoration: BoxDecoration(
+                color: lineColor,
+                borderRadius: BorderRadius.circular(6),
+              ),
+            ),
+          ),
         ),
       ),
     );

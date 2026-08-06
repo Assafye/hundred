@@ -486,8 +486,13 @@ class AuthService {
     }
 
     try {
-      await requireCompletedRegistration(currentUser);
+      await requireCompletedRegistration(currentUser)
+          .timeout(const Duration(seconds: 8));
       return true;
+    } on TimeoutException {
+      // Fail-open for existing signed-in user to avoid indefinite splash lock
+      // on transient network/auth stalls during bootstrap.
+      return _auth.currentUser != null;
     } on FirebaseAuthException {
       return false;
     }
@@ -555,19 +560,30 @@ class AuthService {
         images: profileImages,
       );
       final defaultProfilePictureUrl = uploadedProfileImageUrls.first;
+      final normalizedDisplayName = displayName.trim();
+      final normalizedBio = bio.trim();
+      final normalizedFirstName = firstName.trim();
+      final normalizedLastName = lastName.trim();
+      final normalizedLifeMotto = lifeMotto.trim();
+      final normalizedPhone = phone.trim();
+      final normalizedBirthDate = birthDate.trim();
 
-      await _db.collection('users').doc(user.uid).set({
+      final userRef = _db.collection('users').doc(user.uid);
+      final userPublicRef = _db.collection('users_public').doc(user.uid);
+      final batch = _db.batch();
+
+      batch.set(userRef, {
         'uid': user.uid,
         'email': (user.email ?? '').trim(),
         'username': normalizedUsername,
         'usernameLowercase': normalizedUsername,
-        'firstName': firstName,
-        'lastName': lastName,
-        'displayName': displayName.trim(),
-        'phone': phone,
-        'birthDate': birthDate,
-        'lifeMotto': lifeMotto.trim(),
-        'bio': bio,
+        'firstName': normalizedFirstName,
+        'lastName': normalizedLastName,
+        'displayName': normalizedDisplayName,
+        'phone': normalizedPhone,
+        'birthDate': normalizedBirthDate,
+        'lifeMotto': normalizedLifeMotto,
+        'bio': normalizedBio,
         'profilePictureUrl': defaultProfilePictureUrl,
         'profileImageUrls': uploadedProfileImageUrls,
         'followers': <String>[],
@@ -581,22 +597,24 @@ class AuthService {
         'createdAt': FieldValue.serverTimestamp(),
       });
 
-      await _db.collection('users_public').doc(user.uid).set({
+      batch.set(userPublicRef, {
         ..._publicProfilePayload(
           uid: user.uid,
           username: normalizedUsername,
-          firstName: firstName,
-          lastName: lastName,
-          displayName: displayName,
-          lifeMotto: lifeMotto,
+          firstName: normalizedFirstName,
+          lastName: normalizedLastName,
+          displayName: normalizedDisplayName,
+          lifeMotto: normalizedLifeMotto,
           profilePictureUrl: defaultProfilePictureUrl,
           profileImageUrls: uploadedProfileImageUrls,
-          bio: bio,
+          bio: normalizedBio,
           isPrivate: false,
           friendsCount: 0,
         ),
         'createdAt': FieldValue.serverTimestamp(),
       });
+
+      await batch.commit();
 
       await _notificationService.initializeCurrentUserNotificationSettings();
       return user;
@@ -806,16 +824,24 @@ class AuthService {
       );
     }
 
-    await _db.collection('users').doc(uid).update({
-      'username': normalizedUsername,
-      'usernameLowercase': normalizedUsername,
-    });
-
-    await _db.collection('users_public').doc(uid).set({
+    final userRef = _db.collection('users').doc(uid);
+    final userPublicRef = _db.collection('users_public').doc(uid);
+    final batch = _db.batch();
+    batch.update(userRef, {
       'username': normalizedUsername,
       'usernameLowercase': normalizedUsername,
       'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    });
+    batch.set(
+      userPublicRef,
+      {
+        'username': normalizedUsername,
+        'usernameLowercase': normalizedUsername,
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
+    await batch.commit();
   }
 
   List<String> _normalizeProfileImageUrls(Iterable<String> rawUrls) {
@@ -963,36 +989,43 @@ class AuthService {
         ? combinedProfileImageUrls.first
         : '';
 
+    final normalizedDisplayName = displayName.trim();
+    final normalizedBio = bio.trim();
+
     final payload = <String, dynamic>{
       'firstName': firstName,
       'lastName': lastName,
-      'bio': bio.trim(),
+      'displayName': normalizedDisplayName,
+      'bio': normalizedBio,
       'username': normalizedUsername,
       'usernameLowercase': normalizedUsername,
       'allowGroupInvite': allowGroupInvite,
       'isPrivate': resolvedIsPrivate,
       'profilePictureUrl': profilePictureUrl,
       'profileImageUrls': combinedProfileImageUrls,
+      'updatedAt': FieldValue.serverTimestamp(),
     };
 
-    await _db
-        .collection('users')
-        .doc(uid)
-        .set(payload, SetOptions(merge: true));
-
-    await _db.collection('users_public').doc(uid).set(
-          _publicProfilePayload(
-            uid: uid,
-            username: normalizedUsername,
-            firstName: firstName,
-            lastName: lastName,
-            profilePictureUrl: profilePictureUrl,
-            profileImageUrls: combinedProfileImageUrls,
-            bio: bio,
-            isPrivate: resolvedIsPrivate,
-          ),
-          SetOptions(merge: true),
-        );
+    final userRef = _db.collection('users').doc(uid);
+    final userPublicRef = _db.collection('users_public').doc(uid);
+    final batch = _db.batch();
+    batch.set(userRef, payload, SetOptions(merge: true));
+    batch.set(
+      userPublicRef,
+      _publicProfilePayload(
+        uid: uid,
+        username: normalizedUsername,
+        firstName: firstName,
+        lastName: lastName,
+        displayName: normalizedDisplayName,
+        profilePictureUrl: profilePictureUrl,
+        profileImageUrls: combinedProfileImageUrls,
+        bio: normalizedBio,
+        isPrivate: resolvedIsPrivate,
+      ),
+      SetOptions(merge: true),
+    );
+    await batch.commit();
   }
 
   Future<void> updatePrivateProfile({

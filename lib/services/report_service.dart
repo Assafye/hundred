@@ -56,6 +56,7 @@ class ReportService {
       'targetType': 'user',
       'targetUserUid': normalizedTargetUserUid,
       'targetPostId': '',
+      'targetCommentId': '',
       'reasonKey': reason.key,
       'reasonLabel': reason.label,
       'details': normalizedDetails,
@@ -86,6 +87,41 @@ class ReportService {
       'targetType': 'post',
       'targetUserUid': normalizedTargetUserUid,
       'targetPostId': normalizedPostId,
+      'targetCommentId': '',
+      'reasonKey': reason.key,
+      'reasonLabel': reason.label,
+      'details': normalizedDetails,
+      'status': 'open',
+      'createdAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> submitCommentReport({
+    required String targetPostId,
+    required String targetCommentId,
+    required String targetUserUid,
+    required ReportReasonOption reason,
+    required String details,
+  }) async {
+    final reporterUid = _requireCurrentUid();
+    final normalizedPostId = targetPostId.trim();
+    final normalizedCommentId = targetCommentId.trim();
+    final normalizedTargetUserUid = targetUserUid.trim();
+    final normalizedDetails = details.trim();
+    if (normalizedPostId.isEmpty ||
+        normalizedCommentId.isEmpty ||
+        normalizedTargetUserUid.isEmpty ||
+        normalizedDetails.isEmpty) {
+      throw ArgumentError('Missing required report fields.');
+    }
+
+    await _db.collection('reports').add(<String, dynamic>{
+      'reporterUid': reporterUid,
+      'targetType': 'comment',
+      'targetUserUid': normalizedTargetUserUid,
+      'targetPostId': normalizedPostId,
+      'targetCommentId': normalizedCommentId,
       'reasonKey': reason.key,
       'reasonLabel': reason.label,
       'details': normalizedDetails,

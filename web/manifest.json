@@ -1,6 +1,6 @@
 {
-    "name": "hundred_version1",
-    "short_name": "hundred_version1",
+    "name": "hundred",
+    "short_name": "hundred",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

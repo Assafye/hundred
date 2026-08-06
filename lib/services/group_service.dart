@@ -1213,6 +1213,8 @@ class GroupService {
     await _deleteCollectionInBatches(groupRef.collection('messages'));
     await _deleteCollectionInBatches(groupRef.collection('attendance'));
     await _deleteCollectionInBatches(groupRef.collection('members'));
+    await _deleteCollectionInBatches(chatRef.collection('messages'));
+    await _deleteCollectionInBatches(chatRef.collection('readReceipts'));
 
     await chatRef.delete();
     await groupRef.delete();

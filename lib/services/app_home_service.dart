@@ -39,6 +39,7 @@ class HomePublicGroupEntry {
   final bool isMinScoreRequired;
   final int membersCount;
   final List<dynamic> participants;
+  final List<String> participantAvatarUrls;
 
   const HomePublicGroupEntry({
     required this.groupId,
@@ -54,6 +55,7 @@ class HomePublicGroupEntry {
     required this.isMinScoreRequired,
     required this.membersCount,
     required this.participants,
+    required this.participantAvatarUrls,
   });
 }
 
@@ -354,6 +356,7 @@ class AppHomeService {
 
   List<HomeFriendEntry> _friendEntriesFromSnapshots(
     Map<String, DocumentSnapshot<Map<String, dynamic>>> presenceSnapshots,
+    Map<String, DocumentSnapshot<Map<String, dynamic>>> privateSnapshots,
     Map<String, DocumentSnapshot<Map<String, dynamic>>> publicSnapshots,
     List<String> orderedFriendIds,
   ) {
@@ -362,14 +365,24 @@ class AppHomeService {
     for (final friendUid in orderedFriendIds) {
       final presenceData =
           presenceSnapshots[friendUid]?.data() ?? <String, dynamic>{};
+      final privateData =
+          privateSnapshots[friendUid]?.data() ?? <String, dynamic>{};
       final publicData =
           publicSnapshots[friendUid]?.data() ?? <String, dynamic>{};
-      final fallbackName =
-          _textValue(publicData, const ['displayName', 'username']);
+      final fallbackName = _textValue(
+        publicData,
+        const ['displayName', 'username'],
+      ).isNotEmpty
+          ? _textValue(publicData, const ['displayName', 'username'])
+          : _textValue(privateData, const ['displayName', 'username']);
       final profile = publicData.isNotEmpty
           ? PublicUserProfile.fromMap(friendUid, publicData)
           : PublicUserProfile.fallback(userId: friendUid, exists: false);
-      final isOnline = _isLikelyOnline(presenceData);
+      final mergedPresenceData = <String, dynamic>{
+        ...privateData,
+        ...presenceData,
+      };
+      final isOnline = _isLikelyOnline(mergedPresenceData);
       if (!isOnline) {
         continue;
       }
@@ -420,31 +433,6 @@ class AppHomeService {
     return null;
   }
 
-  Set<String> _groupMemberUids(Map<String, dynamic> groupData) {
-    final uids = <String>{};
-
-    void addList(String key) {
-      final raw = (groupData[key] as List<dynamic>?) ?? const <dynamic>[];
-      for (final value in raw) {
-        final uid = value.toString().trim();
-        if (uid.isNotEmpty) {
-          uids.add(uid);
-        }
-      }
-    }
-
-    addList('members');
-    addList('membersList');
-    addList('participants');
-
-    final adminUid = (groupData['adminUid'] as String? ?? '').trim();
-    if (adminUid.isNotEmpty) {
-      uids.add(adminUid);
-    }
-
-    return uids;
-  }
-
   Stream<List<HomeFriendEntry>> streamConnectedFriends() {
     final uid = currentUid;
     if (uid == null || uid.isEmpty) {
@@ -457,7 +445,11 @@ class AppHomeService {
           StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>>{};
       final friendProfileSubs = <String,
           StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>>{};
+        final friendPrivateSubs = <String,
+          StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>>{};
       final friendPresenceSnapshots =
+          <String, DocumentSnapshot<Map<String, dynamic>>>{};
+        final friendPrivateSnapshots =
           <String, DocumentSnapshot<Map<String, dynamic>>>{};
       final friendPublicSnapshots =
           <String, DocumentSnapshot<Map<String, dynamic>>>{};
@@ -466,6 +458,7 @@ class AppHomeService {
       void emit() {
         controller.add(_friendEntriesFromSnapshots(
           friendPresenceSnapshots,
+          friendPrivateSnapshots,
           friendPublicSnapshots,
           currentFriendIds,
         ));
@@ -478,8 +471,10 @@ class AppHomeService {
             .toList(growable: false);
         for (final staleId in staleIds) {
           await friendPresenceSubs.remove(staleId)?.cancel();
+          await friendPrivateSubs.remove(staleId)?.cancel();
           await friendProfileSubs.remove(staleId)?.cancel();
           friendPresenceSnapshots.remove(staleId);
+          friendPrivateSnapshots.remove(staleId);
           friendPublicSnapshots.remove(staleId);
         }
 
@@ -500,6 +495,16 @@ class AppHomeService {
                 _publicUsers.doc(friendUid).snapshots().listen(
               (snapshot) {
                 friendPublicSnapshots[friendUid] = snapshot;
+                emit();
+              },
+              onError: controller.addError,
+            );
+          }
+
+          if (!friendPrivateSubs.containsKey(friendUid)) {
+            friendPrivateSubs[friendUid] = _users.doc(friendUid).snapshots().listen(
+              (snapshot) {
+                friendPrivateSnapshots[friendUid] = snapshot;
                 emit();
               },
               onError: controller.addError,
@@ -530,9 +535,10 @@ class AppHomeService {
                 .where((value) => value.isNotEmpty && value != uid)
                 .toSet();
 
+        final mutualConnections = following.intersection(followers);
         final resolvedFriendIds = explicitFriends.isNotEmpty
-            ? explicitFriends
-            : following.intersection(followers);
+          ? explicitFriends
+          : (mutualConnections.isNotEmpty ? mutualConnections : following);
 
         currentFriendIds = resolvedFriendIds.toList(growable: false);
 
@@ -544,6 +550,9 @@ class AppHomeService {
         for (final sub in friendPresenceSubs.values) {
           await sub.cancel();
         }
+        for (final sub in friendPrivateSubs.values) {
+          await sub.cancel();
+        }
         for (final sub in friendProfileSubs.values) {
           await sub.cancel();
         }
@@ -553,26 +562,24 @@ class AppHomeService {
 
   Stream<List<HomePublicGroupEntry>> streamUpcomingPublicGroups(
       {int withinDays = 7}) {
-    return _groups.snapshots().map((snapshot) {
+    // Query by public + near-date on server side to avoid applying `limit`
+    // before date filtering (which can hide all relevant groups).
+    return Stream.multi((controller) {
       final now = DateTime.now();
       final start = DateTime(now.year, now.month, now.day);
-      final end = start.add(Duration(days: withinDays));
+      final endExclusive = start.add(Duration(days: withinDays + 1));
 
-      final entries = snapshot.docs.where((doc) {
-        final data = doc.data();
-        final isPublic = (data['isPublic'] as bool?) ?? false;
-        if (!isPublic) {
-          return false;
-        }
+      QuerySnapshot<Map<String, dynamic>>? dateSnapshot;
+      QuerySnapshot<Map<String, dynamic>>? executionDateSnapshot;
+      QuerySnapshot<Map<String, dynamic>>? fallbackSnapshot;
 
-        final date = _dateValue(data, const ['date', 'executionDate']);
-        if (date == null) {
-          return false;
-        }
+      StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? dateSub;
+      StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? executionDateSub;
+      StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? fallbackSub;
 
-        final normalized = DateTime(date.year, date.month, date.day);
-        return !normalized.isBefore(start) && !normalized.isAfter(end);
-      }).map((doc) {
+      HomePublicGroupEntry _toEntry(
+        QueryDocumentSnapshot<Map<String, dynamic>> doc,
+      ) {
         final data = doc.data();
         return HomePublicGroupEntry(
           groupId: doc.id,
@@ -591,15 +598,111 @@ class AppHomeService {
           participants: (data['membersList'] as List<dynamic>?) ??
               (data['members'] as List<dynamic>?) ??
               const <dynamic>[],
+          participantAvatarUrls: const <String>[],
         );
-      }).toList(growable: false)
-        ..sort((a, b) {
-          final aDate = a.date ?? DateTime.fromMillisecondsSinceEpoch(0);
-          final bDate = b.date ?? DateTime.fromMillisecondsSinceEpoch(0);
-          return aDate.compareTo(bDate);
-        });
+      }
 
-      return entries;
+      bool _isInRange(HomePublicGroupEntry entry) {
+        final date = entry.date;
+        if (date == null) {
+          return false;
+        }
+        return !date.isBefore(start) && date.isBefore(endExclusive);
+      }
+
+      void emitMerged() {
+        final mergedById = <String, HomePublicGroupEntry>{};
+
+        void mergeSnapshot(QuerySnapshot<Map<String, dynamic>>? snapshot) {
+          if (snapshot == null) {
+            return;
+          }
+          for (final doc in snapshot.docs) {
+            final entry = _toEntry(doc);
+            if (!_isInRange(entry)) {
+              continue;
+            }
+            mergedById[entry.groupId] = entry;
+          }
+        }
+
+        mergeSnapshot(dateSnapshot);
+        mergeSnapshot(executionDateSnapshot);
+        mergeSnapshot(fallbackSnapshot);
+
+        final entries = mergedById.values.toList(growable: false)
+          ..sort((a, b) {
+            final aDate = a.date ?? DateTime.fromMillisecondsSinceEpoch(0);
+            final bDate = b.date ?? DateTime.fromMillisecondsSinceEpoch(0);
+            return aDate.compareTo(bDate);
+          });
+
+        controller.add(entries);
+      }
+
+      fallbackSub = _groups
+          .where('isPublic', isEqualTo: true)
+          .limit(600)
+          .snapshots()
+          .listen((snapshot) {
+        fallbackSnapshot = snapshot;
+        emitMerged();
+      }, onError: (error, stackTrace) {
+        debugPrint(
+          '[AppHomeService][streamUpcomingPublicGroups] fallback stream failed: $error',
+        );
+      });
+
+      dateSub = _groups
+          .where('isPublic', isEqualTo: true)
+          .where('date', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
+          .where('date', isLessThan: Timestamp.fromDate(endExclusive))
+          .limit(200)
+          .snapshots()
+          .listen((snapshot) {
+        dateSnapshot = snapshot;
+        emitMerged();
+      }, onError: (error, stackTrace) {
+        if (error is FirebaseException && error.code == 'failed-precondition') {
+          dateSnapshot = null;
+          emitMerged();
+          return;
+        }
+        debugPrint(
+          '[AppHomeService][streamUpcomingPublicGroups] date stream failed: $error',
+        );
+        dateSnapshot = null;
+        emitMerged();
+      });
+
+      executionDateSub = _groups
+          .where('isPublic', isEqualTo: true)
+          .where('executionDate',
+              isGreaterThanOrEqualTo: Timestamp.fromDate(start))
+          .where('executionDate', isLessThan: Timestamp.fromDate(endExclusive))
+          .limit(200)
+          .snapshots()
+          .listen((snapshot) {
+        executionDateSnapshot = snapshot;
+        emitMerged();
+      }, onError: (error, stackTrace) {
+        if (error is FirebaseException && error.code == 'failed-precondition') {
+          executionDateSnapshot = null;
+          emitMerged();
+          return;
+        }
+        debugPrint(
+          '[AppHomeService][streamUpcomingPublicGroups] executionDate stream failed: $error',
+        );
+        executionDateSnapshot = null;
+        emitMerged();
+      });
+
+      controller.onCancel = () async {
+        await dateSub?.cancel();
+        await executionDateSub?.cancel();
+        await fallbackSub?.cancel();
+      };
     });
   }
 
@@ -664,6 +767,62 @@ class AppHomeService {
       QuerySnapshot<Map<String, dynamic>>? postsSnapshot;
       StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? userSub;
       StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? postsSub;
+      final loggedPermissionDeniedPostIds = <String>{};
+      final profileFutureByUid = <String, Future<PublicUserProfile?>>{};
+        final userImageUrlsFutureByUid = <String, Future<List<String>>>{};
+        final groupDocFutureById =
+          <String, Future<DocumentSnapshot<Map<String, dynamic>>?>>{};
+      String? lastMeetUserSortKey;
+      var emitInProgress = false;
+      var emitQueued = false;
+
+      Future<PublicUserProfile?> resolveProfile(String rawUid) {
+        final uid = rawUid.trim();
+        if (uid.isEmpty) {
+          return Future<PublicUserProfile?>.value(null);
+        }
+        return profileFutureByUid.putIfAbsent(
+          uid,
+          () => _publicUserProfileService.fetchProfile(uid),
+        );
+      }
+
+      Future<List<String>> resolveUserImageUrls(String rawUid) {
+        final uid = rawUid.trim();
+        if (uid.isEmpty) {
+          return Future<List<String>>.value(const <String>[]);
+        }
+
+        return userImageUrlsFutureByUid.putIfAbsent(uid, () async {
+          final profile = await resolveProfile(uid);
+          final profileMap = profile?.toMap() ?? <String, dynamic>{};
+          final urls = <String>{
+            ..._stringListValue(profileMap, const ['profileImageUrls', 'images']),
+            (profile?.profilePictureUrl ?? '').trim(),
+          }..remove('');
+          return urls.toList(growable: false);
+        });
+      }
+
+      Future<DocumentSnapshot<Map<String, dynamic>>?> resolveGroupDoc(
+        String rawGroupId,
+      ) {
+        final groupId = rawGroupId.trim();
+        if (groupId.isEmpty) {
+          return Future<DocumentSnapshot<Map<String, dynamic>>?>.value(null);
+        }
+
+        return groupDocFutureById.putIfAbsent(groupId, () async {
+          try {
+            return await _groups.doc(groupId).get();
+          } on FirebaseException catch (error) {
+            if (error.code == 'permission-denied') {
+              return null;
+            }
+            rethrow;
+          }
+        });
+      }
 
       Future<void> emitMerged() async {
         if (currentUserSnapshot == null || postsSnapshot == null) {
@@ -674,48 +833,21 @@ class AppHomeService {
         final userLocation = _userLocationFromData(userData);
         final userGeo = _geoPointFromData(userData);
         final entries = <MeetNowPostEntry>[];
-        final userImageUrlsCache = <String, List<String>>{};
-
-        Future<List<String>> resolveUserImageUrls(String uid) async {
-          final normalizedUid = uid.trim();
-          if (normalizedUid.isEmpty) {
-            return const <String>[];
-          }
-          final cached = userImageUrlsCache[normalizedUid];
-          if (cached != null) {
-            return cached;
-          }
-
-          final profile =
-              await _publicUserProfileService.fetchProfile(normalizedUid);
-          final profileMap = profile?.toMap() ?? <String, dynamic>{};
-          final urls = <String>{
-            ..._stringListValue(
-                profileMap, const ['profileImageUrls', 'images']),
-            (profile?.profilePictureUrl ?? '').trim(),
-          }..remove('');
-
-          final resolved = urls.toList(growable: false);
-          userImageUrlsCache[normalizedUid] = resolved;
-          return resolved;
-        }
-
-        for (final doc in postsSnapshot!.docs) {
+        final buildFutures = postsSnapshot!.docs.map((doc) async {
           try {
             final data = doc.data();
             final status =
                 (data['status'] as String? ?? 'active').trim().toLowerCase();
             if (status != 'active') {
-              continue;
+              return null;
             }
 
             final authorUid = _textValue(data, const ['authorUid', 'uid']);
             if (authorUid.isEmpty) {
-              continue;
+              return null;
             }
 
-            final profile =
-                await _publicUserProfileService.fetchProfile(authorUid);
+            final profile = await resolveProfile(authorUid);
             final profileMap = profile?.toMap() ?? <String, dynamic>{};
             final profileImageUrls = <String>{
               ..._stringListValue(
@@ -728,36 +860,47 @@ class AppHomeService {
               profileImageUrls.add(avatarUrl);
             }
             final linkedGroupId = _textValue(data, const ['linkedGroupId']);
-            var effectiveLinkedGroupId = linkedGroupId;
-            int linkedMembersCount = 0;
-            bool linkedGroupIsPublic = false;
+            var linkedGroupMembersCount = 0;
+            var linkedGroupIsPublic = true;
             final participantImageUrls = <String>{};
+
+            if (linkedGroupId.isNotEmpty) {
+              final groupDoc = await resolveGroupDoc(linkedGroupId);
+              final groupData = groupDoc?.data() ?? const <String, dynamic>{};
+              if (groupData.isNotEmpty) {
+              final membersCountField =
+                _intValue(groupData, const ['membersCount']);
+              final memberUids = <String>{
+                ...((groupData['membersList'] as List<dynamic>?) ?? const <dynamic>[])
+                  .map((item) => item.toString().trim())
+                  .where((item) => item.isNotEmpty),
+                ...((groupData['members'] as List<dynamic>?) ?? const <dynamic>[])
+                  .map((item) => item.toString().trim())
+                  .where((item) => item.isNotEmpty),
+                ...((groupData['participants'] as List<dynamic>?) ?? const <dynamic>[])
+                  .map((item) => item.toString().trim())
+                  .where((item) => item.isNotEmpty),
+                (groupData['adminUid'] as String? ?? '').trim(),
+              }..remove('');
+
+              linkedGroupMembersCount = membersCountField > 0
+                ? membersCountField
+                : memberUids.length;
+              linkedGroupIsPublic =
+                (groupData['isPublic'] as bool?) ?? linkedGroupIsPublic;
+
+              final topUids = memberUids
+                .where((uid) => uid != authorUid)
+                .take(10)
+                .toList(growable: false);
+              final imageLists =
+                await Future.wait(topUids.map(resolveUserImageUrls));
+              for (final urls in imageLists) {
+                participantImageUrls.addAll(urls);
+              }
+              }
+            }
             double? distanceMetersFromCurrentUser;
-            if (effectiveLinkedGroupId.isEmpty) {
-              final existingGroup = await _groups
-                  .where('originMeetPostId', isEqualTo: doc.id)
-                  .limit(1)
-                  .get();
-              if (existingGroup.docs.isNotEmpty) {
-                effectiveLinkedGroupId = existingGroup.docs.first.id;
-              }
-            }
-
-            if (effectiveLinkedGroupId.isNotEmpty) {
-              final groupDoc = await _groups.doc(effectiveLinkedGroupId).get();
-              final groupData = groupDoc.data() ?? <String, dynamic>{};
-              linkedMembersCount = _intValue(groupData, const ['membersCount']);
-              linkedGroupIsPublic = (groupData['isPublic'] as bool?) ?? true;
-
-              final memberUids = _groupMemberUids(groupData)
-                  .where((uid) => uid != authorUid)
-                  .take(10)
-                  .toList(growable: false);
-              for (final memberUid in memberUids) {
-                final images = await resolveUserImageUrls(memberUid);
-                participantImageUrls.addAll(images);
-              }
-            }
 
             final geoForDistance =
                 _geoPointFromData(data) ?? _geoPointFromData(profileMap);
@@ -766,8 +909,7 @@ class AppHomeService {
               to: geoForDistance,
             );
 
-            entries.add(
-              MeetNowPostEntry(
+            return MeetNowPostEntry(
                 id: doc.id,
                 authorUid: authorUid,
                 authorName: _displayName(profile, fallback: 'משתמש'),
@@ -798,20 +940,31 @@ class AppHomeService {
                     : null,
                 createdAt:
                     _dateValue(data, const ['createdAt']) ?? DateTime.now(),
-                linkedGroupId: effectiveLinkedGroupId,
-                linkedGroupMembersCount: linkedMembersCount,
+                linkedGroupId: linkedGroupId,
+                linkedGroupMembersCount: linkedGroupMembersCount,
                 linkedGroupIsPublic: linkedGroupIsPublic,
                 participantProfileImageUrls:
-                    participantImageUrls.toList(growable: false),
+                  participantImageUrls.toList(growable: false),
                 distanceMetersFromCurrentUser: distanceMetersFromCurrentUser,
-              ),
             );
           } catch (error) {
+            if (error is FirebaseException && error.code == 'permission-denied') {
+              if (loggedPermissionDeniedPostIds.add(doc.id)) {
+                debugPrint(
+                  '[AppHomeService][streamMeetNowPosts] permission denied for meet post ${doc.id}; showing post without restricted group data.',
+                );
+              }
+              return null;
+            }
             debugPrint(
               '[AppHomeService][streamMeetNowPosts] skipping malformed meet post ${doc.id}: $error',
             );
+            return null;
           }
-        }
+        }).toList(growable: false);
+
+        final builtEntries = await Future.wait(buildFutures);
+        entries.addAll(builtEntries.whereType<MeetNowPostEntry>());
 
         entries.sort((a, b) {
           final geoA = a.meetingGeo ?? a.authorGeo;
@@ -854,14 +1007,49 @@ class AppHomeService {
         controller.add(entries);
       }
 
+      Future<void> scheduleEmit() async {
+        if (emitInProgress) {
+          emitQueued = true;
+          return;
+        }
+
+        emitInProgress = true;
+        try {
+          do {
+            emitQueued = false;
+            await emitMerged();
+          } while (emitQueued);
+        } finally {
+          emitInProgress = false;
+        }
+      }
+
       userSub = _users.doc(uid).snapshots().listen((snapshot) {
+        final data = snapshot.data() ?? <String, dynamic>{};
+        final geo = _geoPointFromData(data);
+        final location = _userLocationFromData(data).trim().toLowerCase();
+        final latKey = geo?.latitude.toStringAsFixed(5) ?? '';
+        final lngKey = geo?.longitude.toStringAsFixed(5) ?? '';
+        final nextSortKey = '$latKey|$lngKey|$location';
+
+        // Presence/status writes can update the user doc frequently; only
+        // recompute meet-now ordering when location/sort inputs changed.
+        if (postsSnapshot != null && nextSortKey == lastMeetUserSortKey) {
+          return;
+        }
+
+        lastMeetUserSortKey = nextSortKey;
         currentUserSnapshot = snapshot;
-        unawaited(emitMerged());
+        unawaited(scheduleEmit());
       }, onError: controller.addError);
 
-      postsSub = _meetNowPosts.snapshots().listen((snapshot) {
+      postsSub = _meetNowPosts
+          .where('status', isEqualTo: 'active')
+          .limit(60)
+          .snapshots()
+          .listen((snapshot) {
         postsSnapshot = snapshot;
-        unawaited(emitMerged());
+        unawaited(scheduleEmit());
       }, onError: controller.addError);
 
       controller.onCancel = () async {

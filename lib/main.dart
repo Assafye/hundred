@@ -535,6 +535,20 @@ class _StartupGateState extends State<StartupGate> {
   bool _hasSeenLoggedOutState = false;
   DateTime? _postLoginSplashUntil;
   Timer? _postLoginSplashTimer;
+  Timer? _authResolveTimeoutTimer;
+  bool _authResolveTimedOut = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _authResolveTimeoutTimer = Timer(const Duration(seconds: 6), () {
+      if (!mounted) {
+        return;
+      }
+      _authResolveTimedOut = true;
+      setState(() {});
+    });
+  }
 
   bool get _isPostLoginSplashActive {
     final until = _postLoginSplashUntil;
@@ -561,6 +575,7 @@ class _StartupGateState extends State<StartupGate> {
   @override
   void dispose() {
     _postLoginSplashTimer?.cancel();
+    _authResolveTimeoutTimer?.cancel();
     super.dispose();
   }
 
@@ -573,9 +588,15 @@ class _StartupGateState extends State<StartupGate> {
           stream: FirebaseAuth.instance.authStateChanges(),
           initialData: FirebaseAuth.instance.currentUser,
           builder: (context, authSnapshot) {
-            final hasResolvedAuth =
-                authSnapshot.connectionState != ConnectionState.waiting;
+            final hasResolvedAuth = authSnapshot.connectionState !=
+                    ConnectionState.waiting ||
+                _authResolveTimedOut;
             final user = authSnapshot.data;
+
+            if (authSnapshot.connectionState != ConnectionState.waiting) {
+              _authResolveTimeoutTimer?.cancel();
+              _authResolveTimeoutTimer = null;
+            }
 
             if (hasResolvedAuth && user == null) {
               _hasSeenLoggedOutState = true;
@@ -589,9 +610,7 @@ class _StartupGateState extends State<StartupGate> {
               _startPostLoginSplash();
             }
 
-            if (!hasResolvedAuth ||
-                _isPostLoginSplashActive ||
-                isRegistrationFlowInProgress) {
+            if (!hasResolvedAuth || _isPostLoginSplashActive) {
               return const AnimatedInfinitySplashScreen();
             }
 
