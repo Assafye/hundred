@@ -11,6 +11,7 @@ import 'privacy_policy_dialog.dart';
 import 'services/theme_mode_service.dart';
 import 'settings_history_screen.dart';
 import 'services/auth_service.dart';
+import 'usage_guide_screen.dart';
 import 'widgets/swipe_back_wrapper.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -508,9 +509,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                       title:
                                           'צפייה במדיניות פרטיות ותנאי משתמש',
                                       subtitle:
-                                        'בחירה מהירה בין מדיניות פרטיות ותנאי שימוש',
+                                          'בחירה מהירה בין מדיניות פרטיות ותנאי שימוש',
                                       onTap: () =>
-                                        showLegalDocumentsPickerDialog(context),
+                                          showLegalDocumentsPickerDialog(
+                                              context),
+                                    ),
+                                    const SizedBox(height: 10),
+                                    _navTile(
+                                      isLight: isLight,
+                                      icon: Icons.menu_book_rounded,
+                                      title: 'חוברת שימוש',
+                                      subtitle:
+                                          'הסבר קליל על המסכים החשובים באפליקציה',
+                                      onTap: () => Navigator.of(context).push(
+                                        MaterialPageRoute(
+                                          builder: (_) =>
+                                              const UsageGuideScreen(
+                                            enableSwipeBack: false,
+                                          ),
+                                        ),
+                                      ),
                                     ),
                                   ],
                                 ),

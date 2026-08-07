@@ -93,7 +93,9 @@ class _LoginScreenState extends State<LoginScreen> {
           reverseTransitionDuration: Duration.zero,
         ),
       );
-    } on FirebaseAuthException catch (e) {
+    } on FirebaseAuthException catch (e, stackTrace) {
+      print('[LoginScreen][_onLoginPressed] FirebaseAuthException: $e');
+      print('[LoginScreen][_onLoginPressed] stackTrace: $stackTrace');
       if (!mounted) return;
       final message = e.code == AuthService.emailNotVerifiedCode
           ? 'האימייל שלך עדיין לא אומת. נא לאשר את המייל ולהתחבר שוב.'
@@ -109,7 +111,9 @@ class _LoginScreenState extends State<LoginScreen> {
           content: Text(message),
         ),
       );
-    } catch (_) {
+    } catch (e, stackTrace) {
+      print('[LoginScreen][_onLoginPressed] error: $e');
+      print('[LoginScreen][_onLoginPressed] stackTrace: $stackTrace');
       if (!mounted) return;
       setState(() {
         _showError = true;
@@ -177,7 +181,9 @@ class _LoginScreenState extends State<LoginScreen> {
               Text('אם החשבון קיים, נשלח קישור לאיפוס סיסמה. בדוק גם בספאם.'),
         ),
       );
-    } on FirebaseAuthException catch (e) {
+    } on FirebaseAuthException catch (e, stackTrace) {
+      print('[LoginScreen][_onForgotPasswordPressed] FirebaseAuthException: $e');
+      print('[LoginScreen][_onForgotPasswordPressed] stackTrace: $stackTrace');
       if (!mounted) return;
       if (e.code == 'invalid-email') {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -192,7 +198,9 @@ class _LoginScreenState extends State<LoginScreen> {
           content: Text('לא הצלחנו לשלוח כרגע, נסה שוב בעוד רגע.'),
         ),
       );
-    } catch (_) {
+    } catch (e, stackTrace) {
+      print('[LoginScreen][_onForgotPasswordPressed] error: $e');
+      print('[LoginScreen][_onForgotPasswordPressed] stackTrace: $stackTrace');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('לא הצלחנו לשלוח כרגע, נסה שוב בעוד רגע.')),

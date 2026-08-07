@@ -366,13 +366,19 @@ class ChatService {
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
 
-    await _notificationService.sendNewMessageNotification(
-      recipientUids: participants,
-      chatId: chatId,
-      chatName: chatName,
-      messageText: trimmed,
-      senderUid: uid,
-    );
+    try {
+      await _notificationService.sendNewMessageNotification(
+        recipientUids: participants,
+        chatId: chatId,
+        chatName: chatName,
+        messageText: trimmed,
+        senderUid: uid,
+      );
+    } catch (error, stackTrace) {
+      // Best effort: message send should still succeed if notification write is blocked.
+      print('[ChatService][sendMessage] notification dispatch failed: $error');
+      print('[ChatService][sendMessage] notification stackTrace: $stackTrace');
+    }
   }
 
   Future<void> sendMediaMessage({

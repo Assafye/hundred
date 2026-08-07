@@ -11,6 +11,7 @@ import 'package:image_picker/image_picker.dart';
 import 'age_restrictions.dart';
 import 'privacy_policy_dialog.dart';
 import 'services/auth_service.dart';
+import 'usage_guide_screen.dart';
 import 'widgets/swipe_back_wrapper.dart';
 
 class RegisterScreen extends StatefulWidget {
@@ -769,7 +770,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
       setState(() {
         _currentStep = 1;
       });
-    } catch (e) {
+    } catch (e, stackTrace) {
+      print('[RegisterScreen][_continueFromDetailsStep] error: $e');
+      print(
+        '[RegisterScreen][_continueFromDetailsStep] stackTrace: $stackTrace',
+      );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(_registrationErrorMessage(e))),
@@ -792,7 +797,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
     if (!_hasAcceptedPrivacyPolicy) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('יש לאשר את מדיניות הפרטיות ותנאי השימוש כדי להשלים הרשמה.'),
+          content:
+              Text('יש לאשר את מדיניות הפרטיות ותנאי השימוש כדי להשלים הרשמה.'),
         ),
       );
       return;
@@ -848,13 +854,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('ההרשמה הושלמה בהצלחה. אפשר להתחבר.'),
+          content: Text('ההרשמה הושלמה בהצלחה. נעבור לחוברת היכרות קצרה.'),
           backgroundColor: _primary,
         ),
       );
 
-      Navigator.of(context).pop();
-    } catch (e) {
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(
+          builder: (_) => const UsageGuideScreen(returnToLoginOnExit: true),
+        ),
+        (route) => false,
+      );
+    } catch (e, stackTrace) {
+      print('[RegisterScreen][_onRegisterPressed] error: $e');
+      print('[RegisterScreen][_onRegisterPressed] stackTrace: $stackTrace');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(_registrationErrorMessage(e))),
@@ -874,7 +887,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       child: Align(
         alignment: Alignment.centerRight,
         child: Row(
-          mainAxisSize: MainAxisSize.min,
+          mainAxisSize: MainAxisSize.max,
           crossAxisAlignment: CrossAxisAlignment.start,
           textDirection: TextDirection.rtl,
           children: [
@@ -890,67 +903,70 @@ class _RegisterScreenState extends State<RegisterScreen> {
             ),
             const SizedBox(width: 2),
             Flexible(
-              child: Wrap(
-                alignment: WrapAlignment.end,
-                crossAxisAlignment: WrapCrossAlignment.center,
+              child: Directionality(
                 textDirection: TextDirection.rtl,
-                children: [
-                  const Text(
-                    'קראתי את ',
-                    textAlign: TextAlign.right,
-                    style: TextStyle(
-                      color: _textSecondary,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  GestureDetector(
-                    onTap: () => showPrivacyPolicyDialog(context),
-                    child: const Text(
-                      'מדיניות הפרטיות',
+                child: Wrap(
+                  alignment: WrapAlignment.start,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  textDirection: TextDirection.rtl,
+                  children: [
+                    const Text(
+                      'קראתי את ',
                       textAlign: TextAlign.right,
                       style: TextStyle(
-                        color: _accent,
+                        color: _textSecondary,
                         fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        decoration: TextDecoration.underline,
-                        decorationColor: _accent,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
-                  ),
-                  const Text(
-                    ' ואת ',
-                    textAlign: TextAlign.right,
-                    style: TextStyle(
-                      color: _textSecondary,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
+                    GestureDetector(
+                      onTap: () => showPrivacyPolicyDialog(context),
+                      child: const Text(
+                        'מדיניות הפרטיות',
+                        textAlign: TextAlign.right,
+                        style: TextStyle(
+                          color: _accent,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          decoration: TextDecoration.underline,
+                          decorationColor: _accent,
+                        ),
+                      ),
                     ),
-                  ),
-                  GestureDetector(
-                    onTap: () => showTermsOfUseDialog(context),
-                    child: const Text(
-                      'תנאי השימוש',
+                    const Text(
+                      ' ואת ',
                       textAlign: TextAlign.right,
                       style: TextStyle(
-                        color: _accent,
+                        color: _textSecondary,
                         fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        decoration: TextDecoration.underline,
-                        decorationColor: _accent,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
-                  ),
-                  const Text(
-                    ' ואני מאשר/ת אותם',
-                    textAlign: TextAlign.right,
-                    style: TextStyle(
-                      color: _textSecondary,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
+                    GestureDetector(
+                      onTap: () => showTermsOfUseDialog(context),
+                      child: const Text(
+                        'תנאי השימוש',
+                        textAlign: TextAlign.right,
+                        style: TextStyle(
+                          color: _accent,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          decoration: TextDecoration.underline,
+                          decorationColor: _accent,
+                        ),
+                      ),
                     ),
-                  ),
-                ],
+                    const Text(
+                      ' ואני מאשר/ת אותם',
+                      textAlign: TextAlign.right,
+                      style: TextStyle(
+                        color: _textSecondary,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ],

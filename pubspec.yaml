@@ -85,6 +85,17 @@ flutter:
 
   assets:
     - assets/placeholder_profile.png
+    - assets/guide/hundred_logo.png
+    - assets/guide/bottom_bar_1.jpg
+    - assets/guide/feed_1.jpg
+    - assets/guide/feed_2.jpg
+    - assets/guide/online_1.jpg
+    - assets/guide/online_2.jpg
+    - assets/guide/profile_1.jpg
+    - assets/guide/stars_1.jpg
+    - assets/guide/chats_1.jpg
+    - assets/guide/chats_2.jpg
+    - assets/guide/pop_1.jpg
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/assets-and-images/#resolution-aware

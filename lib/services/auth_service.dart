@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
@@ -28,10 +29,32 @@ class AuthService {
   static const String emailNotVerifiedCode = 'email-not-verified';
   static const String registrationIncompleteCode = 'registration-incomplete';
 
-  final FirebaseAuth _auth = FirebaseAuth.instance;
-  final FirebaseFirestore _db = FirebaseFirestore.instance;
-  final FirebaseStorage _storage = FirebaseStorage.instance;
   final NotificationService _notificationService = NotificationService();
+
+  FirebaseApp _defaultApp() {
+    if (Firebase.apps.isEmpty) {
+      throw StateError(
+        'Firebase is not initialized. Call Firebase.initializeApp() before using AuthService.',
+      );
+    }
+    return Firebase.app();
+  }
+
+  FirebaseAuth get _auth => FirebaseAuth.instanceFor(app: _defaultApp());
+
+  FirebaseFirestore get _db => FirebaseFirestore.instanceFor(app: _defaultApp());
+
+  FirebaseStorage get _storage => FirebaseStorage.instanceFor(app: _defaultApp());
+
+  void _assertAuthBoundToDefaultApp(String source) {
+    final defaultAppName = _defaultApp().name;
+    final authAppName = _auth.app.name;
+    if (authAppName != defaultAppName) {
+      throw StateError(
+        'FirebaseAuth app mismatch at $source: authApp=$authAppName, defaultApp=$defaultAppName',
+      );
+    }
+  }
 
   Map<String, dynamic> _publicProfilePayload({
     required String uid,
@@ -271,10 +294,11 @@ class AuthService {
     User user, {
     required String source,
   }) async {
+    _assertAuthBoundToDefaultApp('$source.sendEmailVerification');
     final email = (user.email ?? '').trim();
     await _logUserAuthSnapshot('$source.beforeSendEmailVerification', user);
     debugPrint(
-      '[AuthService][$source] sendEmailVerification starting for uid=${user.uid}, email=$email, verified=${user.emailVerified}',
+      '[AuthService][$source] sendEmailVerification starting for uid=${user.uid}, email=$email, verified=${user.emailVerified}, app=${_auth.app.name}',
     );
 
     try {
@@ -756,6 +780,7 @@ class AuthService {
   }
 
   Future<void> sendPasswordResetForEmailOrUsername(String emailOrUsername) async {
+    _assertAuthBoundToDefaultApp('sendPasswordResetForEmailOrUsername');
     final input = emailOrUsername.trim();
     if (input.isEmpty) {
       throw FirebaseAuthException(
@@ -794,11 +819,31 @@ class AuthService {
     }
 
     try {
+      debugPrint(
+        '[AuthService][sendPasswordResetForEmailOrUsername] sendPasswordResetEmail starting for email=$email, app=${_auth.app.name}',
+      );
       await _auth.sendPasswordResetEmail(email: email);
-    } on FirebaseAuthException catch (error) {
+      debugPrint(
+        '[AuthService][sendPasswordResetForEmailOrUsername] sendPasswordResetEmail completed for email=$email, app=${_auth.app.name}',
+      );
+    } on FirebaseAuthException catch (error, stackTrace) {
+      print(
+        '[AuthService][sendPasswordResetForEmailOrUsername] FirebaseAuthException: $error',
+      );
+      print(
+        '[AuthService][sendPasswordResetForEmailOrUsername] stackTrace: $stackTrace',
+      );
       if (error.code == 'user-not-found') {
         return;
       }
+      rethrow;
+    } catch (error, stackTrace) {
+      print(
+        '[AuthService][sendPasswordResetForEmailOrUsername] unexpected error: $error',
+      );
+      print(
+        '[AuthService][sendPasswordResetForEmailOrUsername] stackTrace: $stackTrace',
+      );
       rethrow;
     }
   }

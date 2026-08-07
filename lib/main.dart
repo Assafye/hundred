@@ -31,7 +31,7 @@ Future<void> _configureAuthConnection() async {
     return;
   }
 
-  final auth = FirebaseAuth.instance;
+  final auth = FirebaseAuth.instanceFor(app: Firebase.app());
   final emulatorHost = defaultTargetPlatform == TargetPlatform.android
       ? '10.0.2.2'
       : '127.0.0.1';

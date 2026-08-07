@@ -5221,6 +5221,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                       ),
                       child: TextField(
                         controller: _quickMessageController,
+                        enabled: !_isQuickMessageSending,
+                        textDirection: TextDirection.rtl,
                         textAlign: TextAlign.right,
                         textAlignVertical: TextAlignVertical.center,
                         textInputAction: TextInputAction.send,
