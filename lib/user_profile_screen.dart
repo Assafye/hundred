@@ -1,10 +1,10 @@
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 
 import 'app_categories.dart';
 import 'chat_room_screen.dart';
@@ -14,6 +14,7 @@ import 'profile_post_grouping.dart';
 import 'models/public_user_profile.dart';
 import 'post_detail_view.dart';
 import 'services/chat_service.dart';
+import 'services/block_user_service.dart';
 import 'services/group_service.dart';
 import 'services/post_interaction_overlay_service.dart';
 import 'services/public_user_profile_service.dart';
@@ -105,6 +106,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
 
   final FirebaseFirestore _db = FirebaseFirestore.instance;
   final SocialService _socialService = SocialService();
+  final BlockUserService _blockUserService = BlockUserService();
   final ChatService _chatService = ChatService();
   final GroupService _groupService = GroupService();
   final PublicUserProfileService _publicUserProfileService =
@@ -121,10 +123,38 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   DateTime _spontaneousCountdownNowUtc = DateTime.now().toUtc();
   Timer? _spontaneousCountdownTimer;
   final TextEditingController _quickMessageController = TextEditingController();
+  final FocusNode _quickMessageFocusNode = FocusNode();
+  Timer? _quickMessageTypingDebounce;
+  int _quickMessageChangeSeq = 0;
+  bool _blockedBackNavigationScheduled = false;
+  late final Stream<PublicUserProfile?> _profileStreamRef;
+  late final Stream<BlockRelationship> _blockRelationshipStream;
+  late final Stream<FollowRelationship> _followRelationshipStream;
+  late final Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+      _postsStreamRef;
+  late final Future<int> _friendCountFuture;
+  late final Future<bool> _canViewProfileContentFuture;
+  late final Future<bool> _canViewFriendsOnlyPostsFuture;
 
   @override
   void initState() {
     super.initState();
+    _profileStreamRef = _publicUserProfileService.streamProfile(widget.uid);
+    _blockRelationshipStream = _blockUserService.streamRelationship(widget.uid);
+    _followRelationshipStream =
+        _socialService.watchFollowRelationship(widget.uid);
+    _postsStreamRef = _postsStream();
+    _friendCountFuture =
+        _friendIdsForProfile(widget.uid).then((ids) => ids.length);
+    _canViewProfileContentFuture = _canViewProfileContent(widget.uid);
+    _canViewFriendsOnlyPostsFuture = _canViewFriendsOnlyPosts(widget.uid);
+
+    _quickMessageFocusNode.addListener(() {
+      _logQuickMessage(
+        'focus_changed hasFocus=${_quickMessageFocusNode.hasFocus}',
+      );
+    });
+
     _spontaneousCountdownTimer = Timer.periodic(
       const Duration(seconds: 1),
       (timer) {
@@ -142,12 +172,18 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   @override
   void dispose() {
     _spontaneousCountdownTimer?.cancel();
+    _quickMessageTypingDebounce?.cancel();
+    _quickMessageFocusNode.dispose();
     _quickMessageController.dispose();
     super.dispose();
   }
 
-  Stream<PublicUserProfile?> _profileStream() {
-    return _publicUserProfileService.streamProfile(widget.uid);
+  void _logQuickMessage(String message) {
+    final now = DateTime.now().toIso8601String();
+    final currentUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    debugPrint(
+      '[QM_TRACE][$now][viewer=$currentUid][target=${widget.uid}] $message',
+    );
   }
 
   Future<bool> _canViewProfileContent(String targetUid) {
@@ -162,7 +198,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       Map<String, dynamic> profileData, PublicUserProfile profile,
       {bool showPosts = true, bool canViewFriendsOnlyPosts = true}) {
     return StreamBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
-      stream: _postsStream(),
+      stream: _postsStreamRef,
       builder: (context, postsSnapshot) {
         if (postsSnapshot.hasError) {
           return Center(
@@ -3549,11 +3585,16 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   }
 
   Future<void> _openDirectChat(Map<String, dynamic> profileData) async {
+    final sw = Stopwatch()..start();
+    _logQuickMessage('open_direct_chat_start');
     try {
       final chatId = await _chatService.findOrCreateDirectChat(
         otherUserId: widget.uid,
         otherDisplayName: _displayName(profileData),
         otherAvatarUrl: _profileImageUrl(profileData),
+      );
+      _logQuickMessage(
+        'open_direct_chat_ready chatId=$chatId elapsedMs=${sw.elapsedMilliseconds}',
       );
       if (!mounted) return;
       Navigator.of(context).push(
@@ -3569,9 +3610,28 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         ),
       );
     } catch (error) {
+      _logQuickMessage(
+        'open_direct_chat_error type=${error.runtimeType} elapsedMs=${sw.elapsedMilliseconds} error=$error',
+      );
       if (!mounted) return;
+      String message;
+      if (error is TimeoutException) {
+        message = 'פתיחת הצ\'אט אורכת יותר מדי זמן. נסה שוב.';
+      } else if (error is FirebaseAuthException &&
+          error.code == 'blocked-user') {
+        message = 'לא ניתן לפתוח צ\'אט: קיימת חסימה בין המשתמשים.';
+      } else if (error is FirebaseException &&
+          error.code == 'permission-denied') {
+        message = 'אין הרשאה לפתוח צ\'אט כרגע. נסה שוב בעוד רגע.';
+      } else {
+        message = 'פתיחת צ\'אט נכשלה: $error';
+      }
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('פתיחת צ\'אט נכשלה: $error')),
+        SnackBar(content: Text(message)),
+      );
+    } finally {
+      _logQuickMessage(
+        'open_direct_chat_end elapsedMs=${sw.elapsedMilliseconds}',
       );
     }
   }
@@ -3579,13 +3639,21 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   Future<void> _sendQuickMessageToProfileChat(
       Map<String, dynamic> profileData) async {
     final text = _quickMessageController.text.trim();
+    _logQuickMessage(
+      'send_attempt textLen=${text.length} inFlight=$_isQuickMessageSending',
+    );
     if (text.isEmpty || _isQuickMessageSending) {
+      _logQuickMessage(
+          'send_skipped reason=${text.isEmpty ? 'empty' : 'in_flight'}');
       return;
     }
+
+    final sw = Stopwatch()..start();
 
     setState(() {
       _isQuickMessageSending = true;
     });
+    _logQuickMessage('send_state_changed sending=true');
 
     try {
       final chatId = await _chatService.findOrCreateDirectChat(
@@ -3593,9 +3661,22 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         otherDisplayName: _displayName(profileData),
         otherAvatarUrl: _profileImageUrl(profileData),
       );
+      _logQuickMessage(
+        'send_chat_ready chatId=$chatId elapsedMs=${sw.elapsedMilliseconds}',
+      );
 
-      await _chatService.sendMessage(chatId: chatId, text: text);
+      final effectiveChatId = await _chatService.sendMessage(
+        chatId: chatId,
+        text: text,
+        directOtherUserIdHint: widget.uid,
+        directOtherDisplayNameHint: _displayName(profileData),
+        directOtherAvatarUrlHint: _profileImageUrl(profileData),
+      );
+      _logQuickMessage(
+        'send_message_success chatId=$effectiveChatId elapsedMs=${sw.elapsedMilliseconds}',
+      );
       _quickMessageController.clear();
+      _logQuickMessage('send_input_cleared');
 
       if (!mounted) return;
       Navigator.of(context).push(
@@ -3605,21 +3686,40 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
             avatarUrl: _profileImageUrl(profileData).isEmpty
                 ? null
                 : _profileImageUrl(profileData),
-            chatId: chatId,
+            chatId: effectiveChatId,
             isDirectChat: true,
           ),
         ),
       );
     } catch (error) {
+      final effectiveError = error;
+
+      _logQuickMessage(
+        'send_error type=${effectiveError.runtimeType} elapsedMs=${sw.elapsedMilliseconds} error=$effectiveError',
+      );
       if (!mounted) return;
+      String message;
+      if (effectiveError is TimeoutException) {
+        message = 'שליחת ההודעה אורכת יותר מדי זמן. נסה שוב.';
+      } else if (effectiveError is FirebaseAuthException &&
+          effectiveError.code == 'blocked-user') {
+        message = 'לא ניתן לשלוח הודעה: קיימת חסימה בין המשתמשים.';
+      } else if (effectiveError is FirebaseException &&
+          effectiveError.code == 'permission-denied') {
+        message = 'אין הרשאה לשלוח הודעה למשתמש הזה כרגע.';
+      } else {
+        message = 'שליחת הודעה נכשלה: $effectiveError';
+      }
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('שליחת הודעה נכשלה: $error')),
+        SnackBar(content: Text(message)),
       );
     } finally {
+      _logQuickMessage('send_finally elapsedMs=${sw.elapsedMilliseconds}');
       if (mounted) {
         setState(() {
           _isQuickMessageSending = false;
         });
+        _logQuickMessage('send_state_changed sending=false');
       }
     }
   }
@@ -5172,6 +5272,131 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     }
   }
 
+  Future<void> _toggleUserBlock(bool isBlockedByMe) async {
+    final targetUid = widget.uid.trim();
+    if (targetUid.isEmpty) {
+      return;
+    }
+
+    final shouldProceed = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) {
+            return Directionality(
+              textDirection: TextDirection.rtl,
+              child: AlertDialog(
+                title: Text(isBlockedByMe ? 'ביטול חסימה' : 'חסימת משתמש'),
+                content: Text(
+                  isBlockedByMe
+                      ? 'לבטל את החסימה למשתמש הזה?'
+                      : 'המשתמש ייחסם, הצ\'אט הישיר ביניכם יוסר ולא תוכלו לתקשר בפרטי. להמשיך?',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(dialogContext).pop(false),
+                    child: const Text('ביטול'),
+                  ),
+                  ElevatedButton(
+                    onPressed: () => Navigator.of(dialogContext).pop(true),
+                    child: Text(isBlockedByMe ? 'בטל חסימה' : 'חסום'),
+                  ),
+                ],
+              ),
+            );
+          },
+        ) ??
+        false;
+
+    if (!shouldProceed) {
+      return;
+    }
+
+    try {
+      if (isBlockedByMe) {
+        await _blockUserService.unblockUser(targetUid);
+      } else {
+        await _blockUserService.blockUser(targetUid);
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            isBlockedByMe ? 'החסימה בוטלה בהצלחה.' : 'המשתמש נחסם בהצלחה.',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('הפעולה נכשלה: $error')),
+      );
+    }
+  }
+
+  Future<void> _showSafetyActionsMenu() async {
+    final currentUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    final targetUid = widget.uid.trim();
+    if (currentUid.isEmpty || targetUid.isEmpty || currentUid == targetUid) {
+      return;
+    }
+
+    final isBlockedByMe = await _blockUserService.isBlockedByMe(targetUid);
+    if (!mounted) {
+      return;
+    }
+
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Theme.of(context).brightness == Brightness.light
+          ? Colors.white
+          : const Color(0xFF161F2E),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (sheetContext) {
+        return Directionality(
+          textDirection: TextDirection.rtl,
+          child: SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.flag_outlined),
+                  title: const Text('דיווח על משתמש'),
+                  onTap: () => Navigator.of(sheetContext).pop('report'),
+                ),
+                ListTile(
+                  leading: Icon(
+                    isBlockedByMe
+                        ? Icons.lock_open_rounded
+                        : Icons.block_rounded,
+                    color: isBlockedByMe
+                        ? const Color(0xFF53C1F9)
+                        : Colors.redAccent,
+                  ),
+                  title: Text(isBlockedByMe ? 'בטל חסימה' : 'חסום משתמש'),
+                  onTap: () => Navigator.of(sheetContext).pop('block'),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    if (!mounted || action == null) {
+      return;
+    }
+
+    if (action == 'report') {
+      await _reportUserProfile();
+      return;
+    }
+
+    if (action == 'block') {
+      await _toggleUserBlock(isBlockedByMe);
+    }
+  }
+
   Widget _buildActionButtons(Map<String, dynamic> profileData) {
     final isLight = Theme.of(context).brightness == Brightness.light;
     const quickMessageSurface = Color(0xFF0F1522);
@@ -5221,11 +5446,25 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                       ),
                       child: TextField(
                         controller: _quickMessageController,
+                        focusNode: _quickMessageFocusNode,
                         enabled: !_isQuickMessageSending,
                         textDirection: TextDirection.rtl,
                         textAlign: TextAlign.right,
                         textAlignVertical: TextAlignVertical.center,
                         textInputAction: TextInputAction.send,
+                        onTap: () {
+                          _logQuickMessage('input_tap');
+                        },
+                        onChanged: (value) {
+                          _quickMessageChangeSeq += 1;
+                          _quickMessageTypingDebounce?.cancel();
+                          _quickMessageTypingDebounce =
+                              Timer(const Duration(milliseconds: 250), () {
+                            _logQuickMessage(
+                              'input_changed seq=$_quickMessageChangeSeq textLen=${value.length}',
+                            );
+                          });
+                        },
                         onSubmitted: (_) =>
                             _sendQuickMessageToProfileChat(profileData),
                         style: TextStyle(
@@ -5282,7 +5521,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         ),
         const SizedBox(height: 10),
         StreamBuilder<FollowRelationship>(
-          stream: _socialService.watchFollowRelationship(widget.uid),
+          stream: _followRelationshipStream,
           builder: (context, snapshot) {
             final relationship = snapshot.data ?? const FollowRelationship();
             final isFollowing = relationship.isFollowing;
@@ -6110,10 +6349,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                               ...relationFriendsSet,
                               ...profileFriendsSet,
                             };
-                            final mergedRelationData = <String, dynamic>{
-                              ...profileData,
-                              ...relationData,
-                            };
                             final fallbackFriendsCount =
                                 (relationData['friendsCount'] as num?)
                                         ?.toInt() ??
@@ -6124,7 +6359,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                             final syncFriendsCount = explicitFriends.isNotEmpty
                                 ? explicitFriends.length
                                 : (followersSet
-                                            .intersection(followingSet).isNotEmpty
+                                        .intersection(followingSet)
+                                        .isNotEmpty
                                     ? followersSet
                                         .intersection(followingSet)
                                         .length
@@ -6147,10 +6383,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                                         : profile.followingCount));
 
                             return FutureBuilder<int>(
-                              future: _friendIdsForProfile(
-                                widget.uid,
-                                preferredData: mergedRelationData,
-                              ).then((ids) => ids.length),
+                              future: _friendCountFuture,
                               initialData: syncFriendsCount,
                               builder: (context, friendsSnapshot) {
                                 final friendsCount =
@@ -6344,7 +6577,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   Widget build(BuildContext context) {
     final isLight = Theme.of(context).brightness == Brightness.light;
     final currentUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
-    final canReportInAppBar =
+    final canShowSafetyActions =
         currentUid.isNotEmpty && widget.uid.trim() != currentUid;
     return SwipeBackWrapper(
       child: Scaffold(
@@ -6360,12 +6593,12 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
             icon: const Icon(Icons.arrow_back_rounded),
           ),
           actions: [
-            if (canReportInAppBar)
+            if (canShowSafetyActions)
               Padding(
                 padding: const EdgeInsetsDirectional.only(end: 4),
                 child: IconButton(
-                  tooltip: 'דיווח על משתמש',
-                  onPressed: _reportUserProfile,
+                  tooltip: 'אפשרויות משתמש',
+                  onPressed: _showSafetyActionsMenu,
                   icon: Icon(
                     Icons.flag_outlined,
                     size: 18,
@@ -6378,91 +6611,130 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
               IconThemeData(color: isLight ? Colors.black : Colors.white),
         ),
         body: StreamBuilder<PublicUserProfile?>(
-          stream: _profileStream(),
+          stream: _profileStreamRef,
           builder: (context, profileSnapshot) {
-            if (profileSnapshot.connectionState == ConnectionState.waiting &&
-                !profileSnapshot.hasData) {
-              return const Center(child: CircularProgressIndicator());
-            }
+            return StreamBuilder<BlockRelationship>(
+              stream: _blockRelationshipStream,
+              builder: (context, blockSnapshot) {
+                final relation = blockSnapshot.data ?? BlockRelationship.none;
+                final blockedByMe = relation == BlockRelationship.blockedByMe ||
+                    relation == BlockRelationship.both;
+                final blockedByOther =
+                    relation == BlockRelationship.blockedByOther ||
+                        relation == BlockRelationship.both;
 
-            if (profileSnapshot.hasError) {
-              return Center(
-                child: Text(
-                  'שגיאה בטעינת פרטי המשתמש',
-                  style: TextStyle(
-                      color: isLight ? Colors.black54 : Colors.grey[300]),
-                ),
-              );
-            }
+                if (blockedByMe || blockedByOther) {
+                  if (!_blockedBackNavigationScheduled) {
+                    _blockedBackNavigationScheduled = true;
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (!mounted) return;
+                      final navigator = Navigator.of(context);
+                      if (navigator.canPop()) {
+                        navigator.pop();
+                        return;
+                      }
 
-            final profile = profileSnapshot.data;
-            if (profile == null || !profile.exists) {
-              return Center(
-                child: Text(
-                  'המשתמש לא נמצא',
-                  style: TextStyle(
-                      color: isLight ? Colors.black54 : Colors.grey[300]),
-                ),
-              );
-            }
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('הפרופיל לא זמין עקב חסימה.'),
+                        ),
+                      );
+                    });
+                  }
 
-            final profileData = profile.toMap();
-            final currentUid =
-                FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
-            if (profile.isDeleted) {
-              return Center(
-                child: Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 24),
-                  padding: const EdgeInsets.all(18),
-                  decoration: BoxDecoration(
-                    color: isLight
-                        ? Colors.white.withValues(alpha: 0.84)
-                        : const Color(0xFF1A2435),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: isLight
-                          ? const Color(0xFFA9C3FF)
-                          : const Color(0xFF53C1F9).withValues(alpha: 0.22),
-                    ),
-                  ),
-                  child: Text(
-                    'משתמש מחוק',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: isLight ? Colors.black87 : Colors.white70,
-                      fontSize: 16,
-                    ),
-                  ),
-                ),
-              );
-            }
-
-            final isPrivateProfile =
-                profile.isPrivate && currentUid != widget.uid;
-
-            if (isPrivateProfile) {
-              return FutureBuilder<bool>(
-                future: _canViewProfileContent(widget.uid),
-                builder: (context, privacySnapshot) {
-                  final canView = privacySnapshot.data ?? false;
-                  return _buildProfileContent(
-                    profileData,
-                    profile,
-                    showPosts: canView,
-                    canViewFriendsOnlyPosts: canView,
+                  return const Center(
+                    child: CircularProgressIndicator(),
                   );
-                },
-              );
-            }
+                } else {
+                  _blockedBackNavigationScheduled = false;
+                }
 
-            return FutureBuilder<bool>(
-              future: _canViewFriendsOnlyPosts(widget.uid),
-              builder: (context, audienceSnapshot) {
-                final canViewFriendsOnly = audienceSnapshot.data ?? false;
-                return _buildProfileContent(
-                  profileData,
-                  profile,
-                  canViewFriendsOnlyPosts: canViewFriendsOnly,
+                if (profileSnapshot.connectionState ==
+                        ConnectionState.waiting &&
+                    !profileSnapshot.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+
+                if (profileSnapshot.hasError) {
+                  return Center(
+                    child: Text(
+                      'שגיאה בטעינת פרטי המשתמש',
+                      style: TextStyle(
+                          color: isLight ? Colors.black54 : Colors.grey[300]),
+                    ),
+                  );
+                }
+
+                final profile = profileSnapshot.data;
+                if (profile == null || !profile.exists) {
+                  return Center(
+                    child: Text(
+                      'המשתמש לא נמצא',
+                      style: TextStyle(
+                          color: isLight ? Colors.black54 : Colors.grey[300]),
+                    ),
+                  );
+                }
+
+                final profileData = profile.toMap();
+                final currentUid =
+                    FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+                if (profile.isDeleted) {
+                  return Center(
+                    child: Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 24),
+                      padding: const EdgeInsets.all(18),
+                      decoration: BoxDecoration(
+                        color: isLight
+                            ? Colors.white.withValues(alpha: 0.84)
+                            : const Color(0xFF1A2435),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: isLight
+                              ? const Color(0xFFA9C3FF)
+                              : const Color(0xFF53C1F9).withValues(alpha: 0.22),
+                        ),
+                      ),
+                      child: Text(
+                        'משתמש מחוק',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: isLight ? Colors.black87 : Colors.white70,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ),
+                  );
+                }
+
+                final isPrivateProfile =
+                    profile.isPrivate && currentUid != widget.uid;
+
+                if (isPrivateProfile) {
+                  return FutureBuilder<bool>(
+                    future: _canViewProfileContentFuture,
+                    builder: (context, privacySnapshot) {
+                      final canView = privacySnapshot.data ?? false;
+                      return _buildProfileContent(
+                        profileData,
+                        profile,
+                        showPosts: canView,
+                        canViewFriendsOnlyPosts: canView,
+                      );
+                    },
+                  );
+                }
+
+                return FutureBuilder<bool>(
+                  future: _canViewFriendsOnlyPostsFuture,
+                  builder: (context, audienceSnapshot) {
+                    final canViewFriendsOnly = audienceSnapshot.data ?? false;
+                    return _buildProfileContent(
+                      profileData,
+                      profile,
+                      canViewFriendsOnlyPosts: canViewFriendsOnly,
+                    );
+                  },
                 );
               },
             );

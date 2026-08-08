@@ -8,6 +8,7 @@ import 'login_screen.dart';
 import 'notification_settings_screen.dart';
 import 'personal_details_screen.dart';
 import 'privacy_policy_dialog.dart';
+import 'blocked_users_screen.dart';
 import 'services/theme_mode_service.dart';
 import 'settings_history_screen.dart';
 import 'services/auth_service.dart';
@@ -527,6 +528,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                               const UsageGuideScreen(
                                             enableSwipeBack: false,
                                           ),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 10),
+                                    _navTile(
+                                      isLight: isLight,
+                                      icon: Icons.block_rounded,
+                                      title: 'משתמשים חסומים',
+                                      subtitle:
+                                          'צפייה ברשימת המשתמשים שחסמת וביטול חסימה',
+                                      onTap: () => Navigator.of(context).push(
+                                        MaterialPageRoute(
+                                          builder: (_) =>
+                                              const BlockedUsersScreen(),
                                         ),
                                       ),
                                     ),

@@ -510,7 +510,7 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
       });
       const message = 'תמונת הקבוצה עודכנה';
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message)),
+        const SnackBar(content: Text(message)),
       );
     } catch (e) {
       if (!mounted) return;

@@ -577,7 +577,7 @@ class AppHomeService {
       StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? executionDateSub;
       StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? fallbackSub;
 
-      HomePublicGroupEntry _toEntry(
+      HomePublicGroupEntry toEntry(
         QueryDocumentSnapshot<Map<String, dynamic>> doc,
       ) {
         final data = doc.data();
@@ -602,7 +602,7 @@ class AppHomeService {
         );
       }
 
-      bool _isInRange(HomePublicGroupEntry entry) {
+      bool isInRange(HomePublicGroupEntry entry) {
         final date = entry.date;
         if (date == null) {
           return false;
@@ -618,8 +618,8 @@ class AppHomeService {
             return;
           }
           for (final doc in snapshot.docs) {
-            final entry = _toEntry(doc);
-            if (!_isInRange(entry)) {
+            final entry = toEntry(doc);
+            if (!isInRange(entry)) {
               continue;
             }
             mergedById[entry.groupId] = entry;

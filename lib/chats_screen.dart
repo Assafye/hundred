@@ -11,6 +11,7 @@ import 'chat_room_screen.dart';
 import 'create_group_screen.dart';
 import 'main_bottom_nav.dart';
 import 'services/chat_service.dart';
+import 'services/block_user_service.dart';
 import 'services/group_service.dart';
 import 'user_profile_screen.dart';
 import 'widgets/group_avatar.dart';
@@ -63,6 +64,7 @@ class ChatsScreen extends StatefulWidget {
 
 class _ChatsScreenState extends State<ChatsScreen> {
   final ChatService _chatService = ChatService();
+  final BlockUserService _blockUserService = BlockUserService();
   final GroupService _groupService = GroupService();
   late final TextEditingController _searchController;
   final Map<String, Future<Map<String, Map<String, String>>>>
@@ -1486,123 +1488,128 @@ class _ChatsScreenState extends State<ChatsScreen> {
                             : const Color(0xFF1E2632),
                         borderRadius: BorderRadius.circular(16),
                       ),
-                      child: ListTile(
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => ChatRoomScreen(
-                                chatName: chatName,
-                                avatarUrl: imageUrl.isEmpty ? null : imageUrl,
-                                chatId: chatDoc.id,
-                                isDirectChat: isDirectChat,
-                              ),
-                            ),
-                          );
-                        },
-                        leading: isDirectChat
-                            ? _buildChatAvatar(
-                                name: chatName,
-                                imageUrl: imageUrl,
-                              )
-                            : _buildLiveGroupAvatar(
-                                groupId: chatDoc.id,
-                                fallbackImageUrl: imageUrl,
-                              ),
-                        title: Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                chatName,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontFamily: 'Segoe UI',
-                                  color: isLight ? Colors.black : Colors.white,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                            if (isPublic && !isDirectChat) ...[
-                              const SizedBox(width: 8),
-                              _buildPublicGroupBadge(),
-                            ],
-                          ],
-                        ),
-                        subtitle: isDirectChat
-                            ? Text(
-                                directSubtitleText,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  color: isLight
-                                      ? Colors.black87
-                                      : Colors.grey[400],
-                                ),
-                              )
-                            : (lastMessage.isNotEmpty &&
-                                    lastMessageSenderId != currentUser.uid)
-                                ? StreamBuilder<String>(
-                                    stream: _lastSenderNameStream(
-                                      chatDoc.id,
-                                      currentUser.uid,
-                                    ),
-                                    builder: (context, senderSnapshot) {
-                                      final resolvedSender =
-                                          (senderSnapshot.data ?? '').trim();
-                                      final resolvedSubtitle =
-                                          resolvedSender.isNotEmpty
-                                              ? '$resolvedSender: $lastMessage'
-                                              : groupSubtitleText;
-                                      return Text(
-                                        resolvedSubtitle,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: TextStyle(
-                                          color: isLight
-                                              ? Colors.black87
-                                              : Colors.grey[400],
-                                        ),
-                                      );
-                                    },
-                                  )
-                                : Text(
-                                    groupSubtitleText,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      color: isLight
-                                          ? Colors.black87
-                                          : Colors.grey[400],
-                                    ),
-                                  ),
-                        trailing: SizedBox(
-                          height: double.infinity,
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.start,
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              SizedBox(
-                                width: 92,
-                                child: Text(
-                                  _formatRelativeTime(activityDate),
-                                  textAlign: TextAlign.end,
-                                  style: TextStyle(
-                                    color: isLight
-                                        ? Colors.black54
-                                        : Colors.grey[500],
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ),
-                              if (hasUnread) ...[
-                                const SizedBox(height: 6),
-                                _buildUnreadOverlayBadge(
+                      child: Material(
+                        type: MaterialType.transparency,
+                        child: ListTile(
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => ChatRoomScreen(
+                                  chatName: chatName,
+                                  avatarUrl:
+                                      imageUrl.isEmpty ? null : imageUrl,
                                   chatId: chatDoc.id,
-                                  lastReadAt: lastReadAt,
+                                  isDirectChat: isDirectChat,
                                 ),
+                              ),
+                            );
+                          },
+                          leading: isDirectChat
+                              ? _buildChatAvatar(
+                                  name: chatName,
+                                  imageUrl: imageUrl,
+                                )
+                              : _buildLiveGroupAvatar(
+                                  groupId: chatDoc.id,
+                                  fallbackImageUrl: imageUrl,
+                                ),
+                          title: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  chatName,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontFamily: 'Segoe UI',
+                                    color:
+                                        isLight ? Colors.black : Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                              if (isPublic && !isDirectChat) ...[
+                                const SizedBox(width: 8),
+                                _buildPublicGroupBadge(),
                               ],
                             ],
+                          ),
+                          subtitle: isDirectChat
+                              ? Text(
+                                  directSubtitleText,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: isLight
+                                        ? Colors.black87
+                                        : Colors.grey[400],
+                                  ),
+                                )
+                              : (lastMessage.isNotEmpty &&
+                                      lastMessageSenderId != currentUser.uid)
+                                  ? StreamBuilder<String>(
+                                      stream: _lastSenderNameStream(
+                                        chatDoc.id,
+                                        currentUser.uid,
+                                      ),
+                                      builder: (context, senderSnapshot) {
+                                        final resolvedSender =
+                                            (senderSnapshot.data ?? '').trim();
+                                        final resolvedSubtitle =
+                                            resolvedSender.isNotEmpty
+                                                ? '$resolvedSender: $lastMessage'
+                                                : groupSubtitleText;
+                                        return Text(
+                                          resolvedSubtitle,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            color: isLight
+                                                ? Colors.black87
+                                                : Colors.grey[400],
+                                          ),
+                                        );
+                                      },
+                                    )
+                                  : Text(
+                                      groupSubtitleText,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        color: isLight
+                                            ? Colors.black87
+                                            : Colors.grey[400],
+                                      ),
+                                    ),
+                          trailing: SizedBox(
+                            height: double.infinity,
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.start,
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                SizedBox(
+                                  width: 92,
+                                  child: Text(
+                                    _formatRelativeTime(activityDate),
+                                    textAlign: TextAlign.end,
+                                    style: TextStyle(
+                                      color: isLight
+                                          ? Colors.black54
+                                          : Colors.grey[500],
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ),
+                                if (hasUnread) ...[
+                                  const SizedBox(height: 6),
+                                  _buildUnreadOverlayBadge(
+                                    chatId: chatDoc.id,
+                                    lastReadAt: lastReadAt,
+                                  ),
+                                ],
+                              ],
+                            ),
                           ),
                         ),
                       ),
@@ -3277,62 +3284,65 @@ class _ChatsScreenState extends State<ChatsScreen> {
                         : const Color(0xFF1E2632),
                     borderRadius: BorderRadius.circular(16),
                   ),
-                  child: ListTile(
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => ChatRoomScreen(
-                            chatName: chatName,
-                            avatarUrl: imageUrl.isEmpty ? null : imageUrl,
-                            chatId: chatDoc.id,
-                            isDirectChat: false,
-                          ),
-                        ),
-                      );
-                    },
-                    leading: _buildLiveGroupAvatar(
-                      groupId: chatDoc.id,
-                      fallbackImageUrl: imageUrl,
-                    ),
-                    title: Text(
-                      chatName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontFamily: 'Segoe UI',
-                        color: isLight ? Colors.black : Colors.white,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    subtitle: Text(
-                      subtitleText,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: isLight ? Colors.black87 : Colors.grey[400],
-                      ),
-                    ),
-                    trailing: SizedBox(
-                      height: double.infinity,
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.start,
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          SizedBox(
-                            width: 92,
-                            child: Text(
-                              _formatRelativeTime(activityDate),
-                              textAlign: TextAlign.end,
-                              style: TextStyle(
-                                color: isLight
-                                    ? Colors.black54
-                                    : Colors.grey[500],
-                                fontSize: 12,
-                              ),
+                  child: Material(
+                    type: MaterialType.transparency,
+                    child: ListTile(
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => ChatRoomScreen(
+                              chatName: chatName,
+                              avatarUrl: imageUrl.isEmpty ? null : imageUrl,
+                              chatId: chatDoc.id,
+                              isDirectChat: false,
                             ),
                           ),
-                        ],
+                        );
+                      },
+                      leading: _buildLiveGroupAvatar(
+                        groupId: chatDoc.id,
+                        fallbackImageUrl: imageUrl,
+                      ),
+                      title: Text(
+                        chatName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontFamily: 'Segoe UI',
+                          color: isLight ? Colors.black : Colors.white,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      subtitle: Text(
+                        subtitleText,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: isLight ? Colors.black87 : Colors.grey[400],
+                        ),
+                      ),
+                      trailing: SizedBox(
+                        height: double.infinity,
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.start,
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            SizedBox(
+                              width: 92,
+                              child: Text(
+                                _formatRelativeTime(activityDate),
+                                textAlign: TextAlign.end,
+                                style: TextStyle(
+                                  color: isLight
+                                      ? Colors.black54
+                                      : Colors.grey[500],
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -3651,6 +3661,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
 
     return _globalSearchCache.putIfAbsent(normalizedQuery, () async {
       final currentUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+      final blockedUids = await _blockUserService.fetchBlockedConnections();
       final usersFuture = FirebaseFirestore.instance
           .collection('users_public')
           .limit(250)
@@ -3670,6 +3681,9 @@ class _ChatsScreenState extends State<ChatsScreen> {
         final data = doc.data();
         final uid = doc.id.trim();
         if (uid.isEmpty || uid == currentUid) {
+          continue;
+        }
+        if (blockedUids.contains(uid)) {
           continue;
         }
 
@@ -4055,32 +4069,35 @@ class _ChatLoadingTile extends StatelessWidget {
         color: baseColor,
         borderRadius: BorderRadius.circular(16),
       ),
-      child: ListTile(
-        leading: CircleAvatar(
-          radius: 28,
-          backgroundColor: lineColor,
-        ),
-        title: Align(
-          alignment: Alignment.centerLeft,
-          child: Container(
-            width: 132,
-            height: 12,
-            decoration: BoxDecoration(
-              color: lineColor,
-              borderRadius: BorderRadius.circular(6),
-            ),
+      child: Material(
+        type: MaterialType.transparency,
+        child: ListTile(
+          leading: CircleAvatar(
+            radius: 28,
+            backgroundColor: lineColor,
           ),
-        ),
-        subtitle: Padding(
-          padding: const EdgeInsets.only(top: 8),
-          child: Align(
+          title: Align(
             alignment: Alignment.centerLeft,
             child: Container(
-              width: 188,
-              height: 10,
+              width: 132,
+              height: 12,
               decoration: BoxDecoration(
                 color: lineColor,
                 borderRadius: BorderRadius.circular(6),
+              ),
+            ),
+          ),
+          subtitle: Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Container(
+                width: 188,
+                height: 10,
+                decoration: BoxDecoration(
+                  color: lineColor,
+                  borderRadius: BorderRadius.circular(6),
+                ),
               ),
             ),
           ),

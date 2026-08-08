@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../models/public_user_profile.dart';
 import '../services/report_service.dart';
 import '../services/firestore_rule_feedback.dart';
+import '../services/block_user_service.dart';
 import '../services/post_service.dart';
 import '../services/public_user_profile_service.dart';
 import '../user_profile_screen.dart';
@@ -32,6 +33,7 @@ class _PostCommentsSheetState extends State<PostCommentsSheet> {
   final TextEditingController _commentController = TextEditingController();
   final FocusNode _commentFocusNode = FocusNode();
   final PostService _postService = PostService();
+  final BlockUserService _blockUserService = BlockUserService();
   final PublicUserProfileService _profileService = PublicUserProfileService();
   final ReportService _reportService = ReportService();
   final Map<String, Future<PublicUserProfile?>> _profileFutureByUid =
@@ -111,9 +113,21 @@ class _PostCommentsSheetState extends State<PostCommentsSheet> {
     super.dispose();
   }
 
-  void _openUserProfile(String uid) {
+  Future<void> _openUserProfile(String uid) async {
     final normalizedUid = uid.trim();
     if (normalizedUid.isEmpty) return;
+
+    final isBlocked =
+        await _blockUserService.isEitherUserBlocked(normalizedUid);
+    if (isBlocked) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('הפרופיל לא זמין עקב חסימה.')),
+      );
+      return;
+    }
+
+    if (!mounted) return;
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => UserProfileScreen(
@@ -797,11 +811,20 @@ class _PostCommentsSheetState extends State<PostCommentsSheet> {
             ),
             const SizedBox(height: 10),
             Expanded(
-              child: StreamBuilder<List<Map<String, dynamic>>>(
-                stream: _postService.watchPostComments(widget.postId),
-                builder: (context, snapshot) {
-                  final comments =
-                      snapshot.data ?? const <Map<String, dynamic>>[];
+              child: StreamBuilder<Set<String>>(
+                stream: _blockUserService.streamBlockedConnections(),
+                builder: (context, blockedSnapshot) {
+                  final blockedUids = blockedSnapshot.data ?? const <String>{};
+                  return StreamBuilder<List<Map<String, dynamic>>>(
+                    stream: _postService.watchPostComments(widget.postId),
+                    builder: (context, snapshot) {
+                      final comments =
+                          (snapshot.data ?? const <Map<String, dynamic>>[])
+                              .where((comment) {
+                        final authorId =
+                            ((comment['authorId'] as String?) ?? '').trim();
+                        return authorId.isEmpty || !blockedUids.contains(authorId);
+                      }).toList(growable: false);
                   final normalizedInitialCommentId =
                       widget.initialCommentId.trim();
 
@@ -860,18 +883,21 @@ class _PostCommentsSheetState extends State<PostCommentsSheet> {
                     );
                   }
 
-                  return ListView.builder(
-                    reverse: false,
-                    padding: const EdgeInsets.fromLTRB(16, 6, 16, 14),
-                    itemCount: rootComments.length,
-                    itemBuilder: (context, index) {
-                      final comment = rootComments[index];
-                      final commentId = (comment['id'] as String? ?? '').trim();
-                      return _buildCommentRow(
-                        comment: comment,
-                        isReply: false,
-                        replies: repliesByParent[commentId] ??
-                            const <Map<String, dynamic>>[],
+                      return ListView.builder(
+                        reverse: false,
+                        padding: const EdgeInsets.fromLTRB(16, 6, 16, 14),
+                        itemCount: rootComments.length,
+                        itemBuilder: (context, index) {
+                          final comment = rootComments[index];
+                          final commentId =
+                              (comment['id'] as String? ?? '').trim();
+                          return _buildCommentRow(
+                            comment: comment,
+                            isReply: false,
+                            replies: repliesByParent[commentId] ??
+                                const <Map<String, dynamic>>[],
+                          );
+                        },
                       );
                     },
                   );

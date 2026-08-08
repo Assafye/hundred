@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui' as ui;
 import 'dart:io';
 import 'package:flutter/material.dart';
@@ -100,6 +101,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   final Map<String, Future<bool>> _sharedPostDeletedCache =
       <String, Future<bool>>{};
   bool _isSendingMedia = false;
+  bool _isSendingText = false;
+  String _latestDirectOtherUid = '';
   _ReplyTarget? _replyTarget;
 
   bool _isLightMode(BuildContext context) {
@@ -195,26 +198,67 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
   Future<void> _sendMessage() async {
     final text = _controller.text.trim();
-    if (text.isEmpty) return;
+    if (text.isEmpty || _isSendingText) return;
 
     final replyTarget = _replyTarget;
 
-    _controller.clear();
     setState(() {
-      _replyTarget = null;
+      _isSendingText = true;
     });
-    _inputFocusNode.requestFocus();
 
-    await _chatService.sendMessage(
-      chatId: widget.chatId,
-      text: text,
-      replyTo: replyTarget?.toMap(),
-    );
-    if (mounted) {
-      _inputFocusNode.requestFocus();
+    try {
+      final effectiveChatId = await _chatService.sendMessage(
+        chatId: widget.chatId,
+        text: text,
+        replyTo: replyTarget?.toMap(),
+        directOtherUserIdHint:
+            (widget.isDirectChat ?? false) ? _latestDirectOtherUid : null,
+        directOtherDisplayNameHint:
+            (widget.isDirectChat ?? false) ? widget.chatName : null,
+        directOtherAvatarUrlHint:
+            (widget.isDirectChat ?? false) ? (widget.avatarUrl ?? '') : null,
+      );
+      if (!mounted) return;
+
+      _controller.clear();
+      setState(() {
+        _replyTarget = null;
+      });
+      if (mounted) {
+        _inputFocusNode.requestFocus();
+      }
+
+      _scheduleScrollToBottom(force: true);
+
+      if ((widget.isDirectChat ?? false) && effectiveChatId != widget.chatId) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => ChatRoomScreen(
+              chatName: widget.chatName,
+              avatarUrl: widget.avatarUrl,
+              chatId: effectiveChatId,
+              isDirectChat: true,
+            ),
+          ),
+        );
+      }
+    } catch (error) {
+      if (!mounted) return;
+      final message =
+          error is FirebaseAuthException && error.code == 'blocked-user'
+              ? 'לא ניתן לשלוח הודעה: קיימת חסימה בין המשתמשים.'
+              : error is TimeoutException
+                  ? 'שליחת ההודעה אורכת יותר מדי זמן. נסה שוב.'
+                  : 'שליחת הודעה נכשלה: $error';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
+    } finally {
+      if (!mounted) return;
+      setState(() {
+        _isSendingText = false;
+      });
     }
-
-    _scheduleScrollToBottom(force: true);
   }
 
   Future<void> _openAttachmentActions() async {
@@ -2659,6 +2703,9 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
             builder: (context, chatSnapshot) {
               final chatData = chatSnapshot.data?.data();
               final isDirectChat = _isDirectChat(chatData);
+              if (isDirectChat) {
+                _latestDirectOtherUid = _directChatOtherUid(chatData);
+              }
               final isDeletedDirectChatProfile =
                   isDirectChat && _isDeletedProfileLabel(widget.chatName);
               final fallbackGroupName =
@@ -3207,7 +3254,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                                       ? const Color(0xFF4DBEEA)
                                       : const Color(0xFF9E7CFF),
                                 ),
-                                onPressed: _sendMessage,
+                                onPressed: _isSendingText ? null : _sendMessage,
                               ),
                               Expanded(
                                 child: TextField(

@@ -21,6 +21,7 @@ import 'services/share_flow_log_service.dart';
 import 'services/social_service.dart';
 import 'services/group_service.dart';
 import 'services/spontaneous_challenge_service.dart';
+import 'services/block_user_service.dart';
 import 'category_screen.dart';
 import 'chat_room_screen.dart';
 import 'group_details_screen.dart';
@@ -77,6 +78,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
       PublicUserProfileService();
   final SocialService _socialService = SocialService();
   final GroupService _groupService = GroupService();
+  final BlockUserService _blockUserService = BlockUserService();
   final ReportService _reportService = ReportService();
 
   static const Color _themePurple = Color(0xFF8C62FF);
@@ -973,12 +975,28 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
     }
   }
 
-  PostModel _postFromMap(Map<String, dynamic> data) {
-    final likes = (data['likes'] as List<dynamic>? ?? const []);
+  PostModel _postFromMap(
+    Map<String, dynamic> data, {
+    Set<String> blockedUids = const <String>{},
+  }) {
+    final rawLikes = (data['likes'] as List<dynamic>? ?? const []);
+    final likes = rawLikes
+        .map((item) => item.toString().trim())
+        .where((uid) => uid.isNotEmpty && !blockedUids.contains(uid))
+        .toList(growable: false);
+    final rawComments = (data['comments'] as List<dynamic>? ?? const []);
+    final filteredComments = rawComments.where((comment) {
+      if (comment is! Map) {
+        return true;
+      }
+      final map = Map<String, dynamic>.from(comment);
+      final authorId = (map['authorId'] as String? ?? '').trim();
+      return authorId.isEmpty || !blockedUids.contains(authorId);
+    }).toList(growable: false);
     final savedBy = (data['savedBy'] as List<dynamic>? ?? const []);
     final currentUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
     final likedByCurrentUser = currentUid.isNotEmpty &&
-        likes.map((item) => item.toString().trim()).contains(currentUid);
+      likes.contains(currentUid);
     final savedByCurrentUser = currentUid.isNotEmpty &&
         savedBy.map((item) => item.toString().trim()).contains(currentUid);
     final createdAtRaw = data['createdAt'];
@@ -1057,10 +1075,9 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
       location: location,
       scoreAwarded: scoreAwarded,
       participantUids: participantUids,
-      likesCount: (data['likesCount'] as num?)?.toInt() ?? likes.length,
-      commentsCount: (data['commentsCount'] as num?)?.toInt() ??
-          (data['comments'] as List<dynamic>?)?.length ??
-          0,
+      likesCount: likes.length,
+      commentsCount:
+          (data['commentsCount'] as num?)?.toInt() ?? filteredComments.length,
       sharesCount: (data['sharesCount'] as num?)?.toInt() ?? 0,
       savesCount: (data['savesCount'] as num?)?.toInt() ?? savedBy.length,
       likedByCurrentUser: likedByCurrentUser,
@@ -2906,28 +2923,37 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
         }
 
         final rawPosts = snapshot.data ?? const <Map<String, dynamic>>[];
-        final postsFromDb = rawPosts
-            .where((post) => !_isDeletedAuthorPost(post))
-            .map(_postFromMap)
-            .toList(growable: false);
-        final randomizedPosts = _randomizePostsOnce(postsFromDb);
-        final postsWithoutCurrentUser =
-            _excludeCurrentUserPosts(randomizedPosts);
 
         return StreamBuilder<Set<String>>(
-          stream: _followingIdsStream(),
-          builder: (context, followingSnapshot) {
-            final followingIds = followingSnapshot.data ?? <String>{};
-            final scopedPosts = _postsForFeedScope(
-              postsWithoutCurrentUser,
-              followingIds,
-              alreadyScopedByBackend: usingBackendFeed,
-            );
+          stream: _blockUserService.streamBlockedConnections(),
+          builder: (context, blockedSnapshot) {
+            final blockedUids = blockedSnapshot.data ?? const <String>{};
+            final postsFromDb = rawPosts
+                .where((post) => !_isDeletedAuthorPost(post))
+                .map((post) => _postFromMap(post, blockedUids: blockedUids))
+                .where((post) =>
+                  post.authorId.trim().isEmpty ||
+                  !blockedUids.contains(post.authorId.trim()))
+                .toList(growable: false);
+            final randomizedPosts = _randomizePostsOnce(postsFromDb);
+            final postsWithoutCurrentUser =
+                _excludeCurrentUserPosts(randomizedPosts);
 
-            return FutureBuilder<List<PostModel>>(
-              future: _resolveAudienceFilteredPosts(scopedPosts),
-              builder: (context, audienceSnapshot) {
-                final feedPosts = audienceSnapshot.data ?? const <PostModel>[];
+            return StreamBuilder<Set<String>>(
+              stream: _followingIdsStream(),
+              builder: (context, followingSnapshot) {
+                final followingIds = followingSnapshot.data ?? <String>{};
+                final scopedPosts = _postsForFeedScope(
+                  postsWithoutCurrentUser,
+                  followingIds,
+                  alreadyScopedByBackend: usingBackendFeed,
+                );
+
+                return FutureBuilder<List<PostModel>>(
+                  future: _resolveAudienceFilteredPosts(scopedPosts),
+                  builder: (context, audienceSnapshot) {
+                    final feedPosts =
+                        audienceSnapshot.data ?? const <PostModel>[];
                 final scrollControls = _buildScrollControls(feedPosts.length);
                 final activeFeedIndex = feedPosts.isEmpty
                     ? 0
@@ -2979,6 +3005,8 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                   floatingActionButtonLocation:
                       FloatingActionButtonLocation.startFloat,
                   bottomNavigationBar: const MainBottomNav(currentIndex: 0),
+                );
+                  },
                 );
               },
             );

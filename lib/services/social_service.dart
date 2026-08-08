@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 
+import 'block_user_service.dart';
 import 'notification_service.dart';
 import 'secure_action_queue_service.dart';
 
@@ -26,6 +27,7 @@ class SocialService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _db = FirebaseFirestore.instance;
   final NotificationService _notificationService = NotificationService();
+  final BlockUserService _blockUserService = BlockUserService();
   final SecureActionQueueService _secureQueue = SecureActionQueueService();
 
   String get _currentUid {
@@ -213,6 +215,14 @@ class SocialService {
       throw FirebaseAuthException(
         code: 'invalid-action',
         message: 'You cannot follow yourself.',
+      );
+    }
+
+    final isBlocked = await _blockUserService.isEitherUserBlocked(targetUid);
+    if (isBlocked) {
+      throw FirebaseAuthException(
+        code: 'blocked-user',
+        message: 'חסימה פעילה בין המשתמשים. לא ניתן לעקוב.',
       );
     }
 
@@ -581,6 +591,12 @@ class SocialService {
         normalizedTargetUid.isEmpty ||
         normalizedTargetUid == myUid) {
       return true;
+    }
+
+    final isBlocked =
+        await _blockUserService.isEitherUserBlocked(normalizedTargetUid);
+    if (isBlocked) {
+      return false;
     }
 
     final targetPublicSnapshot =
@@ -983,6 +999,11 @@ class SocialService {
         targetUid.isEmpty ||
         targetUid == myUid) {
       return true;
+    }
+
+    final isBlocked = await _blockUserService.isEitherUserBlocked(targetUid);
+    if (isBlocked) {
+      return false;
     }
 
     final mySnapshot = await _db.collection('users').doc(myUid).get();
