@@ -25,6 +25,7 @@ class ChatRoomScreen extends StatefulWidget {
   final String? avatarUrl;
   final String chatId;
   final bool? isDirectChat;
+  final String? directOtherUserId;
 
   const ChatRoomScreen({
     super.key,
@@ -32,6 +33,7 @@ class ChatRoomScreen extends StatefulWidget {
     this.avatarUrl,
     required this.chatId,
     this.isDirectChat,
+    this.directOtherUserId,
   });
 
   @override
@@ -211,8 +213,11 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         chatId: widget.chatId,
         text: text,
         replyTo: replyTarget?.toMap(),
-        directOtherUserIdHint:
-            (widget.isDirectChat ?? false) ? _latestDirectOtherUid : null,
+        directOtherUserIdHint: (widget.isDirectChat ?? false)
+            ? (_latestDirectOtherUid.trim().isNotEmpty
+                ? _latestDirectOtherUid
+                : (widget.directOtherUserId ?? ''))
+            : null,
         directOtherDisplayNameHint:
             (widget.isDirectChat ?? false) ? widget.chatName : null,
         directOtherAvatarUrlHint:
@@ -238,6 +243,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
               avatarUrl: widget.avatarUrl,
               chatId: effectiveChatId,
               isDirectChat: true,
+              directOtherUserId: widget.directOtherUserId,
             ),
           ),
         );
@@ -2704,7 +2710,10 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
               final chatData = chatSnapshot.data?.data();
               final isDirectChat = _isDirectChat(chatData);
               if (isDirectChat) {
-                _latestDirectOtherUid = _directChatOtherUid(chatData);
+                final resolvedOtherUid = _directChatOtherUid(chatData);
+                _latestDirectOtherUid = resolvedOtherUid.isNotEmpty
+                    ? resolvedOtherUid
+                    : (widget.directOtherUserId ?? '').trim();
               }
               final isDeletedDirectChatProfile =
                   isDirectChat && _isDeletedProfileLabel(widget.chatName);

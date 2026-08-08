@@ -3606,6 +3606,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                 : _profileImageUrl(profileData),
             chatId: chatId,
             isDirectChat: true,
+            directOtherUserId: widget.uid,
           ),
         ),
       );
@@ -3688,6 +3689,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                 : _profileImageUrl(profileData),
             chatId: effectiveChatId,
             isDirectChat: true,
+            directOtherUserId: widget.uid,
           ),
         ),
       );
@@ -3706,7 +3708,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         message = 'לא ניתן לשלוח הודעה: קיימת חסימה בין המשתמשים.';
       } else if (effectiveError is FirebaseException &&
           effectiveError.code == 'permission-denied') {
-        message = 'אין הרשאה לשלוח הודעה למשתמש הזה כרגע.';
+        message = 'לא ניתן לשלוח הודעה למשתמש זה.';
       } else {
         message = 'שליחת הודעה נכשלה: $effectiveError';
       }

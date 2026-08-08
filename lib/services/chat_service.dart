@@ -9,6 +9,18 @@ import 'notification_service.dart';
 import 'block_user_service.dart';
 import 'secure_action_queue_service.dart';
 
+class _ResolvedDirectChatTarget {
+  const _ResolvedDirectChatTarget({
+    required this.chatId,
+    required this.participants,
+    required this.isExisting,
+  });
+
+  final String chatId;
+  final List<String> participants;
+  final bool isExisting;
+}
+
 class ChatService {
   ChatService({
     FirebaseFirestore? firestore,
@@ -24,6 +36,7 @@ class ChatService {
   final NotificationService _notificationService = NotificationService();
   final BlockUserService _blockUserService = BlockUserService();
   final SecureActionQueueService _secureQueue = SecureActionQueueService();
+  final Map<String, String> _resolvedDirectChatIdsByKey = <String, String>{};
 
   void _trace(String message) {
     final now = DateTime.now().toIso8601String();
@@ -33,6 +46,76 @@ class ChatService {
 
   bool _isPermissionDenied(Object error) {
     return error is FirebaseException && error.code == 'permission-denied';
+  }
+
+  void _dispatchMessageNotificationBestEffort({
+    required List<String> recipientUids,
+    required String chatId,
+    required String chatName,
+    required String messageText,
+    required String senderUid,
+    required Stopwatch sw,
+  }) {
+    if (NotificationService.notificationsSuspendedSessionWide) {
+      _trace(
+        'send_message_notification_skipped chatId=$chatId reason=session_suspended elapsedMs=${sw.elapsedMilliseconds}',
+      );
+      return;
+    }
+
+    unawaited(
+      _notificationService
+          .sendNewMessageNotification(
+        recipientUids: recipientUids,
+        chatId: chatId,
+        chatName: chatName,
+        messageText: messageText,
+        senderUid: senderUid,
+      )
+          .catchError((error, stackTrace) {
+        if (error is FirebaseException && error.code == 'permission-denied') {
+          NotificationService.suspendNotificationsSessionWide();
+          _trace(
+            'send_message_notification_suspended reason=permission-denied elapsedMs=${sw.elapsedMilliseconds}',
+          );
+        }
+        _trace(
+          'send_message_notification_failed chatId=$chatId elapsedMs=${sw.elapsedMilliseconds} error=$error',
+        );
+        _trace('send_message_notification_stack=$stackTrace');
+      }),
+    );
+  }
+
+  bool _isRecoverableStreamError(Object error) {
+    if (error is TimeoutException) {
+      return true;
+    }
+    if (error is! FirebaseException) {
+      return false;
+    }
+    return error.code == 'permission-denied' ||
+        error.code == 'failed-precondition' ||
+        error.code == 'unavailable' ||
+        error.code == 'deadline-exceeded' ||
+        error.code == 'resource-exhausted' ||
+        error.code == 'aborted';
+  }
+
+  DateTime _chatSortTimestamp(Map<String, dynamic> data) {
+    final lastMessageAt = data['lastMessageAt'];
+    if (lastMessageAt is Timestamp) {
+      return lastMessageAt.toDate();
+    }
+    final updatedAt = data['updatedAt'];
+    if (updatedAt is Timestamp) {
+      return updatedAt.toDate();
+    }
+    final createdAt = data['createdAt'];
+    if (createdAt is Timestamp) {
+      return createdAt.toDate();
+    }
+    return DateTime.fromMillisecondsSinceEpoch(0);
   }
 
   CollectionReference<Map<String, dynamic>> get _chats =>
@@ -49,77 +132,260 @@ class ChatService {
     return normalized.join('__');
   }
 
-  DateTime? _directChatResetAtForPair(
-    Map<String, dynamic>? userData,
-    String otherUid,
-  ) {
-    if (userData == null) {
-      return null;
+  String directChatIdForUsers(String uidA, String uidB) {
+    final participants = _normalizedDirectParticipants(uidA, uidB);
+    if (participants.length != 2) {
+      throw ArgumentError('Direct chat requires exactly two participants');
     }
-
-    final resetMap = userData['directChatResetAt'];
-    if (resetMap is! Map) {
-      return null;
-    }
-
-    final rawValue = resetMap[otherUid];
-    if (rawValue is Timestamp) {
-      return rawValue.toDate();
-    }
-    return null;
+    return _directChatKey(participants[0], participants[1]);
   }
 
-  Future<DateTime?> _loadDirectChatResetCutoff({
-    required String uidA,
-    required String uidB,
-  }) async {
-    Future<DateTime?> readOne(String ownerUid, String otherUid) async {
-      try {
-        final snap = await _users.doc(ownerUid).get();
-        return _directChatResetAtForPair(snap.data(), otherUid);
-      } catch (_) {
-        return null;
-      }
-    }
-
-    final values = await Future.wait<DateTime?>(<Future<DateTime?>>[
-      readOne(uidA, uidB),
-      readOne(uidB, uidA),
-    ]);
-
-    DateTime? cutoff;
-    for (final value in values) {
-      if (value == null) {
-        continue;
-      }
-      if (cutoff == null || value.isAfter(cutoff)) {
-        cutoff = value;
-      }
-    }
-    return cutoff;
-  }
-
-  bool _directChatMatchesUsers(
+  bool _isCompatibleDirectChatData(
     Map<String, dynamic>? chatData,
-    String uidA,
-    String uidB,
+    List<String> expectedParticipants,
   ) {
     if (chatData == null) {
       return false;
     }
-
-    final participants =
-        ((chatData['participants'] as List<dynamic>?) ?? const <dynamic>[])
-            .map((value) => value.toString().trim())
-            .where((value) => value.isNotEmpty)
-            .toSet();
+    final participants = ((chatData['participants'] as List<dynamic>?) ??
+            const <dynamic>[])
+        .map((value) => value.toString().trim())
+        .where((value) => value.isNotEmpty)
+        .toList(growable: false)
+      ..sort();
     final isPublic = (chatData['isPublic'] as bool?) ?? false;
     final isDirect = (chatData['isDirect'] as bool?) ??
         (!isPublic && participants.length == 2);
-    if (!isDirect) {
+    return isDirect &&
+        participants.length == 2 &&
+        listEquals(participants, expectedParticipants);
+  }
+
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _filterVisibleChatDocs(
+    Iterable<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    return docs.where((doc) {
+      final data = doc.data();
+      final participants =
+          ((data['participants'] as List<dynamic>?) ?? const <dynamic>[])
+              .map((value) => value.toString().trim())
+              .where((value) => value.isNotEmpty)
+              .toList(growable: false);
+      final isPublic = (data['isPublic'] as bool?) ?? false;
+      final isDirect = (data['isDirect'] as bool?) ??
+          (!isPublic && participants.length == 2);
+      if (!isDirect) {
+        return true;
+      }
+      return !_isDirectBlockedForParticipants(data, participants);
+    }).toList(growable: false);
+  }
+
+  Future<String?> _findLegacyDirectChatId(
+    List<String> participants,
+    String directKey,
+  ) async {
+    final primaryUid = participants.first;
+    final snapshot = await _chats
+        .where('participants', arrayContains: primaryUid)
+        .get(const GetOptions(source: Source.serverAndCache));
+
+    final candidates = snapshot.docs.where((doc) {
+      if (doc.id == directKey) {
+        return false;
+      }
+      return _isCompatibleDirectChatData(doc.data(), participants);
+    }).toList(growable: false)
+      ..sort((a, b) =>
+          _chatSortTimestamp(b.data()).compareTo(_chatSortTimestamp(a.data())));
+
+    if (candidates.isEmpty) {
+      return null;
+    }
+
+    return candidates.first.id;
+  }
+
+  Future<_ResolvedDirectChatTarget> _resolveDirectChatTarget({
+    required String otherUserId,
+    required String otherDisplayName,
+    String? otherAvatarUrl,
+    required bool createIfMissing,
+  }) async {
+    final myUid = _requireUid();
+    final normalizedOtherUserId = otherUserId.trim();
+    if (normalizedOtherUserId.isEmpty) {
+      throw ArgumentError('otherUserId cannot be empty');
+    }
+
+    final participants =
+        _normalizedDirectParticipants(myUid, normalizedOtherUserId);
+    if (participants.length != 2) {
+      throw ArgumentError('Direct chat requires exactly two participants');
+    }
+
+    final directKey = _directChatKey(participants[0], participants[1]);
+    final cachedChatId = _resolvedDirectChatIdsByKey[directKey];
+    if (cachedChatId != null && cachedChatId.trim().isNotEmpty) {
+      return _ResolvedDirectChatTarget(
+        chatId: cachedChatId,
+        participants: participants,
+        isExisting: true,
+      );
+    }
+
+    final deterministicRef = _chats.doc(directKey);
+    final deterministicSnapshot = await deterministicRef
+        .get(const GetOptions(source: Source.serverAndCache));
+    if (deterministicSnapshot.exists) {
+      final data = deterministicSnapshot.data() ?? <String, dynamic>{};
+      if (!_isCompatibleDirectChatData(data, participants)) {
+        throw FirebaseException(
+          plugin: 'cloud_firestore',
+          code: 'failed-precondition',
+          message: 'Direct chat slot is occupied by incompatible chat data.',
+        );
+      }
+      _resolvedDirectChatIdsByKey[directKey] = directKey;
+      return _ResolvedDirectChatTarget(
+        chatId: directKey,
+        participants: participants,
+        isExisting: true,
+      );
+    }
+
+    final legacyChatId = await _findLegacyDirectChatId(participants, directKey);
+    if (legacyChatId != null) {
+      _resolvedDirectChatIdsByKey[directKey] = legacyChatId;
+      return _ResolvedDirectChatTarget(
+        chatId: legacyChatId,
+        participants: participants,
+        isExisting: true,
+      );
+    }
+
+    if (!createIfMissing) {
+      return _ResolvedDirectChatTarget(
+        chatId: directKey,
+        participants: participants,
+        isExisting: false,
+      );
+    }
+
+    await deterministicRef.set({
+      'id': directKey,
+      'directChatKey': directKey,
+      'name': otherDisplayName.trim().isNotEmpty
+          ? otherDisplayName.trim()
+          : otherUserId,
+      'groupImageUrl': (otherAvatarUrl ?? '').trim(),
+      'isPublic': false,
+      'isDirect': true,
+      'participants': participants,
+      'lastMessage': '',
+      'lastMessageSenderName': '',
+      'lastMessageSenderId': '',
+      'createdAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    _resolvedDirectChatIdsByKey[directKey] = directKey;
+    return _ResolvedDirectChatTarget(
+      chatId: directKey,
+      participants: participants,
+      isExisting: false,
+    );
+  }
+
+  List<String> _normalizedDirectParticipants(String uidA, String uidB) {
+    final normalized = <String>[uidA.trim(), uidB.trim()]
+      ..removeWhere((uid) => uid.isEmpty)
+      ..sort();
+    return normalized;
+  }
+
+  Map<String, bool> _blockedByMapFromChat(
+    Map<String, dynamic>? chatData,
+    List<String> participants,
+  ) {
+    final blocked = <String, bool>{};
+    final raw = chatData?['blockedBy'];
+    if (raw is Map) {
+      for (final entry in raw.entries) {
+        final key = entry.key.toString().trim();
+        if (key.isEmpty) {
+          continue;
+        }
+        blocked[key] = entry.value == true;
+      }
+    }
+
+    for (final uid in participants) {
+      blocked.putIfAbsent(uid, () => false);
+    }
+    return blocked;
+  }
+
+  bool _isDirectBlockedForParticipants(
+    Map<String, dynamic>? chatData,
+    List<String> participants,
+  ) {
+    if (participants.length != 2) {
       return false;
     }
-    return participants.contains(uidA) && participants.contains(uidB);
+    final blockedBy = _blockedByMapFromChat(chatData, participants);
+    return blockedBy[participants[0]] == true ||
+        blockedBy[participants[1]] == true;
+  }
+
+  Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+      filterVisibleDirectChatsForUser({
+    required List<QueryDocumentSnapshot<Map<String, dynamic>>> chats,
+    required String currentUid,
+    Set<String> blockedUids = const <String>{},
+  }) async {
+    final normalizedCurrentUid = currentUid.trim();
+    if (normalizedCurrentUid.isEmpty || chats.isEmpty) {
+      return const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+    }
+
+    final visible = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+    for (final chatDoc in chats) {
+      final data = chatDoc.data();
+      final participants =
+          ((data['participants'] as List<dynamic>?) ?? const <dynamic>[])
+              .map((value) => value.toString().trim())
+              .where((value) => value.isNotEmpty)
+              .toList(growable: false);
+      final isPublic = (data['isPublic'] as bool?) ?? false;
+      final isDirect = (data['isDirect'] as bool?) ??
+          (!isPublic && participants.length == 2);
+      if (!isDirect) {
+        visible.add(chatDoc);
+        continue;
+      }
+
+      final otherUid = participants.firstWhere(
+        (uid) => uid != normalizedCurrentUid,
+        orElse: () => '',
+      );
+
+      if (otherUid.isEmpty) {
+        continue;
+      }
+
+      if (blockedUids.contains(otherUid)) {
+        continue;
+      }
+
+      if (_isDirectBlockedForParticipants(data, participants)) {
+        continue;
+      }
+
+      visible.add(chatDoc);
+    }
+
+    return visible;
   }
 
   String _requireUid() {
@@ -133,35 +399,6 @@ class ChatService {
     return uid;
   }
 
-  Future<void> _ensureDirectChatAllowedWithUser(String otherUid) async {
-    final normalizedOtherUid = otherUid.trim();
-    if (normalizedOtherUid.isEmpty) {
-      return;
-    }
-
-    bool isBlocked;
-    try {
-      isBlocked =
-          await _blockUserService.isEitherUserBlocked(normalizedOtherUid);
-    } on FirebaseException catch (error) {
-      if (error.code != 'permission-denied') {
-        rethrow;
-      }
-
-      // Under strict rules we might not be allowed to read the other user's
-      // blocked_users doc directly. In that case, only enforce local block
-      // state here and let Firestore rules enforce cross-user block policy.
-      isBlocked = await _blockUserService.isBlockedByMe(normalizedOtherUid);
-    }
-
-    if (isBlocked) {
-      throw FirebaseAuthException(
-        code: 'blocked-user',
-        message: 'חסימה פעילה בין המשתמשים. לא ניתן לפתוח צ\'אט ישיר.',
-      );
-    }
-  }
-
   Future<void> _assertChatInteractionAllowed(
     Map<String, dynamic> chatContext,
   ) async {
@@ -170,13 +407,15 @@ class ChatService {
       return;
     }
 
-    final directOtherUid =
-        (chatContext['directOtherUid'] as String? ?? '').trim();
-    if (directOtherUid.isEmpty) {
-      return;
+    final isBlocked = (chatContext['isDirectBlocked'] as bool?) ?? false;
+    if (isBlocked) {
+      throw FirebaseAuthException(
+        code: 'blocked-user',
+        message: 'חסימה פעילה בין המשתמשים. לא ניתן לשלוח הודעה בצ\'אט זה.',
+      );
     }
 
-    await _ensureDirectChatAllowedWithUser(directOtherUid);
+    return;
   }
 
   Future<String> createChat({
@@ -213,7 +452,6 @@ class ChatService {
   }) async {
     final sw = Stopwatch()..start();
     _trace('find_or_create_start other=$otherUserId');
-    final myUid = _requireUid();
     final normalizedOtherUserId = otherUserId.trim();
     if (normalizedOtherUserId.isEmpty) {
       _trace(
@@ -221,99 +459,16 @@ class ChatService {
       throw ArgumentError('otherUserId cannot be empty');
     }
 
-    await _ensureDirectChatAllowedWithUser(normalizedOtherUserId);
-    _trace('find_or_create_block_check_ok elapsedMs=${sw.elapsedMilliseconds}');
-
-    final directKey = _directChatKey(myUid, normalizedOtherUserId);
-    final resetCutoff = await _loadDirectChatResetCutoff(
-      uidA: myUid,
-      uidB: normalizedOtherUserId,
+    final resolved = await _resolveDirectChatTarget(
+      otherUserId: normalizedOtherUserId,
+      otherDisplayName: otherDisplayName,
+      otherAvatarUrl: otherAvatarUrl,
+      createIfMissing: true,
     );
     _trace(
-      'find_or_create_reset_cutoff cutoff=$resetCutoff elapsedMs=${sw.elapsedMilliseconds}',
+      'find_or_create_done chatId=${resolved.chatId} existed=${resolved.isExisting} elapsedMs=${sw.elapsedMilliseconds}',
     );
-
-    final snapshot =
-        await _chats.where('participants', arrayContains: myUid).get();
-
-    QueryDocumentSnapshot<Map<String, dynamic>>? bestExisting;
-    DateTime bestDate = DateTime.fromMillisecondsSinceEpoch(0);
-
-    for (final doc in snapshot.docs) {
-      final data = doc.data();
-      if (!_directChatMatchesUsers(data, myUid, normalizedOtherUserId)) {
-        continue;
-      }
-
-      if (resetCutoff != null) {
-        final createdAt = (data['createdAt'] as Timestamp?)?.toDate();
-        if (createdAt == null || createdAt.isBefore(resetCutoff)) {
-          _trace(
-            'find_or_create_skip_stale chatId=${doc.id} createdAt=$createdAt cutoff=$resetCutoff',
-          );
-          continue;
-        }
-      }
-
-      final messageAt = (data['lastMessageAt'] as Timestamp?)?.toDate();
-      final updatedAt = (data['updatedAt'] as Timestamp?)?.toDate();
-      final createdAt = (data['createdAt'] as Timestamp?)?.toDate();
-      final candidateDate = messageAt ??
-          updatedAt ??
-          createdAt ??
-          DateTime.fromMillisecondsSinceEpoch(0);
-
-      if (bestExisting == null || candidateDate.isAfter(bestDate)) {
-        bestExisting = doc;
-        bestDate = candidateDate;
-      }
-    }
-
-    if (bestExisting != null) {
-      _trace(
-        'find_or_create_found_existing chatId=${bestExisting.id} elapsedMs=${sw.elapsedMilliseconds}',
-      );
-      final existingKey =
-          (bestExisting.data()['directChatKey'] as String? ?? '').trim();
-      if (existingKey != directKey) {
-        unawaited(
-          bestExisting.reference.set(
-            {
-              'directChatKey': directKey,
-              'updatedAt': FieldValue.serverTimestamp(),
-            },
-            SetOptions(merge: true),
-          ).catchError((_) {}),
-        );
-      }
-      return bestExisting.id;
-    }
-
-    final chatRef = _chats.doc();
-    _trace(
-        'find_or_create_create_new chatId=${chatRef.id} elapsedMs=${sw.elapsedMilliseconds}');
-    await chatRef.set({
-      'id': chatRef.id,
-      'directChatKey': directKey,
-      'name': otherDisplayName.trim().isNotEmpty
-          ? otherDisplayName.trim()
-          : otherUserId,
-      'groupImageUrl': (otherAvatarUrl ?? '').trim(),
-      'isPublic': false,
-      'isDirect': true,
-      'participants': <String>[myUid, normalizedOtherUserId],
-      'lastMessage': '',
-      'lastMessageSenderName': '',
-      'lastMessageSenderId': '',
-      'lastMessageAt': FieldValue.serverTimestamp(),
-      'lifecycleStartedAt': FieldValue.serverTimestamp(),
-      'createdAt': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
-
-    _trace(
-        'find_or_create_created chatId=${chatRef.id} elapsedMs=${sw.elapsedMilliseconds}');
-    return chatRef.id;
+    return resolved.chatId;
   }
 
   Future<void> joinChatAtomically({
@@ -367,6 +522,43 @@ class ChatService {
     return _chats.where('participants', arrayContains: userId).snapshots();
   }
 
+  Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+      streamUserChatsSafeDocs(String userId) {
+    final normalizedUserId = userId.trim();
+    if (normalizedUserId.isEmpty) {
+      return Stream.value(
+          const <QueryDocumentSnapshot<Map<String, dynamic>>>[]);
+    }
+
+    return Stream.multi((controller) {
+      List<QueryDocumentSnapshot<Map<String, dynamic>>>? lastGoodDocs;
+
+      final sub = streamUserChats(normalizedUserId).listen(
+        (snapshot) {
+          final docs = _filterVisibleChatDocs(snapshot.docs);
+          lastGoodDocs = docs;
+          controller.add(docs);
+        },
+        onError: (error, stackTrace) {
+          if (_isRecoverableStreamError(error)) {
+            _trace(
+              'stream_user_chats_recoverable_error user=$normalizedUserId errorType=${error.runtimeType} error=$error',
+            );
+            if (lastGoodDocs != null) {
+              controller.add(lastGoodDocs!);
+            }
+            return;
+          }
+          controller.addError(error, stackTrace);
+        },
+      );
+
+      controller.onCancel = () async {
+        await sub.cancel();
+      };
+    });
+  }
+
   Stream<QuerySnapshot<Map<String, dynamic>>> streamPublicChats() {
     return _chats.where('isPublic', isEqualTo: true).snapshots();
   }
@@ -381,6 +573,43 @@ class ChatService {
             : const <String>[];
         return !participants.contains(userId);
       }).toList(growable: false);
+    });
+  }
+
+  Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+      streamPublicChatsExcludingUserSafe(String userId) {
+    final normalizedUserId = userId.trim();
+    if (normalizedUserId.isEmpty) {
+      return Stream.value(
+          const <QueryDocumentSnapshot<Map<String, dynamic>>>[]);
+    }
+
+    return Stream.multi((controller) {
+      List<QueryDocumentSnapshot<Map<String, dynamic>>>? lastGoodDocs;
+
+      final sub = streamPublicChatsExcludingUser(normalizedUserId).listen(
+        (docs) {
+          final filtered = _filterVisibleChatDocs(docs);
+          lastGoodDocs = filtered;
+          controller.add(filtered);
+        },
+        onError: (error, stackTrace) {
+          if (_isRecoverableStreamError(error)) {
+            _trace(
+              'stream_public_chats_recoverable_error user=$normalizedUserId errorType=${error.runtimeType} error=$error',
+            );
+            if (lastGoodDocs != null) {
+              controller.add(lastGoodDocs!);
+            }
+            return;
+          }
+          controller.addError(error, stackTrace);
+        },
+      );
+
+      controller.onCancel = () async {
+        await sub.cancel();
+      };
     });
   }
 
@@ -498,7 +727,13 @@ class ChatService {
             values[chatId] = lastReadAt;
             emit();
           },
-          onError: controller.addError,
+          onError: (error, stackTrace) {
+            if (_isRecoverableStreamError(error)) {
+              emit();
+              return;
+            }
+            controller.addError(error, stackTrace);
+          },
         );
         subscriptions.add(sub);
       }
@@ -585,84 +820,43 @@ class ChatService {
       _trace(
           'send_message_chat_updated chatId=$targetChatId elapsedMs=${sw.elapsedMilliseconds}');
 
-      unawaited(
-        _notificationService
-            .sendNewMessageNotification(
-              recipientUids: participants,
-              chatId: targetChatId,
-              chatName: chatName,
-              messageText: trimmed,
-              senderUid: uid,
-            )
-            .timeout(const Duration(seconds: 4))
-            .then((_) {
-          _trace(
-            'send_message_notification_done chatId=$targetChatId elapsedMs=${sw.elapsedMilliseconds}',
-          );
-        }).catchError((error, stackTrace) {
-          _trace(
-            'send_message_notification_failed chatId=$targetChatId elapsedMs=${sw.elapsedMilliseconds} error=$error',
-          );
-          _trace('send_message_notification_stack=$stackTrace');
-        }),
+      _dispatchMessageNotificationBestEffort(
+        recipientUids: participants,
+        chatId: targetChatId,
+        chatName: chatName,
+        messageText: trimmed,
+        senderUid: uid,
+        sw: sw,
       );
-    }
-
-    bool canAttemptDirectRecovery(Object error) {
-      if (error is TimeoutException) {
-        return true;
-      }
-      if (error is! FirebaseException) {
-        return false;
-      }
-      return error.code == 'permission-denied' || error.code == 'not-found';
     }
 
     final normalizedDirectOtherUid = (directOtherUserIdHint ?? '').trim();
-    final canRecoverToAnotherDirectChat =
+    final isDeterministicDirectTarget =
         normalizedDirectOtherUid.isNotEmpty && normalizedDirectOtherUid != uid;
 
+    var targetChatId = chatId;
+    if (isDeterministicDirectTarget) {
+      final resolved = await _resolveDirectChatTarget(
+        otherUserId: normalizedDirectOtherUid,
+        otherDisplayName: (directOtherDisplayNameHint ?? '').trim().isNotEmpty
+            ? (directOtherDisplayNameHint ?? '').trim()
+            : normalizedDirectOtherUid,
+        otherAvatarUrl: (directOtherAvatarUrlHint ?? '').trim(),
+        createIfMissing: true,
+      );
+      targetChatId = resolved.chatId;
+    }
+
     try {
-      await sendOnceToChat(chatId);
+      await sendOnceToChat(targetChatId);
       _trace(
-          'send_message_end chatId=$chatId elapsedMs=${sw.elapsedMilliseconds}');
-      return chatId;
+          'send_message_end chatId=$targetChatId elapsedMs=${sw.elapsedMilliseconds}');
+      return targetChatId;
     } catch (error) {
       _trace(
-        'send_message_primary_failed chatId=$chatId type=${error.runtimeType} error=$error elapsedMs=${sw.elapsedMilliseconds}',
+        'send_message_primary_failed chatId=$targetChatId type=${error.runtimeType} error=$error elapsedMs=${sw.elapsedMilliseconds}',
       );
-
-      if (!canRecoverToAnotherDirectChat || !canAttemptDirectRecovery(error)) {
-        rethrow;
-      }
-
-      final fallbackDisplayName =
-          (directOtherDisplayNameHint ?? '').trim().isNotEmpty
-              ? (directOtherDisplayNameHint ?? '').trim()
-              : normalizedDirectOtherUid;
-      final fallbackAvatar = (directOtherAvatarUrlHint ?? '').trim();
-
-      final recoveredChatId = await findOrCreateDirectChat(
-        otherUserId: normalizedDirectOtherUid,
-        otherDisplayName: fallbackDisplayName,
-        otherAvatarUrl: fallbackAvatar,
-      );
-
-      if (recoveredChatId == chatId) {
-        _trace(
-          'send_message_recovery_same_chat chatId=$chatId elapsedMs=${sw.elapsedMilliseconds}',
-        );
-        rethrow;
-      }
-
-      _trace(
-        'send_message_recovery_chat_switch from=$chatId to=$recoveredChatId elapsedMs=${sw.elapsedMilliseconds}',
-      );
-      await sendOnceToChat(recoveredChatId);
-      _trace(
-        'send_message_end_recovered chatId=$recoveredChatId elapsedMs=${sw.elapsedMilliseconds}',
-      );
-      return recoveredChatId;
+      rethrow;
     }
   }
 
@@ -751,17 +945,14 @@ class ChatService {
       // Best effort only. The media message already exists even if metadata writes are blocked.
     }
 
-    try {
-      await _notificationService.sendNewMessageNotification(
-        recipientUids: participants,
-        chatId: chatRef.id,
-        chatName: chatName,
-        messageText: preview,
-        senderUid: uid,
-      );
-    } catch (_) {
-      // Best effort only. Do not fail the media send if notification writes are blocked.
-    }
+    _dispatchMessageNotificationBestEffort(
+      recipientUids: participants,
+      chatId: chatRef.id,
+      chatName: chatName,
+      messageText: preview,
+      senderUid: uid,
+      sw: Stopwatch()..start(),
+    );
   }
 
   Future<void> sendAudioMessage({
@@ -822,19 +1013,13 @@ class ChatService {
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
 
-    unawaited(
-      _notificationService
-          .sendNewMessageNotification(
-            recipientUids: participants,
-            chatId: chatRef.id,
-            chatName: chatName,
-            messageText: preview,
-            senderUid: uid,
-          )
-          .timeout(const Duration(seconds: 4))
-          .catchError((_) {
-        // Best effort only.
-      }),
+    _dispatchMessageNotificationBestEffort(
+      recipientUids: participants,
+      chatId: chatRef.id,
+      chatName: chatName,
+      messageText: preview,
+      senderUid: uid,
+      sw: Stopwatch()..start(),
     );
   }
 
@@ -1355,7 +1540,18 @@ class ChatService {
     DocumentReference<Map<String, dynamic>> chatRef,
   ) async {
     final currentUid = _auth.currentUser?.uid.trim() ?? '';
-    final chatSnap = await chatRef.get().timeout(const Duration(seconds: 10));
+    DocumentSnapshot<Map<String, dynamic>> chatSnap;
+    try {
+      chatSnap = await chatRef
+          .get(const GetOptions(source: Source.serverAndCache))
+          .timeout(const Duration(seconds: 6));
+    } on TimeoutException {
+      // Fall back to local cache to keep navigation/send responsive during
+      // transient backend stalls.
+      chatSnap = await chatRef
+          .get(const GetOptions(source: Source.cache))
+          .timeout(const Duration(seconds: 2));
+    }
     if (!chatSnap.exists) {
       throw FirebaseException(
         plugin: 'cloud_firestore',
@@ -1373,6 +1569,8 @@ class ChatService {
     final isPublic = (chatData['isPublic'] as bool?) ?? false;
     final isDirect = (chatData['isDirect'] as bool?) ??
         (!isPublic && participants.length == 2);
+    final isDirectBlocked =
+        isDirect && _isDirectBlockedForParticipants(chatData, participants);
     var directOtherUid = '';
     if (isDirect && participants.length == 2 && currentUid.isNotEmpty) {
       directOtherUid = participants.firstWhere(
@@ -1384,6 +1582,7 @@ class ChatService {
       'participants': participants,
       'chatName': chatName,
       'isDirect': isDirect,
+      'isDirectBlocked': isDirectBlocked,
       'directOtherUid': directOtherUid,
     };
   }

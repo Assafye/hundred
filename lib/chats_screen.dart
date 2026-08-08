@@ -70,15 +70,18 @@ class _ChatsScreenState extends State<ChatsScreen> {
   final Map<String, Future<Map<String, Map<String, String>>>>
       _directChatSummariesCache =
       <String, Future<Map<String, Map<String, String>>>>{};
+  final Map<String, Map<String, Map<String, String>>>
+      _directChatSummariesLastGood =
+      <String, Map<String, Map<String, String>>>{};
   final Map<String, Future<DocumentSnapshot<Map<String, dynamic>>>>
       _groupDetailsCache =
       <String, Future<DocumentSnapshot<Map<String, dynamic>>>>{};
   final Map<String, Future<List<_GlobalSearchResult>>> _globalSearchCache =
       <String, Future<List<_GlobalSearchResult>>>{};
   String _streamsUid = '';
-  Stream<QuerySnapshot<Map<String, dynamic>>>? _userChatsStream;
+  Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>>? _userChatsStream;
   Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>>? _publicChatsStream;
-  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
+  StreamSubscription<List<QueryDocumentSnapshot<Map<String, dynamic>>>>?
       _userChatsNotificationsSub;
 
   Set<String> _myFriendIds = <String>{};
@@ -156,9 +159,9 @@ class _ChatsScreenState extends State<ChatsScreen> {
 
     _streamsUid = normalizedUid;
     _userChatsStream =
-        _chatService.streamUserChats(normalizedUid).asBroadcastStream();
+        _chatService.streamUserChatsSafeDocs(normalizedUid).asBroadcastStream();
     _publicChatsStream =
-        _chatService.streamPublicChatsExcludingUser(normalizedUid);
+        _chatService.streamPublicChatsExcludingUserSafe(normalizedUid);
   }
 
   void _attachUserChatsNotificationsStream(String uid) {
@@ -175,12 +178,68 @@ class _ChatsScreenState extends State<ChatsScreen> {
       return;
     }
 
-    _userChatsNotificationsSub = stream.listen((snapshot) {
+    _userChatsNotificationsSub = stream.listen((docs) {
+      unawaited(
+        _refreshTabNotificationsFromChatsDocs(docs, normalizedUid),
+      );
+    }, onError: (Object error, StackTrace stackTrace) {
+      debugPrint('Chats notifications stream error: $error');
+      if (!mounted) {
+        return;
+      }
       _processTabNotificationsFromChats(
-        snapshot.docs.toList(growable: false),
+        const <QueryDocumentSnapshot<Map<String, dynamic>>>[],
         normalizedUid,
       );
     });
+  }
+
+  Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+      _resolveVisibleDirectChats(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> directDocs,
+    String currentUid,
+  ) async {
+    Set<String> blockedUids = const <String>{};
+    try {
+      blockedUids = await _blockUserService.fetchBlockedConnections();
+    } catch (_) {
+      blockedUids = const <String>{};
+    }
+
+    return _chatService.filterVisibleDirectChatsForUser(
+      chats: directDocs,
+      currentUid: currentUid,
+      blockedUids: blockedUids,
+    );
+  }
+
+  Future<void> _refreshTabNotificationsFromChatsDocs(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+    String currentUid,
+  ) async {
+    final directDocs = docs.where((doc) => _isDirectChat(doc.data())).toList(
+          growable: false,
+        );
+    final groupDocs = docs.where((doc) => !_isDirectChat(doc.data())).toList(
+          growable: false,
+        );
+
+    final visibleDirectDocs = await _resolveVisibleDirectChats(
+      directDocs,
+      currentUid,
+    );
+
+    if (!mounted) {
+      return;
+    }
+
+    _processTabNotificationsFromChats(
+      <QueryDocumentSnapshot<Map<String, dynamic>>>[
+        ...visibleDirectDocs,
+        ...groupDocs,
+      ],
+      currentUid,
+    );
   }
 
   String _directChatOtherUserId(
@@ -227,7 +286,21 @@ class _ChatsScreenState extends State<ChatsScreen> {
     final cacheKey = otherUserIds.join('|');
     return _directChatSummariesCache.putIfAbsent(
       cacheKey,
-      () => _chatService.fetchUserSummaries(otherUserIds),
+      () async {
+        try {
+          final summaries = await _chatService.fetchUserSummaries(otherUserIds);
+          _directChatSummariesLastGood[cacheKey] = summaries;
+          return summaries;
+        } catch (_) {
+          final lastGood = _directChatSummariesLastGood[cacheKey];
+          if (lastGood != null) {
+            return lastGood;
+          }
+          return const <String, Map<String, String>>{};
+        } finally {
+          _directChatSummariesCache.remove(cacheKey);
+        }
+      },
     );
   }
 
@@ -1358,7 +1431,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
     }
     _ensureStableChatStreams(currentUser.uid);
 
-    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+    return StreamBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
       stream: _userChatsStream,
       builder: (context, chatSnapshot) {
         if (chatSnapshot.connectionState == ConnectionState.waiting &&
@@ -1370,38 +1443,38 @@ class _ChatsScreenState extends State<ChatsScreen> {
         }
 
         if (chatSnapshot.hasError) {
-          return _buildErrorState(
-              'שגיאה בטעינת הקבוצות: ${chatSnapshot.error}');
+          return _buildCenteredMessage('אין עדיין צאטים עם משתמשים');
         }
 
-        final docs = chatSnapshot.data?.docs.toList(growable: false) ??
+        final docs = chatSnapshot.data ??
             const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
         final directDocs = docs
             .where((doc) => _isDirectChat(doc.data()))
             .toList(growable: false);
         final filteredDocs = _filterAndSortChats(directDocs);
-        if (filteredDocs.isEmpty) {
-          return _buildCenteredMessage('אין עדיין צאטים עם משתמשים');
-        }
 
-        final chatIds =
-            filteredDocs.map((doc) => doc.id).toList(growable: false);
-
-        return StreamBuilder<Map<String, DateTime?>>(
-          stream: _chatService.streamMyReadReceipts(
-            userId: currentUser.uid,
-            chatIds: chatIds,
-          ),
-          builder: (context, readSnapshot) {
-            if (readSnapshot.hasError) {
-              return _buildErrorState(
-                  'שגיאה בטעינת מצב הקריאה: ${readSnapshot.error}');
+        return FutureBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
+          future: _resolveVisibleDirectChats(filteredDocs, currentUser.uid),
+          builder: (context, visibleSnapshot) {
+            if (visibleSnapshot.connectionState != ConnectionState.done &&
+                !visibleSnapshot.hasData) {
+              return _buildChatsLoadingSkeleton();
             }
 
-            final readReceipts =
-                readSnapshot.data ?? const <String, DateTime?>{};
+            if (visibleSnapshot.hasError) {
+              return _buildErrorState(
+                'שגיאה בסינון שיחות: ${visibleSnapshot.error}',
+              );
+            }
+
+            final visibleDocs = visibleSnapshot.data ??
+                const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+            if (visibleDocs.isEmpty) {
+              return _buildCenteredMessage('אין עדיין צאטים עם משתמשים');
+            }
+
             return FutureBuilder<Map<String, Map<String, String>>>(
-              future: _directChatSummaries(filteredDocs, currentUser.uid),
+              future: _directChatSummaries(visibleDocs, currentUser.uid),
               builder: (context, summarySnapshot) {
                 if (summarySnapshot.connectionState != ConnectionState.done &&
                     !summarySnapshot.hasData) {
@@ -1420,20 +1493,14 @@ class _ChatsScreenState extends State<ChatsScreen> {
                 return ListView.builder(
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
-                  itemCount: filteredDocs.length,
+                  itemCount: visibleDocs.length,
                   itemBuilder: (context, index) {
-                    final chatDoc = filteredDocs[index];
+                    final chatDoc = visibleDocs[index];
                     final chatData = chatDoc.data();
                     final description =
                         (chatData['description'] as String?) ?? '';
                     final lastMessage =
                         (chatData['lastMessage'] as String?) ?? '';
-                    final lastMessageSenderName =
-                        ((chatData['lastMessageSenderName'] as String?) ?? '')
-                            .trim();
-                    final lastMessageSenderId =
-                        ((chatData['lastMessageSenderId'] as String?) ?? '')
-                            .trim();
                     final isPublic = (chatData['isPublic'] as bool?) ?? false;
                     final participants = List<String>.from(
                       (chatData['participants'] as List<dynamic>?) ??
@@ -1443,43 +1510,30 @@ class _ChatsScreenState extends State<ChatsScreen> {
                         (!isPublic && participants.length == 2);
                     final otherUserId =
                         _directChatOtherUserId(chatData, currentUser.uid);
+
                     if (isDirectChat && !summaries.containsKey(otherUserId)) {
                       return const Padding(
-                      padding:
-                        EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                      child: _ChatLoadingTile(),
+                        padding:
+                            EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        child: _ChatLoadingTile(),
                       );
                     }
+
                     final otherUserSummary =
                         summaries[otherUserId] ?? const <String, String>{};
                     final chatName = isDirectChat
                         ? ((otherUserSummary['name'] ?? '').trim().isNotEmpty
                             ? (otherUserSummary['name'] ?? '').trim()
-                        : 'טוען...')
+                            : 'טוען...')
                         : ((chatData['name'] as String?) ?? 'Chat');
                     final imageUrl = isDirectChat
-                        ? ((otherUserSummary['avatarUrl'] ?? '')
-                                .trim()
-                                .isNotEmpty
-                            ? (otherUserSummary['avatarUrl'] ?? '').trim()
-                        : '')
-                        : ((chatData['groupImageUrl'] as String?) ?? '');
+                        ? ((otherUserSummary['avatarUrl'] ?? '').trim())
+                        : ((chatData['groupImageUrl'] as String?) ?? '').trim();
                     final activityDate = _chatActivityDate(chatData);
-                    final lastReadAt = readReceipts[chatDoc.id];
-                    final hasUnread = _hasUnreadMessages(
-                      lastMessageAt: _timestampToDate(
-                          chatData['lastMessageAt'] as Timestamp?),
-                      lastReadAt: lastReadAt,
-                    );
 
-                    final directSubtitleText = lastMessage.isNotEmpty
-                      ? lastMessage
-                      : (description.isEmpty ? 'צאט פעיל' : description);
-                    final groupSubtitleText = lastMessage.isNotEmpty
-                      ? (lastMessageSenderName.isNotEmpty
-                        ? '$lastMessageSenderName: $lastMessage'
-                        : lastMessage)
-                      : (description.isEmpty ? 'קבוצה פעילה' : description);
+                    final subtitleText = lastMessage.isNotEmpty
+                        ? lastMessage
+                        : (description.isEmpty ? 'צאט פעיל' : description);
 
                     final tile = Container(
                       decoration: BoxDecoration(
@@ -1497,10 +1551,11 @@ class _ChatsScreenState extends State<ChatsScreen> {
                               MaterialPageRoute(
                                 builder: (context) => ChatRoomScreen(
                                   chatName: chatName,
-                                  avatarUrl:
-                                      imageUrl.isEmpty ? null : imageUrl,
+                                  avatarUrl: imageUrl.isEmpty ? null : imageUrl,
                                   chatId: chatDoc.id,
                                   isDirectChat: isDirectChat,
+                                  directOtherUserId:
+                                      isDirectChat ? otherUserId : null,
                                 ),
                               ),
                             );
@@ -1514,101 +1569,35 @@ class _ChatsScreenState extends State<ChatsScreen> {
                                   groupId: chatDoc.id,
                                   fallbackImageUrl: imageUrl,
                                 ),
-                          title: Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  chatName,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    fontFamily: 'Segoe UI',
-                                    color:
-                                        isLight ? Colors.black : Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                              if (isPublic && !isDirectChat) ...[
-                                const SizedBox(width: 8),
-                                _buildPublicGroupBadge(),
-                              ],
-                            ],
+                          title: Text(
+                            chatName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontFamily: 'Segoe UI',
+                              color: isLight ? Colors.black : Colors.white,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
-                          subtitle: isDirectChat
-                              ? Text(
-                                  directSubtitleText,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    color: isLight
-                                        ? Colors.black87
-                                        : Colors.grey[400],
-                                  ),
-                                )
-                              : (lastMessage.isNotEmpty &&
-                                      lastMessageSenderId != currentUser.uid)
-                                  ? StreamBuilder<String>(
-                                      stream: _lastSenderNameStream(
-                                        chatDoc.id,
-                                        currentUser.uid,
-                                      ),
-                                      builder: (context, senderSnapshot) {
-                                        final resolvedSender =
-                                            (senderSnapshot.data ?? '').trim();
-                                        final resolvedSubtitle =
-                                            resolvedSender.isNotEmpty
-                                                ? '$resolvedSender: $lastMessage'
-                                                : groupSubtitleText;
-                                        return Text(
-                                          resolvedSubtitle,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: TextStyle(
-                                            color: isLight
-                                                ? Colors.black87
-                                                : Colors.grey[400],
-                                          ),
-                                        );
-                                      },
-                                    )
-                                  : Text(
-                                      groupSubtitleText,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        color: isLight
-                                            ? Colors.black87
-                                            : Colors.grey[400],
-                                      ),
-                                    ),
+                          subtitle: Text(
+                            subtitleText,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color:
+                                  isLight ? Colors.black87 : Colors.grey[400],
+                            ),
+                          ),
                           trailing: SizedBox(
-                            height: double.infinity,
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.start,
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              children: [
-                                SizedBox(
-                                  width: 92,
-                                  child: Text(
-                                    _formatRelativeTime(activityDate),
-                                    textAlign: TextAlign.end,
-                                    style: TextStyle(
-                                      color: isLight
-                                          ? Colors.black54
-                                          : Colors.grey[500],
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                ),
-                                if (hasUnread) ...[
-                                  const SizedBox(height: 6),
-                                  _buildUnreadOverlayBadge(
-                                    chatId: chatDoc.id,
-                                    lastReadAt: lastReadAt,
-                                  ),
-                                ],
-                              ],
+                            width: 92,
+                            child: Text(
+                              _formatRelativeTime(activityDate),
+                              textAlign: TextAlign.end,
+                              style: TextStyle(
+                                color:
+                                    isLight ? Colors.black54 : Colors.grey[500],
+                                fontSize: 12,
+                              ),
                             ),
                           ),
                         ),
@@ -1620,7 +1609,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
                           horizontal: 16, vertical: 8),
                       child: _buildChatFrame(
                         child: tile,
-                        hasUnread: hasUnread,
+                        hasUnread: false,
                       ),
                     );
                   },
@@ -1665,8 +1654,12 @@ class _ChatsScreenState extends State<ChatsScreen> {
         }
 
         if (snapshot.hasError) {
-          return _buildErrorState(
-              'שגיאה בטעינת קבוצות ציבוריות: ${snapshot.error}');
+          return Column(
+            children: [
+              _buildPublicGroupsFiltersBar(),
+              _buildPublicGroupsEmptyState(context),
+            ],
+          );
         }
 
         final docs = snapshot.data ??
@@ -3206,7 +3199,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
     }
     _ensureStableChatStreams(currentUser.uid);
 
-    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+    return StreamBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
       stream: _userChatsStream,
       builder: (context, chatSnapshot) {
         if (chatSnapshot.connectionState == ConnectionState.waiting &&
@@ -3218,11 +3211,10 @@ class _ChatsScreenState extends State<ChatsScreen> {
         }
 
         if (chatSnapshot.hasError) {
-          return _buildErrorState(
-              'שגיאה בטעינת הקבוצות: ${chatSnapshot.error}');
+          return _buildCenteredMessage('אין עדיין קבוצות');
         }
 
-        final docs = chatSnapshot.data?.docs.toList(growable: false) ??
+        final docs = chatSnapshot.data ??
             const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
         final groupDocs = docs
             .where((doc) => !_isDirectChat(doc.data()))
@@ -3242,6 +3234,9 @@ class _ChatsScreenState extends State<ChatsScreen> {
             chatIds: chatIds,
           ),
           builder: (context, readSnapshot) {
+            if (readSnapshot.hasError) {
+              return _buildCenteredMessage('אין עדיין קבוצות');
+            }
             final readReceipts =
                 readSnapshot.data ?? const <String, DateTime?>{};
 
@@ -3492,134 +3487,6 @@ class _ChatsScreenState extends State<ChatsScreen> {
           child: _ChatLoadingTile(),
         );
       },
-    );
-  }
-
-  Stream<int> _unreadMessagesCountStream({
-    required String chatId,
-    required DateTime? lastReadAt,
-  }) {
-    final messages = FirebaseFirestore.instance
-        .collection('chats')
-        .doc(chatId)
-        .collection('messages');
-
-    final stream = lastReadAt == null
-        ? messages.snapshots()
-        : messages
-            .where('timestamp', isGreaterThan: Timestamp.fromDate(lastReadAt))
-            .snapshots();
-
-    return stream.map((snapshot) => snapshot.docs.length);
-  }
-
-  Stream<String> _lastSenderNameStream(String chatId, String currentUserId) {
-    return FirebaseFirestore.instance
-        .collection('chats')
-        .doc(chatId)
-        .collection('messages')
-        .orderBy('timestamp', descending: true)
-        .limit(1)
-        .snapshots()
-        .asyncMap((snapshot) async {
-      if (snapshot.docs.isEmpty) {
-        return '';
-      }
-
-      final data = snapshot.docs.first.data();
-      final senderId = ((data['senderId'] as String?) ?? '').trim();
-      final senderName = ((data['senderName'] as String?) ?? '').trim();
-      if (senderId.isEmpty) {
-        return senderName;
-      }
-      if (senderId == currentUserId) {
-        return 'את.ה';
-      }
-
-      final summaries =
-          await _chatService.fetchUserSummaries(<String>[senderId]);
-      final resolvedName = ((summaries[senderId]?['name'] ?? '')).trim();
-      if (resolvedName.isNotEmpty) {
-        return resolvedName;
-      }
-      if (senderName.isNotEmpty) {
-        return senderName;
-      }
-      return 'משתמש';
-    });
-  }
-
-  Widget _buildUnreadBadge(int unreadCount) {
-    final label = unreadCount > 99 ? '99+' : '$unreadCount';
-    final isLight = Theme.of(context).brightness == Brightness.light;
-    const badgeSize = 30.0;
-
-    return Container(
-      width: badgeSize,
-      height: badgeSize,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: LinearGradient(
-          colors: isLight
-              ? const [Color(0xFF9EEBFF), Color(0xFFC9B7FF)]
-              : const [Color(0xFFBCA7FF), Color(0xFF8EE6FF)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF53C1F9).withValues(alpha: 0.28),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
-          ),
-          BoxShadow(
-            color: const Color(0xFFB79BFF).withValues(alpha: 0.24),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Center(
-        child: FittedBox(
-          fit: BoxFit.scaleDown,
-          child: Text(
-            label,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontFamily: 'Segoe UI',
-              color: isLight ? Colors.white : Colors.black,
-              fontSize: 11,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildUnreadOverlayBadge({
-    required String chatId,
-    required DateTime? lastReadAt,
-  }) {
-    return SizedBox(
-      width: 30,
-      height: 30,
-      child: StreamBuilder<int>(
-        stream: _unreadMessagesCountStream(
-          chatId: chatId,
-          lastReadAt: lastReadAt,
-        ),
-        builder: (context, unreadSnapshot) {
-          final unreadCount = unreadSnapshot.data;
-          if (unreadCount == null) {
-            return const SizedBox.shrink();
-          }
-          if (unreadCount <= 0) {
-            return const SizedBox.shrink();
-          }
-          return _buildUnreadBadge(unreadCount);
-        },
-      ),
     );
   }
 
@@ -4057,12 +3924,10 @@ class _ChatLoadingTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isLight = Theme.of(context).brightness == Brightness.light;
-    final baseColor = isLight
-        ? const Color(0xFFE8EEF8)
-        : const Color(0xFF1E2632);
-    final lineColor = isLight
-        ? const Color(0xFFD7E1F1)
-        : const Color(0xFF2B3545);
+    final baseColor =
+        isLight ? const Color(0xFFE8EEF8) : const Color(0xFF1E2632);
+    final lineColor =
+        isLight ? const Color(0xFFD7E1F1) : const Color(0xFF2B3545);
 
     return Container(
       decoration: BoxDecoration(

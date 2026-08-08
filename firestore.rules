@@ -286,25 +286,53 @@ service cloud.firestore {
         isDirectChatData(get(chatDoc(chatId)).data);
     }
 
-    function directChatParticipantsNotBlocked(participants) {
+    function directPairKey(uidA, uidB) {
+      return uidA < uidB
+        ? uidA + '__' + uidB
+        : uidB + '__' + uidA;
+    }
+
+    function directChatIdMatchesParticipants(chatId, participants) {
       return participants is list &&
         participants.size() == 2 &&
         participants[0] is string &&
         participants[1] is string &&
-        !hasBlockBetween(participants[0], participants[1]);
+        participants[0] != participants[1] &&
+        chatId == directPairKey(participants[0], participants[1]);
     }
 
-    function canCreateChatWithBlockPolicy() {
+    function directChatBlockedInData(chatData) {
+      return isDirectChatData(chatData) &&
+        ('participants' in chatData) &&
+        chatData.participants is list &&
+        chatData.participants.size() == 2 &&
+        (
+          (
+            ('blockedBy' in chatData) &&
+            chatData.blockedBy[chatData.participants[0]] == true
+          ) ||
+          (
+            ('blockedBy' in chatData) &&
+            chatData.blockedBy[chatData.participants[1]] == true
+          )
+        );
+    }
+
+    function canCreateChatWithBlockPolicy(chatId) {
       return !isDirectChatData(request.resource.data) ||
         (
           ('participants' in request.resource.data) &&
-          directChatParticipantsNotBlocked(request.resource.data.participants)
+          directChatIdMatchesParticipants(chatId, request.resource.data.participants) &&
+          (
+            !('blockedBy' in request.resource.data) ||
+            request.resource.data.blockedBy is map
+          )
         );
     }
 
     function canInteractWithChatByBlockPolicy(chatId) {
       return !isDirectChatDoc(chatId) ||
-        directChatParticipantsNotBlocked(get(chatDoc(chatId)).data.participants);
+        !directChatBlockedInData(get(chatDoc(chatId)).data);
     }
 
     function isPostOwner() {
@@ -673,9 +701,27 @@ service cloud.firestore {
       allow create: if isSignedIn() &&
         request.resource.data.id == chatId &&
         request.auth.uid in request.resource.data.participants &&
-        canCreateChatWithBlockPolicy();
+        canCreateChatWithBlockPolicy(chatId);
 
       allow update: if (
+        isChatParticipant(chatId) &&
+        isDirectChatDoc(chatId) &&
+        request.resource.data.id == chatId &&
+        ('participants' in request.resource.data) &&
+        directChatIdMatchesParticipants(chatId, request.resource.data.participants) &&
+        request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'id',
+          'directChatKey',
+          'isDirect',
+          'isPublic',
+          'participants',
+          'name',
+          'groupImageUrl',
+          'blockedBy',
+          'createdAt',
+          'updatedAt'
+        ])
+      ) || (
         isChatParticipant(chatId) &&
         canInteractWithChatByBlockPolicy(chatId) &&
         request.resource.data.diff(resource.data).changedKeys().hasOnly([

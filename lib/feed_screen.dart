@@ -995,8 +995,8 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
     }).toList(growable: false);
     final savedBy = (data['savedBy'] as List<dynamic>? ?? const []);
     final currentUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
-    final likedByCurrentUser = currentUid.isNotEmpty &&
-      likes.contains(currentUid);
+    final likedByCurrentUser =
+        currentUid.isNotEmpty && likes.contains(currentUid);
     final savedByCurrentUser = currentUid.isNotEmpty &&
         savedBy.map((item) => item.toString().trim()).contains(currentUid);
     final createdAtRaw = data['createdAt'];
@@ -2588,20 +2588,45 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
       return Stream<Set<String>>.value(<String>{});
     }
 
-    return FirebaseFirestore.instance
-        .collection('users')
-        .doc(currentUid)
-        .snapshots()
-        .map((snapshot) {
-      final data = snapshot.data() ?? <String, dynamic>{};
-      final following = data['following'];
-      if (following is! List) {
-        return <String>{};
-      }
-      return following
-          .map((uid) => uid.toString().trim())
-          .where((uid) => uid.isNotEmpty)
-          .toSet();
+    return Stream.multi((controller) {
+      Set<String>? lastGood;
+
+      final sub = FirebaseFirestore.instance
+          .collection('users')
+          .doc(currentUid)
+          .snapshots()
+          .listen(
+        (snapshot) {
+          final data = snapshot.data() ?? <String, dynamic>{};
+          final following = data['following'];
+          if (following is! List) {
+            if (lastGood != null) {
+              controller.add(lastGood!);
+            }
+            return;
+          }
+          final value = following
+              .map((uid) => uid.toString().trim())
+              .where((uid) => uid.isNotEmpty)
+              .toSet();
+          lastGood = value;
+          controller.add(value);
+        },
+        onError: (Object error, StackTrace stackTrace) {
+          if (_isRecoverableFeedStreamError(error)) {
+            debugPrint('Following stream recoverable error: $error');
+            if (lastGood != null) {
+              controller.add(lastGood!);
+            }
+            return;
+          }
+          controller.addError(error, stackTrace);
+        },
+      );
+
+      controller.onCancel = () async {
+        await sub.cancel();
+      };
     });
   }
 
@@ -2803,6 +2828,50 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
     return 'אירעה שגיאה בטעינת הפיד';
   }
 
+  bool _isRecoverableFeedStreamError(Object error) {
+    if (error is TimeoutException) {
+      return true;
+    }
+    if (error is! FirebaseException) {
+      return false;
+    }
+    return error.code == 'permission-denied' ||
+        error.code == 'failed-precondition' ||
+        error.code == 'unavailable' ||
+        error.code == 'deadline-exceeded' ||
+        error.code == 'resource-exhausted' ||
+        error.code == 'aborted';
+  }
+
+  Stream<List<Map<String, dynamic>>> _safeFeedListStream(
+    Stream<List<Map<String, dynamic>>> source,
+  ) {
+    return Stream.multi((controller) {
+      List<Map<String, dynamic>>? lastGood;
+
+      final sub = source.listen(
+        (data) {
+          lastGood = data;
+          controller.add(data);
+        },
+        onError: (Object error, StackTrace stackTrace) {
+          if (_isRecoverableFeedStreamError(error)) {
+            debugPrint('Feed stream recoverable error: $error');
+            if (lastGood != null) {
+              controller.add(lastGood!);
+            }
+            return;
+          }
+          controller.addError(error, stackTrace);
+        },
+      );
+
+      controller.onCancel = () async {
+        await sub.cancel();
+      };
+    });
+  }
+
   Widget? _buildScrollControls(int itemCount) {
     return null;
   }
@@ -2851,7 +2920,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
     }
 
     _cachedFeedStreamKey = streamKey;
-    _cachedFeedStream = usingBackendFeed
+    final source = usingBackendFeed
         ? _feedBackendService.watchRecommendedFeedWithAuthors(
             isForYouFeed: isForYouFeed,
             category: categoryFilter,
@@ -2862,6 +2931,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
             category: categoryFilter,
             subCategory: subCategoryFilter,
           );
+    _cachedFeedStream = _safeFeedListStream(source);
 
     return _cachedFeedStream!;
   }
@@ -2927,13 +2997,17 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
         return StreamBuilder<Set<String>>(
           stream: _blockUserService.streamBlockedConnections(),
           builder: (context, blockedSnapshot) {
+            if (blockedSnapshot.hasError) {
+              debugPrint(
+                  'Blocked connections stream error: ${blockedSnapshot.error}');
+            }
             final blockedUids = blockedSnapshot.data ?? const <String>{};
             final postsFromDb = rawPosts
                 .where((post) => !_isDeletedAuthorPost(post))
                 .map((post) => _postFromMap(post, blockedUids: blockedUids))
                 .where((post) =>
-                  post.authorId.trim().isEmpty ||
-                  !blockedUids.contains(post.authorId.trim()))
+                    post.authorId.trim().isEmpty ||
+                    !blockedUids.contains(post.authorId.trim()))
                 .toList(growable: false);
             final randomizedPosts = _randomizePostsOnce(postsFromDb);
             final postsWithoutCurrentUser =
@@ -2942,6 +3016,10 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
             return StreamBuilder<Set<String>>(
               stream: _followingIdsStream(),
               builder: (context, followingSnapshot) {
+                if (followingSnapshot.hasError) {
+                  debugPrint(
+                      'Following IDs stream error: ${followingSnapshot.error}');
+                }
                 final followingIds = followingSnapshot.data ?? <String>{};
                 final scopedPosts = _postsForFeedScope(
                   postsWithoutCurrentUser,
@@ -2954,58 +3032,59 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                   builder: (context, audienceSnapshot) {
                     final feedPosts =
                         audienceSnapshot.data ?? const <PostModel>[];
-                final scrollControls = _buildScrollControls(feedPosts.length);
-                final activeFeedIndex = feedPosts.isEmpty
-                    ? 0
-                    : _currentFeedPageIndex.clamp(0, feedPosts.length - 1);
-                final emptyMessage = isForYouFeed
-                    ? 'אין פוסטים להצגה בקטגוריה/תת-קטגוריה זו'
-                    : 'אין פוסטים של חברים להצגה';
+                    final scrollControls =
+                        _buildScrollControls(feedPosts.length);
+                    final activeFeedIndex = feedPosts.isEmpty
+                        ? 0
+                        : _currentFeedPageIndex.clamp(0, feedPosts.length - 1);
+                    final emptyMessage = isForYouFeed
+                        ? 'אין פוסטים להצגה בקטגוריה/תת-קטגוריה זו'
+                        : 'אין פוסטים של חברים להצגה';
 
-                return Scaffold(
-                  extendBody: true,
-                  backgroundColor: _feedBackgroundColor(context),
-                  body: _buildFeedState(
-                    activePostSubCategory: feedPosts.isEmpty
-                        ? null
-                        : feedPosts[activeFeedIndex].subCategory,
-                    child: feedPosts.isEmpty
-                        ? Center(
-                            child: Text(
-                              emptyMessage,
-                              style: TextStyle(
-                                color: _isLightMode(context)
-                                    ? const Color(0xFF5A6783)
-                                    : Colors.white70,
-                                fontSize: 18,
+                    return Scaffold(
+                      extendBody: true,
+                      backgroundColor: _feedBackgroundColor(context),
+                      body: _buildFeedState(
+                        activePostSubCategory: feedPosts.isEmpty
+                            ? null
+                            : feedPosts[activeFeedIndex].subCategory,
+                        child: feedPosts.isEmpty
+                            ? Center(
+                                child: Text(
+                                  emptyMessage,
+                                  style: TextStyle(
+                                    color: _isLightMode(context)
+                                        ? const Color(0xFF5A6783)
+                                        : Colors.white70,
+                                    fontSize: 18,
+                                  ),
+                                ),
+                              )
+                            : PageView.builder(
+                                controller: _pageController,
+                                scrollDirection: Axis.vertical,
+                                allowImplicitScrolling: true,
+                                itemCount: feedPosts.length,
+                                onPageChanged: (index) {
+                                  if (_currentFeedPageIndex == index) return;
+                                  setState(() {
+                                    _currentFeedPageIndex = index;
+                                  });
+                                },
+                                itemBuilder: (context, index) {
+                                  return _buildPostBlock(
+                                    feedPosts[index],
+                                    isActive: _isFeedInForeground &&
+                                        index == activeFeedIndex,
+                                  );
+                                },
                               ),
-                            ),
-                          )
-                        : PageView.builder(
-                            controller: _pageController,
-                            scrollDirection: Axis.vertical,
-                            allowImplicitScrolling: true,
-                            itemCount: feedPosts.length,
-                            onPageChanged: (index) {
-                              if (_currentFeedPageIndex == index) return;
-                              setState(() {
-                                _currentFeedPageIndex = index;
-                              });
-                            },
-                            itemBuilder: (context, index) {
-                              return _buildPostBlock(
-                                feedPosts[index],
-                                isActive: _isFeedInForeground &&
-                                    index == activeFeedIndex,
-                              );
-                            },
-                          ),
-                  ),
-                  floatingActionButton: scrollControls,
-                  floatingActionButtonLocation:
-                      FloatingActionButtonLocation.startFloat,
-                  bottomNavigationBar: const MainBottomNav(currentIndex: 0),
-                );
+                      ),
+                      floatingActionButton: scrollControls,
+                      floatingActionButtonLocation:
+                          FloatingActionButtonLocation.startFloat,
+                      bottomNavigationBar: const MainBottomNav(currentIndex: 0),
+                    );
                   },
                 );
               },

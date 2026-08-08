@@ -85,7 +85,7 @@ flutter:
 
   assets:
     - assets/placeholder_profile.png
-    - assets/guide/hundred_logo.png
+    - assets/guide/hundred_logo.jpg
     - assets/guide/bottom_bar_1.jpg
     - assets/guide/feed_1.jpg
     - assets/guide/feed_2.jpg
@@ -126,5 +126,5 @@ flutter:
 flutter_launcher_icons:
   android: true
   ios: true
-  image_path: assets/placeholder_profile.png
+  image_path: assets/guide/hundred_logo.jpg
   remove_alpha_ios: true

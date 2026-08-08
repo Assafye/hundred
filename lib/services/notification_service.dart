@@ -40,6 +40,14 @@ class NotificationService {
 
   final FirebaseFirestore _db;
   final FirebaseAuth _auth;
+  static bool _notificationWritesSuspendedSessionWide = false;
+
+  static bool get notificationsSuspendedSessionWide =>
+      _notificationWritesSuspendedSessionWide;
+
+  static void suspendNotificationsSessionWide() {
+    _notificationWritesSuspendedSessionWide = true;
+  }
 
   static const Map<String, bool> defaultSettings = <String, bool>{
     NotificationSettingKeys.postLikes: true,
@@ -75,6 +83,18 @@ class NotificationService {
   };
 
   String get _currentUid => (_auth.currentUser?.uid ?? '').trim();
+
+  bool get _writesSuspended => _notificationWritesSuspendedSessionWide;
+
+  bool _isPermissionDenied(Object error) {
+    return error is FirebaseException && error.code == 'permission-denied';
+  }
+
+  void _suspendOnPermissionDenied(Object error) {
+    if (_isPermissionDenied(error)) {
+      _notificationWritesSuspendedSessionWide = true;
+    }
+  }
 
   Future<void> initializeCurrentUserNotificationSettings() async {
     final uid = _currentUid;
@@ -120,6 +140,10 @@ class NotificationService {
     String commentId = '',
     Map<String, dynamic> extra = const <String, dynamic>{},
   }) async {
+    if (_writesSuspended) {
+      return;
+    }
+
     final normalizedRecipient = recipientUid.trim();
     if (normalizedRecipient.isEmpty) return;
 
@@ -152,18 +176,23 @@ class NotificationService {
       ...extra,
     };
 
-    await _db
-        .collection('users')
-        .doc(normalizedRecipient)
-        .collection('notifications')
-        .add(payload);
+    try {
+      await _db
+          .collection('users')
+          .doc(normalizedRecipient)
+          .collection('notifications')
+          .add(payload);
 
-    await _db.collection('users').doc(normalizedRecipient).set(
-      <String, dynamic>{
-        'unreadNotificationsCount': FieldValue.increment(1),
-      },
-      SetOptions(merge: true),
-    );
+      await _db.collection('users').doc(normalizedRecipient).set(
+        <String, dynamic>{
+          'unreadNotificationsCount': FieldValue.increment(1),
+        },
+        SetOptions(merge: true),
+      );
+    } catch (error) {
+      _suspendOnPermissionDenied(error);
+      // Intentionally swallowed: notification dispatch is best effort only.
+    }
   }
 
   Future<void> sendPostLikeNotification({
@@ -173,18 +202,15 @@ class NotificationService {
     String postImageUrl = '',
     String? senderUid,
   }) async {
+    if (_writesSuspended) {
+      return;
+    }
+
     final normalizedRecipient = recipientUid.trim();
     final normalizedPostId = postId.trim();
     if (normalizedRecipient.isEmpty || normalizedPostId.isEmpty) return;
 
     final actor = await _actorSummary(senderUid: senderUid);
-    final notificationRef = _db
-        .collection('users')
-        .doc(normalizedRecipient)
-        .collection('notifications')
-        .doc('post_like_$normalizedPostId');
-    final userRef = _db.collection('users').doc(normalizedRecipient);
-
     final title = likeCount > 1
         ? '$likeCount לייקים על הפוסט שלך'
         : '${actor.name} עשה לך לייק';
@@ -192,97 +218,21 @@ class NotificationService {
         ? 'הפוסט שלך צבר $likeCount לייקים'
         : 'אהבו את הפוסט שלך';
 
-    try {
-      await _db.runTransaction((transaction) async {
-        final existingSnap = await transaction.get(notificationRef);
-        final wasRead = existingSnap.exists
-            ? (existingSnap.data()?['isRead'] as bool? ?? false)
-            : true;
-
-        transaction.set(
-          notificationRef,
-          <String, dynamic>{
-            'recipientUid': normalizedRecipient,
-            'type': NotificationTypes.postLike,
-            'title': title,
-            'body': body,
-            'actorUid': actor.uid,
-            'actorName': actor.name,
-            'actorAvatarUrl': actor.avatarUrl,
-            'postId': normalizedPostId,
-            'postImageUrl': postImageUrl.trim(),
-            'likeCount': likeCount,
-            'isRead': false,
-            'createdAt': FieldValue.serverTimestamp(),
-            'updatedAt': FieldValue.serverTimestamp(),
-          },
-          SetOptions(merge: true),
-        );
-
-        if (!existingSnap.exists || wasRead) {
-          transaction.set(
-            userRef,
-            <String, dynamic>{
-              'unreadNotificationsCount': FieldValue.increment(1),
-            },
-            SetOptions(merge: true),
-          );
-        }
-      });
-    } catch (_) {
-      // Best effort fallback: if transaction/update is blocked, create a new notification.
-      try {
-        await createNotification(
-          recipientUid: normalizedRecipient,
-          type: NotificationTypes.postLike,
-          title: title,
-          body: body,
-          actorUid: actor.uid,
-          actorName: actor.name,
-          actorAvatarUrl: actor.avatarUrl,
-          postId: normalizedPostId,
-          postImageUrl: postImageUrl.trim(),
-          extra: <String, dynamic>{
-            'likeCount': likeCount,
-            'updatedAt': FieldValue.serverTimestamp(),
-          },
-        );
-        return;
-      } catch (_) {
-        // Final fallback below bypasses settings-read path to avoid dropping like alerts.
-      }
-
-      try {
-        await _db
-            .collection('users')
-            .doc(normalizedRecipient)
-            .collection('notifications')
-            .add(<String, dynamic>{
-          'recipientUid': normalizedRecipient,
-          'type': NotificationTypes.postLike,
-          'title': title,
-          'body': body,
-          'actorUid': actor.uid,
-          'actorName': actor.name,
-          'actorAvatarUrl': actor.avatarUrl,
-          'postId': normalizedPostId,
-          'postImageUrl': postImageUrl.trim(),
-          'likeCount': likeCount,
-          'isRead': false,
-          'createdAt': FieldValue.serverTimestamp(),
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
-
-        await userRef.set(
-          <String, dynamic>{
-            'unreadNotificationsCount': FieldValue.increment(1),
-          },
-          SetOptions(merge: true),
-        );
-      } catch (_) {
-        // Intentionally swallow: notification dispatch is best effort.
-      }
-    }
+    await createNotification(
+      recipientUid: normalizedRecipient,
+      type: NotificationTypes.postLike,
+      title: title,
+      body: body,
+      actorUid: actor.uid,
+      actorName: actor.name,
+      actorAvatarUrl: actor.avatarUrl,
+      postId: normalizedPostId,
+      postImageUrl: postImageUrl.trim(),
+      extra: <String, dynamic>{
+        'likeCount': likeCount,
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+    );
   }
 
   Future<void> sendPostSaveNotification({
@@ -316,6 +266,10 @@ class NotificationService {
     required String messageText,
     String? senderUid,
   }) async {
+    if (_writesSuspended) {
+      return;
+    }
+
     final actor = await _actorSummary(senderUid: senderUid);
     final sender = actor.uid;
 

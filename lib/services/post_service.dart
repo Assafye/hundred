@@ -71,13 +71,15 @@ class PostService {
     }
   }
 
-  Future<void> _runNotificationBestEffort(Future<void> Function() action) async {
+  Future<void> _runNotificationBestEffort(
+      Future<void> Function() action) async {
     try {
       await action();
     } on FirebaseException catch (error) {
       // Notifications are best-effort and must never fail the main post action.
       if (kDebugMode) {
-        debugPrint('Notification side-effect failed: ${error.code} ${error.message ?? ''}');
+        debugPrint(
+            'Notification side-effect failed: ${error.code} ${error.message ?? ''}');
       }
     } catch (error, stackTrace) {
       if (kDebugMode) {
@@ -168,10 +170,14 @@ class PostService {
         int.tryParse('${data['sharesCount'] ?? ''}') ??
         0;
     final savesCount = (data['savesCount'] as num?)?.toInt() ??
-      int.tryParse('${data['savesCount'] ?? ''}') ??
-      ((data['savedBy'] as List<dynamic>?) ?? const <dynamic>[]).length;
+        int.tryParse('${data['savesCount'] ?? ''}') ??
+        ((data['savedBy'] as List<dynamic>?) ?? const <dynamic>[]).length;
 
-    return scoreAwarded + likesCount + (commentsCount * 2) + (sharesCount * 3) + savesCount;
+    return scoreAwarded +
+        likesCount +
+        (commentsCount * 2) +
+        (sharesCount * 3) +
+        savesCount;
   }
 
   int _taggedBonusForPostScore(int postScore) {
@@ -202,10 +208,10 @@ class PostService {
       category: category,
       subCategory: subCategory,
     );
-    final effectiveMultiplier = weeklyMultiplier >
-            spontaneousResolution.spontaneousMultiplier
-        ? weeklyMultiplier
-        : spontaneousResolution.spontaneousMultiplier;
+    final effectiveMultiplier =
+        weeklyMultiplier > spontaneousResolution.spontaneousMultiplier
+            ? weeklyMultiplier
+            : spontaneousResolution.spontaneousMultiplier;
 
     final baseScore = pointsForCategory(
           category: category,
@@ -732,8 +738,7 @@ class PostService {
               (key, value) => MapEntry(key.toString(), value),
             );
 
-            final normalizedUrl =
-                (normalized['url'] as String? ?? '').trim();
+            final normalizedUrl = (normalized['url'] as String? ?? '').trim();
             final normalizedStoragePath =
                 (normalized['storagePath'] as String? ?? '').trim();
 
@@ -871,7 +876,8 @@ class PostService {
       }
 
       if (kDebugMode) {
-        debugPrint('[PostService][createPost][$traceId] allocated postId=${postRef.id}');
+        debugPrint(
+            '[PostService][createPost][$traceId] allocated postId=${postRef.id}');
       }
 
       final uploadedMediaItems = await _uploadMediaItems(
@@ -880,7 +886,8 @@ class PostService {
         selectedMediaItems: normalizedSelectedMedia,
       );
       if (kDebugMode) {
-        debugPrint('[PostService][createPost][$traceId] media uploaded count=${uploadedMediaItems.length}');
+        debugPrint(
+            '[PostService][createPost][$traceId] media uploaded count=${uploadedMediaItems.length}');
       }
       if (uploadedMediaItems.isEmpty) {
         throw StateError('No media items were uploaded');
@@ -918,7 +925,7 @@ class PostService {
         linkedGroupId: (linkedGroupId ?? '').trim(),
       );
 
-        final publishResult = normalizedStatus == 'published'
+      final publishResult = normalizedStatus == 'published'
           ? await _safePublishScoreAward(
               category: post.category,
               subCategory: post.subCategory,
@@ -934,7 +941,8 @@ class PostService {
       postData['scoreAwarded'] = scoreToAdd;
 
       if (kDebugMode) {
-        debugPrint('[PostService][createPost][$traceId] writing post doc to Firestore');
+        debugPrint(
+            '[PostService][createPost][$traceId] writing post doc to Firestore');
       }
       await postRef.set(postData);
       if (kDebugMode) {
@@ -942,18 +950,20 @@ class PostService {
       }
 
       // Backfill public download URLs after the post doc exists.
-      final hydratedMediaItems = await _hydrateMediaDownloadUrls(uploadedMediaItems);
+      final hydratedMediaItems =
+          await _hydrateMediaDownloadUrls(uploadedMediaItems);
       final hydratedMediaUrls = hydratedMediaItems
           .map((item) => item.url.trim())
           .where((url) => url.isNotEmpty)
           .toList(growable: false);
-      if (hydratedMediaUrls.isNotEmpty &&
-          hydratedMediaUrls.first != mediaUrl) {
+      if (hydratedMediaUrls.isNotEmpty && hydratedMediaUrls.first != mediaUrl) {
         await postRef.set(
           <String, dynamic>{
             'mediaUrl': hydratedMediaUrls.first,
             'mediaUrls': hydratedMediaUrls,
-            'mediaItems': hydratedMediaItems.map((item) => item.toMap()).toList(growable: false),
+            'mediaItems': hydratedMediaItems
+                .map((item) => item.toMap())
+                .toList(growable: false),
             'primaryMediaUrl': hydratedMediaUrls.first,
             'imageUrl': hydratedMediaUrls.first,
             'updatedAt': FieldValue.serverTimestamp(),
@@ -970,15 +980,15 @@ class PostService {
               .collection('activity')
               .doc()
               .set(
-            _activityPayload(
-              type: 'pop',
-              postId: postRef.id,
-              uid: normalizedAuthorId,
-              title: post.title,
-              description: post.caption,
-              imageUrl: post.mediaUrl,
-            ),
-          );
+                _activityPayload(
+                  type: 'pop',
+                  postId: postRef.id,
+                  uid: normalizedAuthorId,
+                  title: post.title,
+                  description: post.caption,
+                  imageUrl: post.mediaUrl,
+                ),
+              );
         } catch (error) {
           if (kDebugMode) {
             debugPrint('Post activity logging skipped: $error');
@@ -1017,7 +1027,8 @@ class PostService {
           subCategory: post.subCategory,
         );
         if (publishResult.consumedSpontaneousTask) {
-          await SpontaneousChallengeService.clearTaskForUser(normalizedAuthorId);
+          await SpontaneousChallengeService.clearTaskForUser(
+              normalizedAuthorId);
         }
       }
 
@@ -1123,7 +1134,7 @@ class PostService {
             '')
         .trim();
     final publishResult = isDraftToPublished
-      ? await _safePublishScoreAward(
+        ? await _safePublishScoreAward(
             category: normalizedCategory,
             subCategory: normalizedSubCategory,
             authorId: uid,
@@ -1247,8 +1258,11 @@ class PostService {
     final taggedParticipantUids =
         _taggedParticipantUidsFromPostData(postData).toList(growable: false);
 
-    final ownSavedPostRef =
-        _db.collection('users').doc(uid).collection('saved_posts').doc(normalizedPostId);
+    final ownSavedPostRef = _db
+        .collection('users')
+        .doc(uid)
+        .collection('saved_posts')
+        .doc(normalizedPostId);
     await ownSavedPostRef.delete();
 
     const int batchChunk = 350;
@@ -1352,6 +1366,22 @@ class PostService {
         <String, PublicUserProfile?>{};
     List<QueryDocumentSnapshot<Map<String, dynamic>>> currentPosts =
         const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+    List<Map<String, dynamic>> lastGoodFeed = const <Map<String, dynamic>>[];
+
+    bool isRecoverableStreamError(Object error) {
+      if (error is TimeoutException) {
+        return true;
+      }
+      if (error is! FirebaseException) {
+        return false;
+      }
+      return error.code == 'permission-denied' ||
+          error.code == 'failed-precondition' ||
+          error.code == 'unavailable' ||
+          error.code == 'deadline-exceeded' ||
+          error.code == 'resource-exhausted' ||
+          error.code == 'aborted';
+    }
 
     void emitCurrentFeed() {
       if (controller.isClosed) {
@@ -1373,6 +1403,7 @@ class PostService {
             rawPost, profile);
       }).toList(growable: false);
 
+      lastGoodFeed = enrichedPosts;
       controller.add(enrichedPosts);
     }
 
@@ -1403,6 +1434,11 @@ class PostService {
               emitCurrentFeed();
             },
             onError: (Object error, StackTrace stackTrace) {
+              if (isRecoverableStreamError(error)) {
+                profilesByUid[uid] = null;
+                emitCurrentFeed();
+                return;
+              }
               if (!controller.isClosed) {
                 controller.addError(error, stackTrace);
               }
@@ -1424,6 +1460,14 @@ class PostService {
             emitCurrentFeed();
           },
           onError: (Object error, StackTrace stackTrace) {
+            if (isRecoverableStreamError(error)) {
+              currentPosts =
+                  const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+              if (!controller.isClosed) {
+                controller.add(lastGoodFeed);
+              }
+              return;
+            }
             if (!controller.isClosed) {
               controller.addError(error, stackTrace);
             }
@@ -1653,12 +1697,11 @@ class PostService {
 
         final postData = postSnap.data() ?? <String, dynamic>{};
         if (normalizedAuthorId.isEmpty) {
-          normalizedAuthorId =
-              (postData['authorId'] as String? ??
-                      postData['uid'] as String? ??
-                      postData['userId'] as String? ??
-                      '')
-                  .trim();
+          normalizedAuthorId = (postData['authorId'] as String? ??
+                  postData['uid'] as String? ??
+                  postData['userId'] as String? ??
+                  '')
+              .trim();
         }
         final currentShares = (postData['sharesCount'] as num?)?.toInt() ?? 0;
         final oldPostScore = _postScoreFromData(postData);
@@ -1707,12 +1750,11 @@ class PostService {
         if (normalizedAuthorId.isEmpty) {
           final postSnap = await postRef.get();
           final postData = postSnap.data() ?? <String, dynamic>{};
-          normalizedAuthorId =
-              (postData['authorId'] as String? ??
-                      postData['uid'] as String? ??
-                      postData['userId'] as String? ??
-                      '')
-                  .trim();
+          normalizedAuthorId = (postData['authorId'] as String? ??
+                  postData['uid'] as String? ??
+                  postData['userId'] as String? ??
+                  '')
+              .trim();
         }
         await _secureQueue.enqueue(
           type: SecureActionTypes.registerPostShare,
@@ -1751,8 +1793,11 @@ class PostService {
     }
 
     final postRef = _db.collection('posts').doc(normalizedPostId);
-    final savedPostRef =
-        _db.collection('users').doc(uid).collection('saved_posts').doc(normalizedPostId);
+    final savedPostRef = _db
+        .collection('users')
+        .doc(uid)
+        .collection('saved_posts')
+        .doc(normalizedPostId);
     var didAddSave = false;
     var normalizedAuthorId = '';
     var postImageUrl = '';
@@ -1765,16 +1810,16 @@ class PostService {
         }
 
         final postData = postSnap.data() ?? <String, dynamic>{};
-        normalizedAuthorId =
-          (postData['authorId'] as String? ?? '').trim();
-        postImageUrl =
-          (postData['mediaUrl'] as String? ?? postData['imageUrl'] as String? ?? '')
+        normalizedAuthorId = (postData['authorId'] as String? ?? '').trim();
+        postImageUrl = (postData['mediaUrl'] as String? ??
+                postData['imageUrl'] as String? ??
+                '')
             .trim();
         final savedByRaw = (postData['savedBy'] as List<dynamic>? ?? const []);
         final savedBy = savedByRaw
-          .map((item) => item.toString().trim())
-          .where((item) => item.isNotEmpty)
-          .toSet();
+            .map((item) => item.toString().trim())
+            .where((item) => item.isNotEmpty)
+            .toSet();
 
         final oldPostScore = _postScoreFromData(postData);
         final alreadySaved = savedBy.contains(uid);
@@ -1824,24 +1869,31 @@ class PostService {
           transaction.delete(savedPostRef);
         } else {
           final title = (postData['title'] as String? ?? '').trim();
-          final description =
-              (postData['caption'] as String? ?? postData['description'] as String? ?? '')
-                  .trim();
-          final mediaUrl =
-              (postData['mediaUrl'] as String? ?? postData['imageUrl'] as String? ?? '').trim();
+          final description = (postData['caption'] as String? ??
+                  postData['description'] as String? ??
+                  '')
+              .trim();
+          final mediaUrl = (postData['mediaUrl'] as String? ??
+                  postData['imageUrl'] as String? ??
+                  '')
+              .trim();
 
-          transaction.set(savedPostRef, <String, dynamic>{
-            'postId': normalizedPostId,
-            'authorId': (postData['authorId'] as String? ?? '').trim(),
-            'title': title,
-            'description': description,
-            'imageUrl': mediaUrl,
-            'mediaUrl': mediaUrl,
-            'category': (postData['category'] as String? ?? '').trim(),
-            'subCategory': (postData['subCategory'] as String? ?? '').trim(),
-            'createdAt': postData['createdAt'],
-            'savedAt': FieldValue.serverTimestamp(),
-          }, SetOptions(merge: true));
+          transaction.set(
+              savedPostRef,
+              <String, dynamic>{
+                'postId': normalizedPostId,
+                'authorId': (postData['authorId'] as String? ?? '').trim(),
+                'title': title,
+                'description': description,
+                'imageUrl': mediaUrl,
+                'mediaUrl': mediaUrl,
+                'category': (postData['category'] as String? ?? '').trim(),
+                'subCategory':
+                    (postData['subCategory'] as String? ?? '').trim(),
+                'createdAt': postData['createdAt'],
+                'savedAt': FieldValue.serverTimestamp(),
+              },
+              SetOptions(merge: true));
         }
       });
     } catch (error) {
@@ -1849,8 +1901,7 @@ class PostService {
         if (normalizedAuthorId.isEmpty) {
           final postSnap = await postRef.get();
           final postData = postSnap.data() ?? <String, dynamic>{};
-          normalizedAuthorId =
-              (postData['authorId'] as String? ?? '').trim();
+          normalizedAuthorId = (postData['authorId'] as String? ?? '').trim();
         }
         await _secureQueue.enqueue(
           type: SecureActionTypes.togglePostSave,
@@ -1873,7 +1924,9 @@ class PostService {
       rethrow;
     }
 
-    if (didAddSave && normalizedAuthorId.isNotEmpty && normalizedAuthorId != uid) {
+    if (didAddSave &&
+        normalizedAuthorId.isNotEmpty &&
+        normalizedAuthorId != uid) {
       unawaited(
         _runNotificationBestEffort(() {
           return _notificationService.sendPostSaveNotification(
@@ -1916,7 +1969,8 @@ class PostService {
     final normalizedText = text.trim();
     final normalizedParentId = (parentCommentId ?? '').trim();
     final uidShort = uid.length > 6 ? uid.substring(0, 6) : uid;
-    final traceId = 'comment_${DateTime.now().millisecondsSinceEpoch}_$uidShort';
+    final traceId =
+        'comment_${DateTime.now().millisecondsSinceEpoch}_$uidShort';
 
     _logCommentFlow(
       traceId,
@@ -2106,7 +2160,8 @@ class PostService {
       _logCommentFlow(traceId, 'completed successfully');
     } catch (error, stackTrace) {
       if (_isPermissionDenied(error)) {
-        _logCommentFlow(traceId, 'permission-denied, creating comment self-only and queueing side-effects');
+        _logCommentFlow(traceId,
+            'permission-denied, creating comment self-only and queueing side-effects');
 
         final userRateLimitRef = _db
             .collection('users')
@@ -2428,4 +2483,3 @@ class _PostActionLimitDecision {
     required this.nextPayload,
   });
 }
-

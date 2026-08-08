@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 
 import '../models/public_user_profile.dart';
 import 'public_user_profile_service.dart';
@@ -38,6 +39,12 @@ class BlockUserService {
   final FirebaseFirestore _db;
   final FirebaseAuth _auth;
   final PublicUserProfileService _publicUserProfileService;
+
+  void _trace(String message) {
+    final now = DateTime.now().toIso8601String();
+    final uid = _auth.currentUser?.uid.trim() ?? '';
+    debugPrint('[BLOCK_TRACE][$now][uid=$uid] $message');
+  }
 
   bool _isRecoverableBlockReadError(Object error) {
     if (error is! FirebaseException) {
@@ -78,6 +85,31 @@ class BlockUserService {
     return _db.collection('users').doc(ownerUid).collection('blocked_users');
   }
 
+  String _directChatKey(String uidA, String uidB) {
+    final normalized = <String>[uidA.trim(), uidB.trim()]
+      ..removeWhere((uid) => uid.isEmpty)
+      ..sort();
+    return normalized.join('__');
+  }
+
+  DocumentReference<Map<String, dynamic>> _directChatRef(
+    String uidA,
+    String uidB,
+  ) {
+    return _db.collection('chats').doc(_directChatKey(uidA, uidB));
+  }
+
+  bool _directChatBlockedByUid(Map<String, dynamic>? chatData, String uid) {
+    if (chatData == null) {
+      return false;
+    }
+    final blockedBy = chatData['blockedBy'];
+    if (blockedBy is! Map) {
+      return false;
+    }
+    return blockedBy[uid] == true;
+  }
+
   Future<bool> isBlockedByMe(String targetUid) async {
     final myUid = _requireUid();
     final normalizedTargetUid = targetUid.trim();
@@ -88,11 +120,25 @@ class BlockUserService {
     final snap = await _blockedUserRef(
       ownerUid: myUid,
       targetUid: normalizedTargetUid,
-    ).get();
-    return snap.exists;
+    ).get().timeout(const Duration(seconds: 5));
+    if (snap.exists) {
+      return true;
+    }
+
+    // Backward compatibility for legacy schemas where blocked_users doc IDs
+    // were not always target UID.
+    final legacySnap = await _blockedUsersCol(myUid)
+        .where('blockedUid', isEqualTo: normalizedTargetUid)
+        .limit(1)
+        .get()
+        .timeout(const Duration(seconds: 5));
+    return legacySnap.docs.isNotEmpty;
   }
 
-  Future<bool> isBlockedByOther(String otherUid) async {
+  Future<bool> isBlockedByOther(
+    String otherUid, {
+    bool includeLegacyFallback = true,
+  }) async {
     final myUid = _requireUid();
     final normalizedOtherUid = otherUid.trim();
     if (normalizedOtherUid.isEmpty || normalizedOtherUid == myUid) {
@@ -100,12 +146,22 @@ class BlockUserService {
     }
 
     try {
-      final snap = await _blockedUserRef(
-        ownerUid: normalizedOtherUid,
-        targetUid: myUid,
-      ).get();
-      return snap.exists;
+      final chatSnap = await _directChatRef(myUid, normalizedOtherUid)
+          .get(const GetOptions(source: Source.serverAndCache))
+          .timeout(const Duration(seconds: 3));
+      if (!chatSnap.exists) {
+        return false;
+      }
+      final blockedByOther =
+          _directChatBlockedByUid(chatSnap.data(), normalizedOtherUid);
+      _trace(
+        'is_blocked_by_other_from_chat other=$normalizedOtherUid blocked=$blockedByOther includeLegacyFallback=$includeLegacyFallback',
+      );
+      return blockedByOther;
     } catch (error) {
+      _trace(
+        'is_blocked_by_other_error other=$normalizedOtherUid includeLegacyFallback=$includeLegacyFallback errorType=${error.runtimeType} error=$error',
+      );
       if (_isRecoverableBlockReadError(error)) {
         return false;
       }
@@ -164,19 +220,45 @@ class BlockUserService {
     }
 
     return Stream<Set<String>>.multi((controller) {
+      Set<String>? lastGood;
+
       final sub = _db
-          .collectionGroup('blocked_users')
-          .where('blockedUid', isEqualTo: myUid)
+          .collection('chats')
+          .where('participants', arrayContains: myUid)
           .snapshots()
           .listen((snapshot) {
-        final uids = snapshot.docs
-            .map((doc) => (doc.data()['blockedByUid'] as String? ?? '').trim())
-            .where((uid) => uid.isNotEmpty)
-            .toSet();
+        final uids = <String>{};
+        for (final doc in snapshot.docs) {
+          final data = doc.data();
+          final participants =
+              ((data['participants'] as List<dynamic>?) ?? const <dynamic>[])
+                  .map((value) => value.toString().trim())
+                  .where((value) => value.isNotEmpty)
+                  .toList(growable: false);
+          final isPublic = (data['isPublic'] as bool?) ?? false;
+          final isDirect = (data['isDirect'] as bool?) ??
+              (!isPublic && participants.length == 2);
+          if (!isDirect || participants.length != 2) {
+            continue;
+          }
+          final otherUid = participants.firstWhere(
+            (uid) => uid != myUid,
+            orElse: () => '',
+          );
+          if (otherUid.isEmpty) {
+            continue;
+          }
+          if (_directChatBlockedByUid(data, otherUid)) {
+            uids.add(otherUid);
+          }
+        }
+        lastGood = uids;
         controller.add(uids);
       }, onError: (error) {
         if (_isRecoverableBlockReadError(error)) {
-          controller.add(const <String>{});
+          if (lastGood != null) {
+            controller.add(lastGood!);
+          }
           return;
         }
         controller.addError(error);
@@ -197,9 +279,12 @@ class BlockUserService {
     return Stream<Set<String>>.multi((controller) {
       var blockedByMe = <String>{};
       var blockedMe = <String>{};
+      Set<String>? lastGood;
 
       void emit() {
-        controller.add(<String>{...blockedByMe, ...blockedMe});
+        final merged = <String>{...blockedByMe, ...blockedMe};
+        lastGood = merged;
+        controller.add(merged);
       }
 
       final subMine = streamBlockedByMeUids().listen((value) {
@@ -207,8 +292,9 @@ class BlockUserService {
         emit();
       }, onError: (error) {
         if (_isRecoverableBlockReadError(error)) {
-          blockedByMe = <String>{};
-          emit();
+          if (lastGood != null) {
+            controller.add(lastGood!);
+          }
           return;
         }
         controller.addError(error);
@@ -219,8 +305,9 @@ class BlockUserService {
         emit();
       }, onError: (error) {
         if (_isRecoverableBlockReadError(error)) {
-          blockedMe = <String>{};
-          emit();
+          if (lastGood != null) {
+            controller.add(lastGood!);
+          }
           return;
         }
         controller.addError(error);
@@ -247,14 +334,34 @@ class BlockUserService {
 
     Set<String> blockedMe = <String>{};
     try {
-      final blockedMeSnap = await _db
-          .collectionGroup('blocked_users')
-          .where('blockedUid', isEqualTo: myUid)
+      final chatsSnap = await _db
+          .collection('chats')
+          .where('participants', arrayContains: myUid)
           .get();
-      blockedMe = blockedMeSnap.docs
-          .map((doc) => (doc.data()['blockedByUid'] as String? ?? '').trim())
-          .where((uid) => uid.isNotEmpty)
-          .toSet();
+      for (final doc in chatsSnap.docs) {
+        final data = doc.data();
+        final participants =
+            ((data['participants'] as List<dynamic>?) ?? const <dynamic>[])
+                .map((value) => value.toString().trim())
+                .where((value) => value.isNotEmpty)
+                .toList(growable: false);
+        final isPublic = (data['isPublic'] as bool?) ?? false;
+        final isDirect = (data['isDirect'] as bool?) ??
+            (!isPublic && participants.length == 2);
+        if (!isDirect || participants.length != 2) {
+          continue;
+        }
+        final otherUid = participants.firstWhere(
+          (uid) => uid != myUid,
+          orElse: () => '',
+        );
+        if (otherUid.isEmpty) {
+          continue;
+        }
+        if (_directChatBlockedByUid(data, otherUid)) {
+          blockedMe.add(otherUid);
+        }
+      }
     } catch (error) {
       if (!_isRecoverableBlockReadError(error)) {
         rethrow;
@@ -308,11 +415,10 @@ class BlockUserService {
         controller.addError(error);
       });
 
-      final theirsSub = _blockedUserRef(
-        ownerUid: normalizedOtherUid,
-        targetUid: myUid,
-      ).snapshots().listen((doc) {
-        blockedByOther = doc.exists;
+      final chatSub =
+          _directChatRef(myUid, normalizedOtherUid).snapshots().listen((doc) {
+        blockedByOther =
+            _directChatBlockedByUid(doc.data(), normalizedOtherUid);
         emit();
       }, onError: (error) {
         if (_isRecoverableBlockReadError(error)) {
@@ -325,7 +431,7 @@ class BlockUserService {
 
       controller.onCancel = () async {
         await mineSub.cancel();
-        await theirsSub.cancel();
+        await chatSub.cancel();
       };
     });
   }
@@ -381,13 +487,13 @@ class BlockUserService {
       return;
     }
 
-    await _deleteDirectChatWithUser(normalizedTargetUid);
-
     final blockedRef = _blockedUserRef(
       ownerUid: myUid,
       targetUid: normalizedTargetUid,
     );
     final myUserRef = _db.collection('users').doc(myUid);
+    final directChatRef = _directChatRef(myUid, normalizedTargetUid);
+    final sortedParticipants = <String>[myUid, normalizedTargetUid]..sort();
 
     await _db.runTransaction((tx) async {
       tx.set(blockedRef, {
@@ -400,8 +506,6 @@ class BlockUserService {
         myUserRef,
         {
           'blockedUsers': FieldValue.arrayUnion(<String>[normalizedTargetUid]),
-          'directChatResetAt.$normalizedTargetUid':
-              FieldValue.serverTimestamp(),
           // Best-effort local cleanup for relationship collections.
           'following': FieldValue.arrayRemove(<String>[normalizedTargetUid]),
           'followers': FieldValue.arrayRemove(<String>[normalizedTargetUid]),
@@ -411,6 +515,22 @@ class BlockUserService {
               FieldValue.arrayRemove(<String>[normalizedTargetUid]),
           'friends': FieldValue.arrayRemove(<String>[normalizedTargetUid]),
           'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+
+      tx.set(
+        directChatRef,
+        {
+          'id': directChatRef.id,
+          'directChatKey': directChatRef.id,
+          'isDirect': true,
+          'isPublic': false,
+          'participants': sortedParticipants,
+          'blockedBy.$myUid': true,
+          'blockedBy.$normalizedTargetUid': false,
+          'updatedAt': FieldValue.serverTimestamp(),
+          'createdAt': FieldValue.serverTimestamp(),
         },
         SetOptions(merge: true),
       );
@@ -428,97 +548,40 @@ class BlockUserService {
       ownerUid: myUid,
       targetUid: normalizedTargetUid,
     );
+    final legacyDocs = await _blockedUsersCol(myUid)
+        .where('blockedUid', isEqualTo: normalizedTargetUid)
+        .get();
+    final directChatRef = _directChatRef(myUid, normalizedTargetUid);
 
-    try {
-      await _deleteDirectChatWithUser(normalizedTargetUid);
-    } catch (_) {
-      // Best effort: if cleanup fails, reset marker still forces new chat lifecycle.
+    final batch = _db.batch();
+    batch.delete(blockedRef);
+    for (final doc in legacyDocs.docs) {
+      if (doc.id != blockedRef.id) {
+        batch.delete(doc.reference);
+      }
     }
-
-    await blockedRef.delete();
-    await _db.collection('users').doc(myUid).set(
+    batch.set(
+      _db.collection('users').doc(myUid),
       {
         'blockedUsers': FieldValue.arrayRemove(<String>[normalizedTargetUid]),
-        'directChatResetAt.$normalizedTargetUid': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       },
       SetOptions(merge: true),
     );
-  }
-
-  Future<void> _deleteDirectChatWithUser(String otherUid) async {
-    final myUid = _requireUid();
-
-    final directKey = <String>[myUid, otherUid]..sort();
-    final stableDocId = 'direct_v2_${directKey.join('__')}';
-    final legacyDocId = 'direct_${directKey.join('__')}';
-
-    Future<void> deleteChatById(String chatId) async {
-      final chatRef = _db.collection('chats').doc(chatId);
-      final chatSnap = await chatRef.get();
-      if (!chatSnap.exists) {
-        return;
-      }
-      await _deleteSubcollectionInChunks(chatRef.collection('messages'));
-      await _deleteSubcollectionInChunks(chatRef.collection('readReceipts'));
-      await chatRef.delete();
-    }
-
-    try {
-      await deleteChatById(stableDocId);
-    } catch (_) {}
-
-    try {
-      await deleteChatById(legacyDocId);
-    } catch (_) {}
-
-    final chatsSnap = await _db
-        .collection('chats')
-        .where('participants', arrayContains: myUid)
-        .get();
-
-    for (final chatDoc in chatsSnap.docs) {
-      final data = chatDoc.data();
-      final participants =
-          ((data['participants'] as List<dynamic>?) ?? const <dynamic>[])
-              .map((value) => value.toString().trim())
-              .where((value) => value.isNotEmpty)
-              .toList(growable: false);
-      final isPublic = (data['isPublic'] as bool?) ?? false;
-      final isDirect = (data['isDirect'] as bool?) ??
-          (!isPublic && participants.length == 2);
-      if (!isDirect || !participants.contains(otherUid)) {
-        continue;
-      }
-
-      await _deleteSubcollectionInChunks(
-        chatDoc.reference.collection('messages'),
-      );
-      await _deleteSubcollectionInChunks(
-        chatDoc.reference.collection('readReceipts'),
-      );
-      await chatDoc.reference.delete();
-    }
-  }
-
-  Future<void> _deleteSubcollectionInChunks(
-    CollectionReference<Map<String, dynamic>> col,
-  ) async {
-    while (true) {
-      final chunk = await col.limit(250).get();
-      if (chunk.docs.isEmpty) {
-        return;
-      }
-
-      final batch = _db.batch();
-      for (final doc in chunk.docs) {
-        batch.delete(doc.reference);
-      }
-      await batch.commit();
-
-      if (chunk.docs.length < 250) {
-        return;
-      }
-    }
+    batch.set(
+      directChatRef,
+      {
+        'id': directChatRef.id,
+        'directChatKey': directChatRef.id,
+        'isDirect': true,
+        'isPublic': false,
+        'participants': <String>[myUid, normalizedTargetUid]..sort(),
+        'blockedBy.$myUid': false,
+        'blockedBy.$normalizedTargetUid': FieldValue.delete(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
+    await batch.commit();
   }
 }

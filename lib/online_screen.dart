@@ -93,7 +93,7 @@ class _OnlineScreenState extends State<OnlineScreen>
     _connectedFriendsStream = _homeService.streamConnectedFriends();
     _forcedOnlineUntilStream = _homeService.streamMyForcedOnlineUntil();
     _upcomingGroupsStream =
-      _homeService.streamUpcomingPublicGroups(withinDays: 7);
+        _homeService.streamUpcomingPublicGroups(withinDays: 7);
     _meetNowPostsStream = _homeService.streamMeetNowPosts();
     _meetNowRefreshTimer = Timer.periodic(_meetNowRefreshInterval, (_) {
       if (!mounted) {
@@ -173,6 +173,7 @@ class _OnlineScreenState extends State<OnlineScreen>
             avatarUrl: friend.avatarUrl.isEmpty ? null : friend.avatarUrl,
             chatId: chatId,
             isDirectChat: true,
+            directOtherUserId: friend.uid,
           ),
         ),
       );
@@ -3410,196 +3411,198 @@ class _OnlineScreenState extends State<OnlineScreen>
             child: snapshot.connectionState == ConnectionState.waiting &&
                     !snapshot.hasData
                 ? const Center(child: CircularProgressIndicator())
-              : groups.isNotEmpty
-                ? Column(
-                    children: [
-                      SizedBox(
-                        height: 170,
-                        child: Stack(
-                          children: [
-                            ListView.builder(
-                              controller: _upcomingGroupsScrollController,
-                              scrollDirection: Axis.horizontal,
-                              itemCount: visibleGroups.length,
-                              itemBuilder: (context, index) {
-                                final group = visibleGroups[index];
-                                return Padding(
-                                  padding: const EdgeInsets.only(left: 10),
-                                  child: GestureDetector(
-                                    onTap: () =>
-                                        _showUpcomingGroupDialog(group),
-                                    child: Container(
-                                      width: 150,
-                                      padding: const EdgeInsets.all(12),
-                                      decoration: BoxDecoration(
-                                        borderRadius:
-                                            BorderRadius.circular(20),
-                                        color:
-                                            isLight ? Colors.white : null,
-                                        gradient: isLight
-                                            ? null
-                                            : const LinearGradient(
-                                                colors: [
-                                                  Color(0xFF18243D),
-                                                  Color(0xFF302455)
-                                                ],
-                                                begin: Alignment.topRight,
-                                                end: Alignment.bottomLeft,
+                : groups.isNotEmpty
+                    ? Column(
+                        children: [
+                          SizedBox(
+                            height: 170,
+                            child: Stack(
+                              children: [
+                                ListView.builder(
+                                  controller: _upcomingGroupsScrollController,
+                                  scrollDirection: Axis.horizontal,
+                                  itemCount: visibleGroups.length,
+                                  itemBuilder: (context, index) {
+                                    final group = visibleGroups[index];
+                                    return Padding(
+                                      padding: const EdgeInsets.only(left: 10),
+                                      child: GestureDetector(
+                                        onTap: () =>
+                                            _showUpcomingGroupDialog(group),
+                                        child: Container(
+                                          width: 150,
+                                          padding: const EdgeInsets.all(12),
+                                          decoration: BoxDecoration(
+                                            borderRadius:
+                                                BorderRadius.circular(20),
+                                            color:
+                                                isLight ? Colors.white : null,
+                                            gradient: isLight
+                                                ? null
+                                                : const LinearGradient(
+                                                    colors: [
+                                                      Color(0xFF18243D),
+                                                      Color(0xFF302455)
+                                                    ],
+                                                    begin: Alignment.topRight,
+                                                    end: Alignment.bottomLeft,
+                                                  ),
+                                            border: Border.all(
+                                              color: isLight
+                                                  ? const Color(0xFFA9C3FF)
+                                                  : const Color(0xFF69A4EA)
+                                                      .withValues(alpha: 0.45),
+                                            ),
+                                            boxShadow: [
+                                              BoxShadow(
+                                                color: const Color(0xFF8A74FF)
+                                                    .withValues(alpha: 0.22),
+                                                blurRadius: 14,
+                                                offset: const Offset(0, 6),
                                               ),
-                                        border: Border.all(
-                                          color: isLight
-                                              ? const Color(0xFFA9C3FF)
-                                              : const Color(0xFF69A4EA)
-                                                  .withValues(alpha: 0.45),
+                                            ],
+                                          ),
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              _buildGroupParticipantsAvatars(
+                                                  group),
+                                              const SizedBox(height: 10),
+                                              Text(
+                                                group.name,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: TextStyle(
+                                                  color: isLight
+                                                      ? Colors.black
+                                                      : Colors.white,
+                                                  fontSize: 14,
+                                                  fontWeight: FontWeight.w800,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 3),
+                                              Text(
+                                                group.category.isNotEmpty
+                                                    ? group.category
+                                                    : 'ללא קטגוריה',
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: TextStyle(
+                                                  color: isLight
+                                                      ? Colors.black54
+                                                      : const Color(0xFFD0DAF0),
+                                                  fontSize: 11,
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
+                                              const Spacer(),
+                                              Text(
+                                                _formatGroupDateTime(
+                                                    group.date),
+                                                style: TextStyle(
+                                                  color: isLight
+                                                      ? Colors.black54
+                                                      : const Color(0xFFBDD2F3),
+                                                  fontSize: 11,
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
                                         ),
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: const Color(0xFF8A74FF)
-                                                .withValues(alpha: 0.22),
-                                            blurRadius: 14,
-                                            offset: const Offset(0, 6),
-                                          ),
-                                        ],
                                       ),
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          _buildGroupParticipantsAvatars(
-                                              group),
-                                          const SizedBox(height: 10),
-                                          Text(
-                                            group.name,
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: TextStyle(
+                                    );
+                                  },
+                                ),
+                                if (isDesktopWide && visibleGroups.length > 1)
+                                  Positioned(
+                                    left: 2,
+                                    top: 60,
+                                    child: Material(
+                                      color: Colors.transparent,
+                                      child: InkWell(
+                                        borderRadius: BorderRadius.circular(12),
+                                        onTap: _scrollUpcomingGroupsForward,
+                                        child: Container(
+                                          width: 26,
+                                          height: 50,
+                                          decoration: BoxDecoration(
+                                            color: isLight
+                                                ? Colors.white
+                                                    .withValues(alpha: 0.92)
+                                                : const Color(0xFF0D1727)
+                                                    .withValues(alpha: 0.86),
+                                            borderRadius:
+                                                BorderRadius.circular(12),
+                                            border: Border.all(
                                               color: isLight
-                                                  ? Colors.black
-                                                  : Colors.white,
-                                              fontSize: 14,
-                                              fontWeight: FontWeight.w800,
+                                                  ? const Color(0xFF9EBBFF)
+                                                  : const Color(0xFF7A95C9)
+                                                      .withValues(alpha: 0.7),
                                             ),
                                           ),
-                                          const SizedBox(height: 3),
-                                          Text(
-                                            group.category.isNotEmpty
-                                                ? group.category
-                                                : 'ללא קטגוריה',
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: TextStyle(
-                                              color: isLight
-                                                  ? Colors.black54
-                                                  : const Color(0xFFD0DAF0),
-                                              fontSize: 11,
-                                              fontWeight: FontWeight.w600,
-                                            ),
+                                          child: Icon(
+                                            Icons.chevron_left_rounded,
+                                            size: 20,
+                                            color: isLight
+                                                ? const Color(0xFF3560C9)
+                                                : const Color(0xFFE3EBFF),
                                           ),
-                                          const Spacer(),
-                                          Text(
-                                            _formatGroupDateTime(group.date),
-                                            style: TextStyle(
-                                              color: isLight
-                                                  ? Colors.black54
-                                                  : const Color(0xFFBDD2F3),
-                                              fontSize: 11,
-                                              fontWeight: FontWeight.w600,
-                                            ),
-                                          ),
-                                        ],
+                                        ),
                                       ),
                                     ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          DecoratedBox(
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(14),
+                              gradient: const LinearGradient(
+                                colors: [Color(0xFF4F75FF), Color(0xFF985DFF)],
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: const Color(0xFF805CFF)
+                                      .withValues(alpha: 0.34),
+                                  blurRadius: 14,
+                                  offset: const Offset(0, 6),
+                                ),
+                              ],
+                            ),
+                            child: ElevatedButton.icon(
+                              onPressed: () {
+                                Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) => const CreateGroupScreen(),
                                   ),
                                 );
                               },
-                            ),
-                            if (isDesktopWide && visibleGroups.length > 1)
-                              Positioned(
-                                left: 2,
-                                top: 60,
-                                child: Material(
-                                  color: Colors.transparent,
-                                  child: InkWell(
-                                    borderRadius: BorderRadius.circular(12),
-                                    onTap: _scrollUpcomingGroupsForward,
-                                    child: Container(
-                                      width: 26,
-                                      height: 50,
-                                      decoration: BoxDecoration(
-                                        color: isLight
-                                            ? Colors.white
-                                                .withValues(alpha: 0.92)
-                                            : const Color(0xFF0D1727)
-                                                .withValues(alpha: 0.86),
-                                        borderRadius:
-                                            BorderRadius.circular(12),
-                                        border: Border.all(
-                                          color: isLight
-                                              ? const Color(0xFF9EBBFF)
-                                              : const Color(0xFF7A95C9)
-                                                  .withValues(alpha: 0.7),
-                                        ),
-                                      ),
-                                      child: Icon(
-                                        Icons.chevron_left_rounded,
-                                        size: 20,
-                                        color: isLight
-                                            ? const Color(0xFF3560C9)
-                                            : const Color(0xFFE3EBFF),
-                                      ),
-                                    ),
-                                  ),
+                              icon: const Icon(Icons.add_circle_rounded,
+                                  size: 18),
+                              label: const Text('יצירת קבוצה חדשה'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.transparent,
+                                shadowColor: Colors.transparent,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 14, vertical: 10),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(14),
                                 ),
                               ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      DecoratedBox(
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(14),
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFF4F75FF), Color(0xFF985DFF)],
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: const Color(0xFF805CFF)
-                                  .withValues(alpha: 0.34),
-                              blurRadius: 14,
-                              offset: const Offset(0, 6),
-                            ),
-                          ],
-                        ),
-                        child: ElevatedButton.icon(
-                          onPressed: () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => const CreateGroupScreen(),
-                              ),
-                            );
-                          },
-                          icon: const Icon(Icons.add_circle_rounded,
-                              size: 18),
-                          label: const Text('יצירת קבוצה חדשה'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.transparent,
-                            shadowColor: Colors.transparent,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 14, vertical: 10),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(14),
                             ),
                           ),
-                        ),
-                      ),
-                    ],
-                  )
-              : snapshot.hasError
-                ? _emptyCard('טעינת הקבוצות נכשלה כרגע. נסה שוב עוד רגע')
-                : groups.isEmpty
-                    ? _emptyCard('אין קבוצות להצגה כרגע')
-                    : _emptyCard('אין קבוצות להצגה כרגע'),
+                        ],
+                      )
+                    : snapshot.hasError
+                        ? _emptyCard(
+                            'טעינת הקבוצות נכשלה כרגע. נסה שוב עוד רגע')
+                        : groups.isEmpty
+                            ? _emptyCard('אין קבוצות להצגה כרגע')
+                            : _emptyCard('אין קבוצות להצגה כרגע'),
           ),
         );
       },
@@ -3997,7 +4000,8 @@ class _OnlineScreenState extends State<OnlineScreen>
                                           borderRadius:
                                               BorderRadius.circular(999),
                                           border: Border.all(
-                                            color: _cyan.withValues(alpha: 0.45),
+                                            color:
+                                                _cyan.withValues(alpha: 0.45),
                                           ),
                                         ),
                                         child: Text(

@@ -1,5 +1,8 @@
 {
   "scripts": {
+    "migrate:direct-chats:dry": "node scripts/migrate-direct-chat-keys-and-blocked-state.js",
+    "migrate:direct-chats": "DRY_RUN=false node scripts/migrate-direct-chat-keys-and-blocked-state.js",
+    "migrate:direct-chats:cleanup": "DRY_RUN=false DELETE_OLD=true node scripts/migrate-direct-chat-keys-and-blocked-state.js",
     "migrate:chat-senders:dry": "node scripts/migrate-chat-message-sender-profile.js",
     "migrate:chat-senders": "DRY_RUN=false node scripts/migrate-chat-message-sender-profile.js",
     "sync:users-public:dry": "node scripts/sync-users-public-from-users.js",
