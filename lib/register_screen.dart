@@ -3,6 +3,7 @@ import 'dart:math';
 import 'dart:async';
 
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -105,7 +106,34 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   String _registrationErrorMessage(Object error) {
     if (error is! FirebaseAuthException) {
-      return 'לא הצלחנו להשלים את תהליך ההרשמה כרגע. נסה שוב.';
+      if (error is FirebaseException) {
+        switch (error.code) {
+          case 'permission-denied':
+            return 'אין הרשאה לבצע את הפעולה כרגע. נסה/י שוב בעוד רגע.';
+          case 'unavailable':
+          case 'network-request-failed':
+            return 'אין חיבור יציב כרגע. בדוק/י אינטרנט ונסה/י שוב.';
+          case 'deadline-exceeded':
+          case 'timeout':
+            return 'תם הזמן לביצוע הפעולה. נסה/י שוב.';
+          default:
+            final msg = (error.message ?? '').trim();
+            if (msg.isNotEmpty) {
+              return msg;
+            }
+            return 'לא הצלחנו להשלים את תהליך ההרשמה כרגע. נסה/י שוב.';
+        }
+      }
+
+      if (error is TimeoutException) {
+        return 'תם הזמן לביצוע הפעולה. נסה/י שוב.';
+      }
+
+      final rawMessage = error.toString().trim();
+      if (rawMessage.isNotEmpty && rawMessage != 'Exception') {
+        return rawMessage;
+      }
+      return 'לא הצלחנו להשלים את תהליך ההרשמה כרגע. נסה/י שוב.';
     }
 
     switch (error.code) {
@@ -226,6 +254,30 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       'עדיין לא זיהינו אימות. אשר/י את המייל ואז לחץ/י שוב על "כבר אימתתי".';
                 });
               } catch (e) {
+                if (e is FirebaseAuthException &&
+                    e.code == 'session-expired') {
+                  try {
+                    final restoredState =
+                        await _authService.beginEmailVerificationRegistration(
+                      email: _emailController.text.trim(),
+                      password: _passwordController.text.trim(),
+                    );
+                    if (!mounted || !dialogContext.mounted) return;
+
+                    if (restoredState.isVerified) {
+                      Navigator.of(dialogContext).pop(true);
+                      return;
+                    }
+
+                    setDialogState(() {
+                      errorMessage =
+                          'האימות עדיין לא הושלם. אשר/י את המייל ואז לחץ/י שוב על "כבר אימתתי".';
+                    });
+                    return;
+                  } catch (_) {
+                    // Fall back to the original session-expired message below.
+                  }
+                }
                 setDialogState(() {
                   errorMessage = _registrationErrorMessage(e);
                 });
@@ -757,9 +809,16 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
       if (!mounted) return;
 
-      final isVerified = verificationState.isVerified
-          ? true
-          : await _showEmailVerificationDialog(state: verificationState);
+      bool isVerified = verificationState.isVerified;
+      if (isVerified) {
+        // Enforce a fresh server-backed verification status before allowing
+        // transition to step 2.
+        isVerified = await _authService.refreshPendingEmailVerificationStatus();
+      }
+
+      if (!isVerified) {
+        isVerified = await _showEmailVerificationDialog(state: verificationState);
+      }
 
       if (!mounted) return;
       if (!isVerified) {
@@ -819,7 +878,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
     });
 
     try {
-      final isTaken = await _authService.isUsernameTaken(usernameForStorage);
+      Future<bool> checkUsernameTakenWithRecovery() async {
+        try {
+          return await _authService.isUsernameTaken(usernameForStorage);
+        } catch (error) {
+          final recovered =
+              await _recoverPendingRegistrationSessionIfNeeded(error);
+          if (!recovered) {
+            rethrow;
+          }
+          return _authService.isUsernameTaken(usernameForStorage);
+        }
+      }
+
+      final isTaken = await checkUsernameTakenWithRecovery();
       if (isTaken) {
         setState(() {
           _isUsernameTaken = true;
@@ -833,18 +905,42 @@ class _RegisterScreenState extends State<RegisterScreen> {
         return;
       }
 
-      await _authService.completeVerifiedRegistration(
-        password: _passwordController.text.trim(),
-        username: usernameForStorage,
-        firstName: _firstNameController.text.trim(),
-        lastName: _lastNameController.text.trim(),
-        displayName: _displayNameController.text.trim(),
-        phone: _phoneController.text.trim(),
-        birthDate: _formatDate(_birthDate!),
-        lifeMotto: _lifeMottoController.text.trim(),
-        bio: _bioController.text.trim(),
-        profileImages: _profileImages,
-      );
+      Future<void> completeRegistrationWithRecovery() async {
+        try {
+          await _authService.completeVerifiedRegistration(
+            password: _passwordController.text.trim(),
+            username: usernameForStorage,
+            firstName: _firstNameController.text.trim(),
+            lastName: _lastNameController.text.trim(),
+            displayName: _displayNameController.text.trim(),
+            phone: _phoneController.text.trim(),
+            birthDate: _formatDate(_birthDate!),
+            lifeMotto: _lifeMottoController.text.trim(),
+            bio: _bioController.text.trim(),
+            profileImages: _profileImages,
+          );
+        } catch (error) {
+          final recovered =
+              await _recoverPendingRegistrationSessionIfNeeded(error);
+          if (!recovered) {
+            rethrow;
+          }
+          await _authService.completeVerifiedRegistration(
+            password: _passwordController.text.trim(),
+            username: usernameForStorage,
+            firstName: _firstNameController.text.trim(),
+            lastName: _lastNameController.text.trim(),
+            displayName: _displayNameController.text.trim(),
+            phone: _phoneController.text.trim(),
+            birthDate: _formatDate(_birthDate!),
+            lifeMotto: _lifeMottoController.text.trim(),
+            bio: _bioController.text.trim(),
+            profileImages: _profileImages,
+          );
+        }
+      }
+
+      await completeRegistrationWithRecovery();
 
       // Firebase Auth signs in automatically on account creation.
       // Sign out so the user returns to login instead of being routed to feed.
@@ -878,6 +974,43 @@ class _RegisterScreenState extends State<RegisterScreen> {
           _isRegistering = false;
         });
       }
+    }
+  }
+
+  bool _isRecoverableRegistrationSessionError(Object error) {
+    if (error is FirebaseAuthException) {
+      return error.code == 'session-expired' ||
+          error.code == 'permission-denied';
+    }
+
+    if (error is FirebaseException) {
+      return error.code == 'permission-denied';
+    }
+
+    return false;
+  }
+
+  Future<bool> _recoverPendingRegistrationSessionIfNeeded(Object error) async {
+    if (!_isRecoverableRegistrationSessionError(error)) {
+      return false;
+    }
+
+    try {
+      final verificationState =
+          await _authService.beginEmailVerificationRegistration(
+        email: _emailController.text.trim(),
+        password: _passwordController.text.trim(),
+      );
+
+      if (!mounted) return false;
+
+      if (verificationState.isVerified) {
+        return true;
+      }
+
+      return await _showEmailVerificationDialog(state: verificationState);
+    } catch (_) {
+      return false;
     }
   }
 

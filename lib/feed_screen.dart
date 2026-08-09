@@ -3968,6 +3968,14 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
       screenHeight * 0.5,
       subCategoryOptions.length * 44.0 + 12,
     );
+    const topRowHeight = 34.0;
+    const subCategoryMenuTop = 76.0;
+    final categoryMenuTop = topRowHeight;
+    final openMenuExtent = isCategoryMenuOpen
+        ? categoryMenuTop + categoryMenuHeight
+        : (isSubCategoryMenuOpen && !isGeneralSelected)
+            ? subCategoryMenuTop + subCategoryMenuHeight
+            : 0.0;
     const timerTopColor = Color(0xFF8DE8FF);
     const timerBottomColor = Color(0xFFC9B5FF);
     const timerTextColor = Color(0xFF2A2361);
@@ -4528,11 +4536,15 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                       ),
                     ],
                   ),
+                  if (openMenuExtent > 0)
+                    SizedBox(
+                      height: openMenuExtent,
+                    ),
                 ],
               ),
               if (isCategoryMenuOpen)
                 Positioned(
-                  top: 76,
+                  top: categoryMenuTop,
                   right: 0,
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 200),
@@ -4589,7 +4601,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                 ),
               if (isSubCategoryMenuOpen && !isGeneralSelected)
                 Positioned(
-                  top: 76,
+                  top: subCategoryMenuTop,
                   right: 0,
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 200),

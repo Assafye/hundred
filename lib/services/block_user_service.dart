@@ -551,8 +551,9 @@ class BlockUserService {
     final legacyDocs = await _blockedUsersCol(myUid)
         .where('blockedUid', isEqualTo: normalizedTargetUid)
         .get();
-    final directChatRef = _directChatRef(myUid, normalizedTargetUid);
 
+    // The unblock operation must succeed based on the current user's own
+    // block records, regardless of the direct chat document state.
     final batch = _db.batch();
     batch.delete(blockedRef);
     for (final doc in legacyDocs.docs) {
@@ -568,20 +569,41 @@ class BlockUserService {
       },
       SetOptions(merge: true),
     );
-    batch.set(
-      directChatRef,
-      {
-        'id': directChatRef.id,
-        'directChatKey': directChatRef.id,
-        'isDirect': true,
-        'isPublic': false,
-        'participants': <String>[myUid, normalizedTargetUid]..sort(),
-        'blockedBy.$myUid': false,
-        'blockedBy.$normalizedTargetUid': FieldValue.delete(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      },
-      SetOptions(merge: true),
-    );
     await batch.commit();
+
+    // Best-effort cleanup for direct chat block markers. This should not fail
+    // the unblock action if chat permissions or shape do not allow the update.
+    final directChatRef = _directChatRef(myUid, normalizedTargetUid);
+    try {
+      final directSnap = await directChatRef.get();
+      if (!directSnap.exists) {
+        return;
+      }
+
+      final data = directSnap.data() ?? const <String, dynamic>{};
+      final participants =
+          ((data['participants'] as List<dynamic>?) ?? const <dynamic>[])
+              .map((item) => item.toString().trim())
+              .where((item) => item.isNotEmpty)
+              .toSet();
+
+      if (!participants.contains(myUid) ||
+          !participants.contains(normalizedTargetUid)) {
+        return;
+      }
+
+      await directChatRef.set(
+        {
+          'blockedBy.$myUid': false,
+          'blockedBy.$normalizedTargetUid': FieldValue.delete(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+    } catch (error) {
+      _trace(
+        'unblock_chat_cleanup_skipped target=$normalizedTargetUid errorType=${error.runtimeType} error=$error',
+      );
+    }
   }
 }

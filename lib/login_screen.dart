@@ -39,6 +39,16 @@ class _LoginScreenState extends State<LoginScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
+      final pendingMessage = AuthService.consumePendingAuthUiMessage();
+      if (pendingMessage != null && pendingMessage.trim().isNotEmpty) {
+        setState(() {
+          _showError = true;
+          _errorMessage = pendingMessage;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(pendingMessage)),
+        );
+      }
       setState(() {
         _animateBg = true;
       });
@@ -97,6 +107,7 @@ class _LoginScreenState extends State<LoginScreen> {
       print('[LoginScreen][_onLoginPressed] FirebaseAuthException: $e');
       print('[LoginScreen][_onLoginPressed] stackTrace: $stackTrace');
       if (!mounted) return;
+      AuthService.clearPendingAuthUiMessage();
       final message = e.code == AuthService.emailNotVerifiedCode
           ? 'האימייל שלך עדיין לא אומת. נא לאשר את המייל ולהתחבר שוב.'
           : (e.code == AuthService.registrationIncompleteCode

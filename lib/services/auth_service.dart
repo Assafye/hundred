@@ -26,10 +26,26 @@ class PendingRegistrationState {
 class AuthService {
   static final ValueNotifier<bool> registrationFlowInProgress =
       ValueNotifier<bool>(false);
+  static final ValueNotifier<String?> pendingAuthUiMessage =
+      ValueNotifier<String?>(null);
   static const String emailNotVerifiedCode = 'email-not-verified';
   static const String registrationIncompleteCode = 'registration-incomplete';
 
   final NotificationService _notificationService = NotificationService();
+
+  static void setPendingAuthUiMessage(String? message) {
+    pendingAuthUiMessage.value = message;
+  }
+
+  static String? consumePendingAuthUiMessage() {
+    final message = pendingAuthUiMessage.value;
+    pendingAuthUiMessage.value = null;
+    return message;
+  }
+
+  static void clearPendingAuthUiMessage() {
+    pendingAuthUiMessage.value = null;
+  }
 
   FirebaseApp _defaultApp() {
     if (Firebase.apps.isEmpty) {
@@ -249,23 +265,40 @@ class AuthService {
     final normalized = _normalizeUsername(username);
     if (normalized.isEmpty) return false;
 
-    final lowercaseSnapshot = await _db
-        .collection('users_public')
-        .where('usernameLowercase', isEqualTo: normalized)
-        .limit(1)
-        .get();
+    try {
+      final lowercaseSnapshot = await _db
+          .collection('users_public')
+          .where('usernameLowercase', isEqualTo: normalized)
+          .limit(1)
+          .get();
 
-    final snapshot = lowercaseSnapshot.docs.isNotEmpty
-        ? lowercaseSnapshot
-        : await _db
-            .collection('users_public')
-            .where('username', isEqualTo: normalized)
-            .limit(1)
-            .get();
+      final snapshot = lowercaseSnapshot.docs.isNotEmpty
+          ? lowercaseSnapshot
+          : await _db
+              .collection('users_public')
+              .where('username', isEqualTo: normalized)
+              .limit(1)
+              .get();
 
-    if (snapshot.docs.isEmpty) return false;
-    if (excludeUid == null) return true;
-    return snapshot.docs.first.id != excludeUid;
+      if (snapshot.docs.isEmpty) return false;
+      if (excludeUid == null) return true;
+      return snapshot.docs.first.id != excludeUid;
+    } on FirebaseException catch (e) {
+      if (e.code == 'permission-denied') {
+        if (_auth.currentUser == null) {
+          throw FirebaseAuthException(
+            code: 'session-expired',
+            message: 'פג תוקף תהליך האימות. יש להתחיל שוב.',
+          );
+        }
+
+        throw FirebaseAuthException(
+          code: 'permission-denied',
+          message: 'אין הרשאה לבדוק זמינות שם משתמש כרגע.',
+        );
+      }
+      rethrow;
+    }
   }
 
   Future<bool> isPhoneTaken(String phone, {String? excludeUid}) async {
@@ -473,13 +506,21 @@ class AuthService {
     }
   }
 
-  Future<User> _requireVerifiedEmail(User user) async {
+  Future<User> _requireVerifiedEmail(
+    User user, {
+    bool queueUiMessageOnFailure = true,
+  }) async {
     await user.reload();
     final refreshedUser = _auth.currentUser ?? user;
     if (refreshedUser.emailVerified) {
       return refreshedUser;
     }
 
+    if (queueUiMessageOnFailure) {
+      setPendingAuthUiMessage(
+        'האימייל שלך עדיין לא אומת. נא לאשר את המייל ולהתחבר שוב.',
+      );
+    }
     await _auth.signOut();
     throw FirebaseAuthException(
       code: emailNotVerifiedCode,
@@ -487,15 +528,25 @@ class AuthService {
     );
   }
 
-  Future<User> requireCompletedRegistration(User user) async {
-    await user.reload();
-    final refreshedUser = _auth.currentUser ?? user;
+  Future<User> requireCompletedRegistration(
+    User user, {
+    bool queueUiMessageOnFailure = true,
+  }) async {
+    final refreshedUser = await _requireVerifiedEmail(
+      user,
+      queueUiMessageOnFailure: queueUiMessageOnFailure,
+    );
     final hasCompletedProfile =
         await _hasCompletedPrivateProfile(refreshedUser.uid);
     if (hasCompletedProfile) {
       return refreshedUser;
     }
 
+    if (queueUiMessageOnFailure) {
+      setPendingAuthUiMessage(
+        'החשבון שלך עדיין לא הושלם. נא להשלים את הפרטים האישיים לאחר ההתחברות.',
+      );
+    }
     await _auth.signOut();
     throw FirebaseAuthException(
       code: registrationIncompleteCode,
@@ -509,8 +560,17 @@ class AuthService {
       return false;
     }
 
+    // While registration is in progress, avoid bootstrap checks that may sign
+    // out the temporary auth session needed for profile image uploads.
+    if (registrationFlowInProgress.value) {
+      return true;
+    }
+
     try {
-      await requireCompletedRegistration(currentUser)
+      await requireCompletedRegistration(
+        currentUser,
+        queueUiMessageOnFailure: false,
+      )
           .timeout(const Duration(seconds: 8));
       return true;
     } on TimeoutException {
@@ -547,7 +607,10 @@ class AuthService {
         );
       }
 
-      final user = await _requireVerifiedEmail(currentUser);
+      final user = await _requireVerifiedEmail(
+        currentUser,
+        queueUiMessageOnFailure: false,
+      );
       final hasCompletedProfile = await _hasCompletedPrivateProfile(user.uid);
       if (hasCompletedProfile) {
         throw FirebaseAuthException(

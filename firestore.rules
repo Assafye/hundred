@@ -624,7 +624,8 @@ service cloud.firestore {
 
       match /blocked_users/{blockedUid} {
         allow read: if isSelf(uid) || (isSignedIn() && blockedUid == request.auth.uid);
-        allow create, update, delete: if isSelf(uid);
+        allow create: if isSignedIn() && request.auth.uid == uid;
+        allow update, delete: if isSignedIn() && request.auth.uid == uid;
       }
 
       match /secure_actions/{actionId} {

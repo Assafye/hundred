@@ -584,6 +584,12 @@ class _StartupGateState extends State<StartupGate> {
     return ValueListenableBuilder<bool>(
       valueListenable: AuthService.registrationFlowInProgress,
       builder: (context, isRegistrationFlowInProgress, _) {
+        if (isRegistrationFlowInProgress) {
+          // Keep the app in a neutral state while registration is mid-flow.
+          // This prevents background routing to authenticated screens.
+          return const AnimatedInfinitySplashScreen();
+        }
+
         return StreamBuilder<User?>(
           stream: FirebaseAuth.instance.authStateChanges(),
           initialData: FirebaseAuth.instance.currentUser,
