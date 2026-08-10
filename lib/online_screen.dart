@@ -58,6 +58,9 @@ class _OnlineScreenState extends State<OnlineScreen>
   final Set<String> _locallyHiddenMeetPostIds = <String>{};
   final Map<String, String> _groupMemberAvatarByUid = <String, String>{};
   final Set<String> _groupMemberAvatarLoadInFlight = <String>{};
+  final Map<String, Stream<DocumentSnapshot<Map<String, dynamic>>>>
+      _groupPrivacyStreamCache =
+          <String, Stream<DocumentSnapshot<Map<String, dynamic>>>>{};
   String _lastUpcomingPrefetchKey = '';
 
   int? _meetFilterMinScore;
@@ -201,6 +204,28 @@ class _OnlineScreenState extends State<OnlineScreen>
         ),
       ),
     );
+  }
+
+  Stream<DocumentSnapshot<Map<String, dynamic>>> _groupPrivacyStream(
+    String groupId,
+  ) {
+    final normalizedGroupId = groupId.trim();
+    if (normalizedGroupId.isEmpty) {
+      return const Stream<DocumentSnapshot<Map<String, dynamic>>>.empty();
+    }
+
+    return _groupPrivacyStreamCache.putIfAbsent(
+      normalizedGroupId,
+      () => FirebaseFirestore.instance
+          .collection('groups')
+          .doc(normalizedGroupId)
+          .snapshots(),
+    );
+  }
+
+  bool _isMeetJoinClosed(Map<String, dynamic> groupData) {
+    final isPublic = (groupData['isPublic'] as bool?) ?? true;
+    return !isPublic;
   }
 
   void _prefetchUpcomingGroupMemberAvatars(
@@ -2668,11 +2693,10 @@ class _OnlineScreenState extends State<OnlineScreen>
       context: context,
       barrierColor: Colors.black54,
       builder: (dialogContext) {
-        return Dialog(
-          backgroundColor: Colors.transparent,
-          insetPadding:
-              const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-          child: Container(
+        final isLinkedGroup = entry.linkedGroupId.trim().isNotEmpty;
+
+        Widget buildDialogBody(bool isJoinClosed) {
+          return Container(
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(26),
               gradient: const LinearGradient(
@@ -2752,21 +2776,22 @@ class _OnlineScreenState extends State<OnlineScreen>
                     runSpacing: 8,
                     children: [
                       _infoPill(
-                          Icons.place_rounded,
-                          entry.meetingLocation.isEmpty
-                              ? 'מיקום לא צוין'
-                              : entry.meetingLocation),
+                        Icons.place_rounded,
+                        entry.meetingLocation.isEmpty
+                            ? 'מיקום לא צוין'
+                            : entry.meetingLocation,
+                      ),
                       _infoPill(
-                          Icons.schedule_rounded,
-                          entry.timePreference.isEmpty
-                              ? 'לא צוין זמן'
-                              : entry.timePreference),
+                        Icons.schedule_rounded,
+                        entry.timePreference.isEmpty
+                            ? 'לא צוין זמן'
+                            : entry.timePreference,
+                      ),
                       _infoPill(
                         Icons.access_time_rounded,
                         _formatRelativeTime(entry.createdAt),
                       ),
-                      _infoPill(
-                          Icons.stars_rounded, '${entry.authorScore} נקודות'),
+                      _infoPill(Icons.stars_rounded, '${entry.authorScore} נקודות'),
                       if (entry.linkedGroupMembersCount > 0)
                         _infoPill(Icons.people_alt_rounded,
                             '${entry.linkedGroupMembersCount} חברים'),
@@ -2788,6 +2813,30 @@ class _OnlineScreenState extends State<OnlineScreen>
                             '${entry.desiredParticipants} משתתפים רצויים'),
                     ],
                   ),
+                  if (isJoinClosed) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFEBEB),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: const Color(0xFFFF5B5B)),
+                      ),
+                      child: const Text(
+                        'המנהל סגר את האפשרות להצטרף לקבוצה זו.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: Color(0xFFB32727),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ],
                   if (entry.details.isNotEmpty) ...[
                     const SizedBox(height: 14),
                     Text(
@@ -2801,9 +2850,10 @@ class _OnlineScreenState extends State<OnlineScreen>
                     ),
                   ],
                   const SizedBox(height: 16),
-                  if (entry.linkedGroupId.isEmpty) ...[
+                  if (!isLinkedGroup) ...[
                     ElevatedButton(
                       onPressed: () async {
+                        final messenger = ScaffoldMessenger.of(dialogContext);
                         try {
                           final targetGroupId = await _homeService
                               .createGroupForMeetNowPost(entry);
@@ -2825,15 +2875,14 @@ class _OnlineScreenState extends State<OnlineScreen>
                             return;
                           }
                           Navigator.of(dialogContext).pop();
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                                content: Text('הצטרפת להצעה בהצלחה')),
+                          messenger.showSnackBar(
+                            const SnackBar(content: Text('הצטרפת להצעה בהצלחה')),
                           );
                         } catch (error) {
                           if (!mounted) {
                             return;
                           }
-                          ScaffoldMessenger.of(context).showSnackBar(
+                          messenger.showSnackBar(
                             SnackBar(
                                 content: Text('ההצטרפות להצעה נכשלה: $error')),
                           );
@@ -2870,59 +2919,67 @@ class _OnlineScreenState extends State<OnlineScreen>
                         final status = statusSnapshot.data;
                         final isPending = status == 'pending';
                         final isApproved = status == 'approved';
+                        final canJoinNow = !isJoinClosed && !isPending && !isApproved;
+
                         return ElevatedButton(
-                          onPressed: () async {
-                            if (isApproved) {
-                              Navigator.of(dialogContext).pop();
-                              await _openGroupChatById(
-                                groupId: entry.linkedGroupId,
-                                fallbackName: entry.title,
-                              );
-                              return;
-                            }
-
-                            if (isPending) {
-                              Navigator.of(dialogContext).pop();
-                              return;
-                            }
-
-                            try {
-                              await _groupService
-                                  .joinGroup(entry.linkedGroupId);
-                              await _homeService.registerMeetNowJoin(
-                                entry: entry,
-                                groupId: entry.linkedGroupId,
-                              );
-                              if (!mounted) {
-                                return;
-                              }
-                              setState(() {
-                                final postId = entry.id.trim();
-                                if (postId.isNotEmpty) {
-                                  _locallyHiddenMeetPostIds.add(postId);
+                          onPressed: isApproved
+                              ? () async {
+                                  Navigator.of(dialogContext).pop();
+                                  await _openGroupChatById(
+                                    groupId: entry.linkedGroupId,
+                                    fallbackName: entry.title,
+                                  );
                                 }
-                              });
-                              ScaffoldMessenger.of(this.context).showSnackBar(
-                                const SnackBar(
-                                    content: Text('בקשת ההצטרפות נשלחה/בוצעה')),
-                              );
-                            } catch (error) {
-                              if (!mounted) {
-                                return;
-                              }
-                              ScaffoldMessenger.of(this.context).showSnackBar(
-                                SnackBar(
-                                  content: Text(
-                                    _friendlyJoinErrorMessage(error),
-                                  ),
-                                ),
-                              );
-                            }
-                          },
+                              : (isPending
+                                  ? null
+                                  : (canJoinNow
+                                      ? () async {
+                                          final messenger =
+                                            ScaffoldMessenger.of(dialogContext);
+                                          try {
+                                            await _groupService
+                                                .joinGroup(entry.linkedGroupId);
+                                            await _homeService.registerMeetNowJoin(
+                                              entry: entry,
+                                              groupId: entry.linkedGroupId,
+                                            );
+                                            if (!mounted) {
+                                              return;
+                                            }
+                                            setState(() {
+                                              final postId = entry.id.trim();
+                                              if (postId.isNotEmpty) {
+                                                _locallyHiddenMeetPostIds
+                                                    .add(postId);
+                                              }
+                                            });
+                                            messenger.showSnackBar(
+                                              const SnackBar(
+                                                content: Text(
+                                                    'בקשת ההצטרפות נשלחה/בוצעה'),
+                                              ),
+                                            );
+                                          } catch (error) {
+                                            if (!mounted) {
+                                              return;
+                                            }
+                                            messenger.showSnackBar(
+                                              SnackBar(
+                                                content: Text(
+                                                  _friendlyJoinErrorMessage(
+                                                      error),
+                                                ),
+                                              ),
+                                            );
+                                          }
+                                        }
+                                      : null)),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: isApproved
                                 ? _cyan
-                                : (isPending ? _cyan : _purple),
+                                : (isJoinClosed
+                                    ? const Color(0xFF8A3940)
+                                    : (isPending ? _cyan : _purple)),
                             foregroundColor:
                                 isLight ? Colors.black : Colors.white,
                             padding: const EdgeInsets.symmetric(vertical: 13),
@@ -2930,9 +2987,11 @@ class _OnlineScreenState extends State<OnlineScreen>
                           child: Text(
                             isApproved
                                 ? 'צפייה בקבוצה'
-                                : (isPending
-                                    ? 'בקשתך נשלחה'
-                                    : 'הצטרפות לקבוצה'),
+                                : (isJoinClosed
+                                    ? 'אי אפשר להצטרף כרגע'
+                                    : (isPending
+                                        ? 'בקשתך נשלחה'
+                                        : 'הצטרפות לקבוצה')),
                           ),
                         );
                       },
@@ -2946,7 +3005,31 @@ class _OnlineScreenState extends State<OnlineScreen>
                 ],
               ),
             ),
-          ),
+          );
+        }
+
+        if (!isLinkedGroup) {
+          return Dialog(
+            backgroundColor: Colors.transparent,
+            insetPadding:
+                const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+            child: buildDialogBody(false),
+          );
+        }
+
+        return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+          stream: _groupPrivacyStream(entry.linkedGroupId),
+          builder: (context, groupSnapshot) {
+            final groupData = groupSnapshot.data?.data() ?? <String, dynamic>{};
+            final isJoinClosed = _isMeetJoinClosed(groupData);
+
+            return Dialog(
+              backgroundColor: Colors.transparent,
+              insetPadding:
+                  const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+              child: buildDialogBody(isJoinClosed),
+            );
+          },
         );
       },
     );
@@ -3913,141 +3996,172 @@ class _OnlineScreenState extends State<OnlineScreen>
                     }
 
                     final entry = entries[index - 1];
-                    return GestureDetector(
-                      onTap: () => _openMeetPostsViewer(
-                        entries: entries,
-                        initialIndex: index - 1,
-                      ),
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: isLight ? Colors.white : null,
-                          gradient: isLight
-                              ? null
-                              : LinearGradient(
-                                  colors: [
-                                    const Color(0xFF14233A)
-                                        .withValues(alpha: 0.96),
-                                    const Color(0xFF312357)
-                                        .withValues(alpha: 0.96),
-                                  ],
-                                  begin: Alignment.topRight,
-                                  end: Alignment.bottomLeft,
-                                ),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(
-                            color: isLight
-                                ? const Color(0xFFA9C3FF)
-                                : _cyan.withValues(alpha: 0.18),
-                          ),
+                    final card = Container(
+                      decoration: BoxDecoration(
+                        color: isLight ? Colors.white : null,
+                        gradient: isLight
+                            ? null
+                            : LinearGradient(
+                                colors: [
+                                  const Color(0xFF14233A)
+                                      .withValues(alpha: 0.96),
+                                  const Color(0xFF312357)
+                                      .withValues(alpha: 0.96),
+                                ],
+                                begin: Alignment.topRight,
+                                end: Alignment.bottomLeft,
+                              ),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: isLight
+                              ? const Color(0xFFA9C3FF)
+                              : _cyan.withValues(alpha: 0.18),
                         ),
-                        padding: const EdgeInsets.all(10),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Expanded(
-                              child: Stack(
-                                children: [
-                                  Positioned.fill(
-                                    child: ClipRRect(
-                                      borderRadius: BorderRadius.circular(16),
-                                      child: Container(
-                                        color: isLight
-                                            ? const Color(0xFFEFF5FF)
-                                            : const Color(0xFF0D1524),
-                                        child: entry.authorAvatarUrl.isNotEmpty
-                                            ? Image.network(
-                                                entry.authorAvatarUrl,
-                                                fit: BoxFit.cover,
-                                                errorBuilder: (_, __, ___) =>
-                                                    Icon(
-                                                  Icons.person_outline_rounded,
-                                                  color: isLight
-                                                      ? Colors.black45
-                                                      : Colors.white54,
-                                                  size: 30,
-                                                ),
-                                              )
-                                            : Icon(
+                      ),
+                      padding: const EdgeInsets.all(10),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Expanded(
+                            child: Stack(
+                              children: [
+                                Positioned.fill(
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(16),
+                                    child: Container(
+                                      color: isLight
+                                          ? const Color(0xFFEFF5FF)
+                                          : const Color(0xFF0D1524),
+                                      child: entry.authorAvatarUrl.isNotEmpty
+                                          ? Image.network(
+                                              entry.authorAvatarUrl,
+                                              fit: BoxFit.cover,
+                                              errorBuilder: (_, __, ___) => Icon(
                                                 Icons.person_outline_rounded,
                                                 color: isLight
                                                     ? Colors.black45
                                                     : Colors.white54,
                                                 size: 30,
                                               ),
-                                      ),
+                                            )
+                                          : Icon(
+                                              Icons.person_outline_rounded,
+                                              color: isLight
+                                                  ? Colors.black45
+                                                  : Colors.white54,
+                                              size: 30,
+                                            ),
                                     ),
                                   ),
-                                  Positioned(
-                                    top: 8,
-                                    right: 8,
-                                    child: () {
-                                      final count = math.max(
-                                        1,
-                                        entry.linkedGroupMembersCount,
-                                      );
-                                      final countLabel =
-                                          count == 1 ? '1 חבר' : '$count חברים';
-                                      return Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 8,
-                                          vertical: 5,
+                                ),
+                                Positioned(
+                                  top: 8,
+                                  right: 8,
+                                  child: () {
+                                    final count = math.max(
+                                      1,
+                                      entry.linkedGroupMembersCount,
+                                    );
+                                    final countLabel =
+                                        count == 1 ? '1 חבר' : '$count חברים';
+                                    return Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 5,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: isLight
+                                            ? Colors.white.withValues(alpha: 0.9)
+                                            : const Color(0xCC111A28),
+                                        borderRadius:
+                                            BorderRadius.circular(999),
+                                        border: Border.all(
+                                          color: _cyan.withValues(alpha: 0.45),
                                         ),
-                                        decoration: BoxDecoration(
+                                      ),
+                                      child: Text(
+                                        countLabel,
+                                        style: TextStyle(
                                           color: isLight
-                                              ? Colors.white
-                                                  .withValues(alpha: 0.9)
-                                              : const Color(0xCC111A28),
-                                          borderRadius:
-                                              BorderRadius.circular(999),
-                                          border: Border.all(
-                                            color:
-                                                _cyan.withValues(alpha: 0.45),
-                                          ),
+                                              ? Colors.black
+                                              : Colors.white,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w800,
                                         ),
-                                        child: Text(
-                                          countLabel,
-                                          style: TextStyle(
-                                            color: isLight
-                                                ? Colors.black
-                                                : Colors.white,
-                                            fontSize: 10,
-                                            fontWeight: FontWeight.w800,
+                                      ),
+                                    );
+                                  }(),
+                                ),
+                                if (entry.linkedGroupId.trim().isNotEmpty)
+                                  StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                                    stream:
+                                        _groupPrivacyStream(entry.linkedGroupId),
+                                    builder: (context, groupSnapshot) {
+                                      final groupData =
+                                          groupSnapshot.data?.data() ??
+                                              <String, dynamic>{};
+                                      final isJoinClosed =
+                                          _isMeetJoinClosed(groupData);
+                                      if (!isJoinClosed) {
+                                        return const SizedBox.shrink();
+                                      }
+                                      return Positioned(
+                                        left: 8,
+                                        top: 8,
+                                        child: Container(
+                                          width: 22,
+                                          height: 22,
+                                          decoration: const BoxDecoration(
+                                            color: Color(0xFFE93E4E),
+                                            shape: BoxShape.circle,
+                                          ),
+                                          child: const Icon(
+                                            Icons.lock_rounded,
+                                            size: 13,
+                                            color: Colors.white,
                                           ),
                                         ),
                                       );
-                                    }(),
+                                    },
                                   ),
-                                ],
-                              ),
+                              ],
                             ),
-                            const SizedBox(height: 10),
-                            Text(
-                              entry.title,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                color: isLight ? Colors.black : Colors.white,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w800,
-                                height: 1.2,
-                              ),
+                          ),
+                          const SizedBox(height: 10),
+                          Text(
+                            entry.title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: isLight ? Colors.black : Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800,
+                              height: 1.2,
                             ),
-                            const SizedBox(height: 6),
-                            Text(
-                              entry.authorName,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                color:
-                                    isLight ? Colors.black54 : Colors.grey[300],
-                                fontSize: 11,
-                              ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            entry.authorName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color:
+                                  isLight ? Colors.black54 : Colors.grey[300],
+                              fontSize: 11,
                             ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
+                    );
+
+                    return GestureDetector(
+                      onTap: () => _openMeetPostsViewer(
+                        entries: entries,
+                        initialIndex: index - 1,
+                      ),
+                      child: card,
                     );
                   },
                 ),

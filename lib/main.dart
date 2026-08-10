@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:firebase_core/firebase_core.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -59,6 +60,10 @@ Future<void> main() async {
       options: DefaultFirebaseOptions.currentPlatform,
     );
     await ShareFlowLogService.log('FIREBASE_INITIALIZED');
+
+    FirebaseFirestore.instance.settings =
+        const Settings(persistenceEnabled: true);
+    await ShareFlowLogService.log('FIRESTORE_PERSISTENCE_ENABLED');
 
     await _configureAuthConnection();
     await ShareFlowLogService.log('AUTH_CONNECTION_CONFIGURED');

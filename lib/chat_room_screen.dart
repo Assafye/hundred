@@ -642,6 +642,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         builder: (_) => UserProfileScreen(
           uid: normalizedUid,
           currentBottomIndex: 3,
+          openedFromDirectChat: widget.isDirectChat == true,
         ),
       ),
     );
@@ -2760,6 +2761,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                                   UserProfileScreen(
                             uid: otherUid,
                             currentBottomIndex: 3,
+                                    openedFromDirectChat: widget.isDirectChat == true,
                           ),
                           transitionsBuilder:
                               (context, animation, secondaryAnimation, child) {

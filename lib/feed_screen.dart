@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -106,6 +107,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
   late final List<String> categories;
   String _randomizedFeedSignature = '';
   Map<String, int> _randomizedFeedOrder = <String, int>{};
+  String _lastPrecachedFeedSignature = '';
   bool _didScheduleSpontaneousPrompt = false;
 
   @override
@@ -260,6 +262,64 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
         }
         _maybeShowSpontaneousPrompt();
       });
+    });
+  }
+
+  List<String> _precacheMediaUrlsForPost(PostModel post) {
+    final mediaItems = post.mediaItems.isNotEmpty
+        ? post.mediaItems
+        : postMediaItemsFromData(<String, dynamic>{
+            'mediaUrls': post.mediaUrls,
+            'imageUrl': post.imageUrl,
+          });
+
+    final urls = <String>[];
+    for (final item in mediaItems) {
+      if (item.isVideo) {
+        continue;
+      }
+      final url = item.url.trim();
+      if (url.isEmpty) {
+        continue;
+      }
+      if (url.startsWith('http://') || url.startsWith('https://')) {
+        urls.add(url);
+      }
+    }
+
+    return urls;
+  }
+
+  void _scheduleFeedMediaPrecache(List<PostModel> feedPosts, int activeIndex) {
+    if (feedPosts.isEmpty || !mounted) {
+      return;
+    }
+
+    final normalizedIndex = activeIndex.clamp(0, feedPosts.length - 1);
+    final nextPosts = feedPosts
+        .skip(normalizedIndex)
+        .take(2)
+        .toList(growable: false);
+    final signature = nextPosts
+        .map((post) => '${post.id}:${_precacheMediaUrlsForPost(post).join(',')}')
+        .join('|');
+
+    if (signature.isEmpty || signature == _lastPrecachedFeedSignature) {
+      return;
+    }
+
+    _lastPrecachedFeedSignature = signature;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || signature != _lastPrecachedFeedSignature) {
+        return;
+      }
+
+      for (final post in nextPosts) {
+        for (final url in _precacheMediaUrlsForPost(post)) {
+          precacheImage(CachedNetworkImageProvider(url), context);
+        }
+      }
     });
   }
 
@@ -3032,14 +3092,16 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                   builder: (context, audienceSnapshot) {
                     final feedPosts =
                         audienceSnapshot.data ?? const <PostModel>[];
-                    final scrollControls =
-                        _buildScrollControls(feedPosts.length);
                     final activeFeedIndex = feedPosts.isEmpty
                         ? 0
                         : _currentFeedPageIndex.clamp(0, feedPosts.length - 1);
                     final emptyMessage = isForYouFeed
                         ? 'אין פוסטים להצגה בקטגוריה/תת-קטגוריה זו'
                         : 'אין פוסטים של חברים להצגה';
+
+                    _scheduleFeedMediaPrecache(feedPosts, activeFeedIndex);
+                    final scrollControls =
+                      _buildScrollControls(feedPosts.length);
 
                     return Scaffold(
                       extendBody: true,
@@ -3048,6 +3110,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                         activePostSubCategory: feedPosts.isEmpty
                             ? null
                             : feedPosts[activeFeedIndex].subCategory,
+                        showLoader: false,
                         child: feedPosts.isEmpty
                             ? Center(
                                 child: Text(
@@ -3970,7 +4033,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
     );
     const topRowHeight = 34.0;
     const subCategoryMenuTop = 76.0;
-    final categoryMenuTop = topRowHeight;
+    const categoryMenuTop = topRowHeight;
     final openMenuExtent = isCategoryMenuOpen
         ? categoryMenuTop + categoryMenuHeight
         : (isSubCategoryMenuOpen && !isGeneralSelected)

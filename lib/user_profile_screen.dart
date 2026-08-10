@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 
 import 'app_categories.dart';
 import 'chat_room_screen.dart';
+import 'chats_screen.dart';
 import 'main_bottom_nav.dart';
 import 'post_media_utils.dart';
 import 'profile_post_grouping.dart';
@@ -75,12 +76,14 @@ class UserProfileScreen extends StatefulWidget {
   final String uid;
   final String? username;
   final int currentBottomIndex;
+  final bool openedFromDirectChat;
 
   const UserProfileScreen({
     super.key,
     required this.uid,
     this.username,
     this.currentBottomIndex = 4,
+    this.openedFromDirectChat = false,
   });
 
   @override
@@ -6631,6 +6634,24 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                     WidgetsBinding.instance.addPostFrameCallback((_) {
                       if (!mounted) return;
                       final navigator = Navigator.of(context);
+                      if (widget.openedFromDirectChat) {
+                        Navigator.of(context).pushAndRemoveUntil(
+                          PageRouteBuilder(
+                            pageBuilder:
+                                (context, animation, secondaryAnimation) =>
+                                    const ChatsScreen(),
+                            transitionsBuilder: (context, animation,
+                                secondaryAnimation, child) {
+                              return FadeTransition(
+                                opacity: animation,
+                                child: child,
+                              );
+                            },
+                          ),
+                          (route) => false,
+                        );
+                        return;
+                      }
                       if (navigator.canPop()) {
                         navigator.pop();
                         return;

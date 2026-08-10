@@ -76,11 +76,14 @@ class _ChatsScreenState extends State<ChatsScreen> {
   final Map<String, Future<DocumentSnapshot<Map<String, dynamic>>>>
       _groupDetailsCache =
       <String, Future<DocumentSnapshot<Map<String, dynamic>>>>{};
+  final Map<String, bool> _joinedGroupEligibilityCache = <String, bool>{};
   final Map<String, Future<List<_GlobalSearchResult>>> _globalSearchCache =
       <String, Future<List<_GlobalSearchResult>>>{};
   String _streamsUid = '';
   Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>>? _userChatsStream;
   Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>>? _publicChatsStream;
+    List<QueryDocumentSnapshot<Map<String, dynamic>>>? _lastUserChatsDocs;
+    List<QueryDocumentSnapshot<Map<String, dynamic>>>? _lastPublicChatsDocs;
   StreamSubscription<List<QueryDocumentSnapshot<Map<String, dynamic>>>>?
       _userChatsNotificationsSub;
 
@@ -158,8 +161,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
     }
 
     _streamsUid = normalizedUid;
-    _userChatsStream =
-        _chatService.streamUserChatsSafeDocs(normalizedUid).asBroadcastStream();
+    _userChatsStream = _chatService.streamUserChatsSafeDocs(normalizedUid);
     _publicChatsStream =
         _chatService.streamPublicChatsExcludingUserSafe(normalizedUid);
   }
@@ -172,13 +174,12 @@ class _ChatsScreenState extends State<ChatsScreen> {
       return;
     }
 
-    _ensureStableChatStreams(normalizedUid);
-    final stream = _userChatsStream;
-    if (stream == null) {
-      return;
-    }
+    final notificationsStream = _chatService.streamUserChatsSafeDocs(
+      normalizedUid,
+    );
 
-    _userChatsNotificationsSub = stream.listen((docs) {
+    _userChatsNotificationsSub = notificationsStream.listen((docs) {
+      _lastUserChatsDocs = docs;
       unawaited(
         _refreshTabNotificationsFromChatsDocs(docs, normalizedUid),
       );
@@ -449,6 +450,120 @@ class _ChatsScreenState extends State<ChatsScreen> {
       groupId,
       () => FirebaseFirestore.instance.collection('groups').doc(groupId).get(),
     );
+  }
+
+  bool _uidInDynamicList(dynamic raw, String uid) {
+    if (raw is! List) {
+      return false;
+    }
+    return raw
+        .map((value) => value.toString().trim())
+        .where((value) => value.isNotEmpty)
+        .contains(uid);
+  }
+
+  Future<bool> _isApprovedMemberOfGroup({
+    required String groupId,
+    required String uid,
+  }) async {
+    final normalizedGroupId = groupId.trim();
+    final normalizedUid = uid.trim();
+    if (normalizedGroupId.isEmpty || normalizedUid.isEmpty) {
+      return false;
+    }
+
+    final cacheKey = '$normalizedUid::$normalizedGroupId';
+    final cached = _joinedGroupEligibilityCache[cacheKey];
+    if (cached != null) {
+      return cached;
+    }
+
+    bool approved = false;
+
+    try {
+      final groupDoc = await FirebaseFirestore.instance
+          .collection('groups')
+          .doc(normalizedGroupId)
+          .get();
+      final data = groupDoc.data() ?? const <String, dynamic>{};
+      approved = _uidInDynamicList(data['membersList'], normalizedUid) ||
+          _uidInDynamicList(data['members'], normalizedUid) ||
+          _uidInDynamicList(data['participants'], normalizedUid);
+    } catch (_) {
+      approved = false;
+    }
+
+    if (!approved) {
+      try {
+        final memberDoc = await FirebaseFirestore.instance
+            .collection('groups')
+            .doc(normalizedGroupId)
+            .collection('members')
+            .doc(normalizedUid)
+            .get();
+        final status =
+            (memberDoc.data()?['status'] as String? ?? '').trim().toLowerCase();
+        approved = memberDoc.exists && status == 'approved';
+      } catch (_) {
+        approved = false;
+      }
+    }
+
+    _joinedGroupEligibilityCache[cacheKey] = approved;
+    return approved;
+  }
+
+  Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+      _filterApprovedGroupChats({
+    required List<QueryDocumentSnapshot<Map<String, dynamic>>> groupDocs,
+    required String currentUid,
+  }) async {
+    final result = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+    final normalizedUid = currentUid.trim();
+    if (normalizedUid.isEmpty) {
+      return result;
+    }
+
+    for (final groupDoc in groupDocs) {
+      final chatData = groupDoc.data();
+      final chatParticipants = (chatData['participants'] as List<dynamic>? ??
+              const <dynamic>[])
+          .map((value) => value.toString().trim())
+          .where((value) => value.isNotEmpty)
+          .toSet();
+
+      // Hard guard: only show chats where current user is explicitly a
+      // participant in the chat document itself.
+      if (!chatParticipants.contains(normalizedUid)) {
+        continue;
+      }
+
+      final targetGroupId = _targetGroupIdFromChatData(groupDoc);
+      var approved = await _isApprovedMemberOfGroup(
+        groupId: targetGroupId,
+        uid: normalizedUid,
+      );
+
+      // Some legacy/public chat docs may use chatId != groupId; if the mapped
+      // sourceGroupId is unreadable/missing, retry with the chat doc id.
+      if (!approved && targetGroupId != groupDoc.id) {
+        approved = await _isApprovedMemberOfGroup(
+          groupId: groupDoc.id,
+          uid: normalizedUid,
+        );
+      }
+
+      // Fallback: if membership docs are temporarily unreadable but chat
+      // participants already include the user, keep the joined group visible.
+      if (!approved && chatParticipants.contains(normalizedUid)) {
+        approved = true;
+      }
+
+      if (approved) {
+        result.add(groupDoc);
+      }
+    }
+    return result;
   }
 
   DateTime? _extractDateField(Map<String, dynamic> data, String fieldName) {
@@ -1433,6 +1548,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
 
     return StreamBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
       stream: _userChatsStream,
+      initialData: _lastUserChatsDocs ?? const <QueryDocumentSnapshot<Map<String, dynamic>>>[],
       builder: (context, chatSnapshot) {
         if (chatSnapshot.connectionState == ConnectionState.waiting &&
             !chatSnapshot.hasData) {
@@ -1441,13 +1557,13 @@ class _ChatsScreenState extends State<ChatsScreen> {
             child: Center(child: CircularProgressIndicator()),
           );
         }
-
         if (chatSnapshot.hasError) {
           return _buildCenteredMessage('אין עדיין צאטים עם משתמשים');
         }
 
         final docs = chatSnapshot.data ??
             const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+        _lastUserChatsDocs = docs;
         final directDocs = docs
             .where((doc) => _isDirectChat(doc.data()))
             .toList(growable: false);
@@ -1625,12 +1741,21 @@ class _ChatsScreenState extends State<ChatsScreen> {
   Widget _buildActiveChatsTab() {
     switch (_selectedChatsTabIndex) {
       case 0:
-        return _buildExistingChatsList();
+        return KeyedSubtree(
+          key: const ValueKey<String>('chats_users_tab'),
+          child: _buildExistingChatsList(),
+        );
       case 1:
-        return _buildRequestsList();
+        return KeyedSubtree(
+          key: const ValueKey<String>('chats_groups_tab'),
+          child: _buildRequestsList(),
+        );
       case 2:
       default:
-        return _buildPublicGroupsList();
+        return KeyedSubtree(
+          key: const ValueKey<String>('chats_public_groups_tab'),
+          child: _buildPublicGroupsList(),
+        );
     }
   }
 
@@ -1644,6 +1769,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
 
     return StreamBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
       stream: _publicChatsStream,
+      initialData: _lastPublicChatsDocs ?? const <QueryDocumentSnapshot<Map<String, dynamic>>>[],
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting &&
             !snapshot.hasData) {
@@ -1664,6 +1790,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
 
         final docs = snapshot.data ??
             const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+        _lastPublicChatsDocs = docs;
         final filteredDocs = _filterPublicChats(docs);
         if (filteredDocs.isEmpty) {
           return Column(
@@ -2061,12 +2188,14 @@ class _ChatsScreenState extends State<ChatsScreen> {
       }
 
       if (approvalRequired) {
+        _joinedGroupEligibilityCache.remove('$uid::${groupId.trim()}');
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('בקשת ההצטרפות נשלחה למנהל הקבוצה')),
         );
         return;
       }
 
+      _joinedGroupEligibilityCache.remove('$uid::${groupId.trim()}');
       setState(() {
         _hasNewGroupsNotification = true;
       });
@@ -2173,9 +2302,13 @@ class _ChatsScreenState extends State<ChatsScreen> {
     }
 
     try {
+      final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
       await _groupService.cancelMyPendingJoinRequest(groupId);
       if (!mounted) {
         return;
+      }
+      if (uid.isNotEmpty) {
+        _joinedGroupEligibilityCache.remove('$uid::${groupId.trim()}');
       }
       setState(() {});
       ScaffoldMessenger.of(context).showSnackBar(
@@ -3201,6 +3334,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
 
     return StreamBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
       stream: _userChatsStream,
+      initialData: _lastUserChatsDocs ?? const <QueryDocumentSnapshot<Map<String, dynamic>>>[],
       builder: (context, chatSnapshot) {
         if (chatSnapshot.connectionState == ConnectionState.waiting &&
             !chatSnapshot.hasData) {
@@ -3216,36 +3350,56 @@ class _ChatsScreenState extends State<ChatsScreen> {
 
         final docs = chatSnapshot.data ??
             const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+    _lastUserChatsDocs = docs;
         final groupDocs = docs
             .where((doc) => !_isDirectChat(doc.data()))
             .toList(growable: false);
         final filteredDocs = _filterAndSortChats(groupDocs);
-
-        if (filteredDocs.isEmpty) {
-          return _buildCenteredMessage('אין עדיין קבוצות');
-        }
-
-        final chatIds =
-            filteredDocs.map((doc) => doc.id).toList(growable: false);
-
-        return StreamBuilder<Map<String, DateTime?>>(
-          stream: _chatService.streamMyReadReceipts(
-            userId: currentUser.uid,
-            chatIds: chatIds,
+        return FutureBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
+          future: _filterApprovedGroupChats(
+            groupDocs: filteredDocs,
+            currentUid: currentUser.uid,
           ),
-          builder: (context, readSnapshot) {
-            if (readSnapshot.hasError) {
+          builder: (context, approvedSnapshot) {
+            if (approvedSnapshot.connectionState != ConnectionState.done &&
+                !approvedSnapshot.hasData) {
+              return const Padding(
+                padding: EdgeInsets.symmetric(vertical: 40),
+                child: Center(child: CircularProgressIndicator()),
+              );
+            }
+
+            if (approvedSnapshot.hasError) {
               return _buildCenteredMessage('אין עדיין קבוצות');
             }
-            final readReceipts =
-                readSnapshot.data ?? const <String, DateTime?>{};
 
-            return ListView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: filteredDocs.length,
-              itemBuilder: (context, index) {
-                final chatDoc = filteredDocs[index];
+            final approvedDocs = approvedSnapshot.data ??
+                const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+            if (approvedDocs.isEmpty) {
+              return _buildCenteredMessage('אין עדיין קבוצות');
+            }
+
+            final chatIds =
+                approvedDocs.map((doc) => doc.id).toList(growable: false);
+
+            return StreamBuilder<Map<String, DateTime?>>(
+              stream: _chatService.streamMyReadReceipts(
+                userId: currentUser.uid,
+                chatIds: chatIds,
+              ),
+              builder: (context, readSnapshot) {
+                if (readSnapshot.hasError) {
+                  return _buildCenteredMessage('אין עדיין קבוצות');
+                }
+                final readReceipts =
+                    readSnapshot.data ?? const <String, DateTime?>{};
+
+                return ListView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: approvedDocs.length,
+                  itemBuilder: (context, index) {
+                    final chatDoc = approvedDocs[index];
                 final chatData = chatDoc.data();
                 final chatName =
                     ((chatData['name'] as String?) ?? 'קבוצה').trim();
@@ -3350,6 +3504,8 @@ class _ChatsScreenState extends State<ChatsScreen> {
                     child: tile,
                     hasUnread: hasUnread,
                   ),
+                );
+                  },
                 );
               },
             );

@@ -235,32 +235,51 @@ class ChatService {
     }
 
     final deterministicRef = _chats.doc(directKey);
-    final deterministicSnapshot = await deterministicRef
-        .get(const GetOptions(source: Source.serverAndCache));
-    if (deterministicSnapshot.exists) {
-      final data = deterministicSnapshot.data() ?? <String, dynamic>{};
-      if (!_isCompatibleDirectChatData(data, participants)) {
-        throw FirebaseException(
-          plugin: 'cloud_firestore',
-          code: 'failed-precondition',
-          message: 'Direct chat slot is occupied by incompatible chat data.',
+    try {
+      final deterministicSnapshot = await deterministicRef
+          .get(const GetOptions(source: Source.serverAndCache));
+      if (deterministicSnapshot.exists) {
+        final data = deterministicSnapshot.data() ?? <String, dynamic>{};
+        if (!_isCompatibleDirectChatData(data, participants)) {
+          throw FirebaseException(
+            plugin: 'cloud_firestore',
+            code: 'failed-precondition',
+            message: 'Direct chat slot is occupied by incompatible chat data.',
+          );
+        }
+        _resolvedDirectChatIdsByKey[directKey] = directKey;
+        return _ResolvedDirectChatTarget(
+          chatId: directKey,
+          participants: participants,
+          isExisting: true,
         );
       }
-      _resolvedDirectChatIdsByKey[directKey] = directKey;
-      return _ResolvedDirectChatTarget(
-        chatId: directKey,
-        participants: participants,
-        isExisting: true,
+    } catch (error) {
+      if (!_isPermissionDenied(error)) {
+        rethrow;
+      }
+      _trace(
+        'resolve_direct_probe_permission_denied directKey=$directKey; continue_to_create_or_legacy',
       );
     }
 
-    final legacyChatId = await _findLegacyDirectChatId(participants, directKey);
-    if (legacyChatId != null) {
-      _resolvedDirectChatIdsByKey[directKey] = legacyChatId;
-      return _ResolvedDirectChatTarget(
-        chatId: legacyChatId,
-        participants: participants,
-        isExisting: true,
+    try {
+      final legacyChatId =
+          await _findLegacyDirectChatId(participants, directKey);
+      if (legacyChatId != null) {
+        _resolvedDirectChatIdsByKey[directKey] = legacyChatId;
+        return _ResolvedDirectChatTarget(
+          chatId: legacyChatId,
+          participants: participants,
+          isExisting: true,
+        );
+      }
+    } catch (error) {
+      if (!_isPermissionDenied(error)) {
+        rethrow;
+      }
+      _trace(
+        'resolve_direct_legacy_lookup_permission_denied directKey=$directKey; continue_to_create',
       );
     }
 
@@ -546,6 +565,10 @@ class ChatService {
             );
             if (lastGoodDocs != null) {
               controller.add(lastGoodDocs!);
+            } else {
+              controller.add(
+                const <QueryDocumentSnapshot<Map<String, dynamic>>>[],
+              );
             }
             return;
           }
@@ -600,6 +623,10 @@ class ChatService {
             );
             if (lastGoodDocs != null) {
               controller.add(lastGoodDocs!);
+            } else {
+              controller.add(
+                const <QueryDocumentSnapshot<Map<String, dynamic>>>[],
+              );
             }
             return;
           }
@@ -810,15 +837,24 @@ class ChatService {
       _trace(
           'send_message_doc_added chatId=$targetChatId elapsedMs=${sw.elapsedMilliseconds}');
 
-      await chatRef.set({
-        'lastMessage': trimmed,
-        'lastMessageSenderName': senderName,
-        'lastMessageSenderId': uid,
-        'lastMessageAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-      _trace(
-          'send_message_chat_updated chatId=$targetChatId elapsedMs=${sw.elapsedMilliseconds}');
+      try {
+        await chatRef.set({
+          'lastMessage': trimmed,
+          'lastMessageSenderName': senderName,
+          'lastMessageSenderId': uid,
+          'lastMessageAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+        _trace(
+            'send_message_chat_updated chatId=$targetChatId elapsedMs=${sw.elapsedMilliseconds}');
+      } catch (error) {
+        if (!_isPermissionDenied(error)) {
+          rethrow;
+        }
+        _trace(
+          'send_message_chat_update_skipped_permission_denied chatId=$targetChatId elapsedMs=${sw.elapsedMilliseconds} error=$error',
+        );
+      }
 
       _dispatchMessageNotificationBestEffort(
         recipientUids: participants,
@@ -1101,14 +1137,23 @@ class ChatService {
 
     final preview =
         normalizedNote.isEmpty ? 'שיתף פוסט' : 'שיתף פוסט: $normalizedNote';
-    await chatRef.set({
-      'lastMessage': preview,
-      'lastMessageSenderName': senderName,
-      'lastMessageSenderId': uid,
-      'lastMessageType': 'post',
-      'lastMessageAt': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    try {
+      await chatRef.set({
+        'lastMessage': preview,
+        'lastMessageSenderName': senderName,
+        'lastMessageSenderId': uid,
+        'lastMessageType': 'post',
+        'lastMessageAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } catch (error) {
+      if (!_isPermissionDenied(error)) {
+        rethrow;
+      }
+      _trace(
+        'send_post_message_chat_update_skipped_permission_denied chatId=$normalizedChatId error=$error',
+      );
+    }
   }
 
   Future<Map<String, List<Map<String, dynamic>>>>
