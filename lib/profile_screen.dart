@@ -2017,21 +2017,6 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
     );
   }
 
-  Widget _buildStatItem(String label, String value) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(value,
-            style: const TextStyle(
-                color: Colors.white,
-                fontSize: 18,
-                fontWeight: FontWeight.bold)),
-        const SizedBox(height: 4),
-        Text(label, style: TextStyle(color: Colors.grey[400], fontSize: 12)),
-      ],
-    );
-  }
-
   List<String> _uidListFromData(Map<String, dynamic> data, String key) {
     final raw = data[key];
     if (raw is! List) return const <String>[];
