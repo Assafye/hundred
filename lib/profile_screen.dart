@@ -2530,15 +2530,12 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
             : null,
       ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          SizedBox(
-            width: 36,
-            child: Align(
-              alignment: Alignment.centerLeft,
+          Expanded(
+            child: Center(
               child: Text(
                 _formatCompactCount(value),
-                textAlign: TextAlign.left,
+                textAlign: TextAlign.center,
                 style: TextStyle(
                   color: isLight ? Colors.black : Colors.white,
                   fontSize: 13,
@@ -2548,34 +2545,31 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
             ),
           ),
           const SizedBox(width: 8),
-          Expanded(
-            child: Row(
-              textDirection: TextDirection.rtl,
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                Icon(
-                  icon,
-                  color: isLight ? lightIconColor : const Color(0xFF9EDBFF),
-                  size: 13,
-                ),
-                if (showLabel) ...[
-                  const SizedBox(width: 5),
-                  Flexible(
-                    child: Text(
-                      label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      textAlign: TextAlign.right,
-                      style: TextStyle(
-                        color: isLight ? Colors.black : Colors.grey[300],
-                        fontSize: 10.5,
-                        fontWeight: FontWeight.w600,
-                      ),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (showLabel) ...[
+                Flexible(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.right,
+                    style: TextStyle(
+                      color: isLight ? Colors.black : Colors.grey[300],
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
-                ],
+                ),
+                const SizedBox(width: 4),
               ],
-            ),
+              Icon(
+                icon,
+                color: isLight ? lightIconColor : const Color(0xFF9EDBFF),
+                size: 13,
+              ),
+            ],
           ),
         ],
       ),
@@ -3671,13 +3665,20 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
             .trim(): index,
     };
 
+    final isWideLayout = MediaQuery.of(context).size.width >= 700;
+
     return GridView.builder(
       primary: true,
       physics: const ClampingScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(6, 0, 2, 24),
+      padding: EdgeInsets.fromLTRB(
+        isWideLayout ? 10 : 6,
+        0,
+        isWideLayout ? 10 : 2,
+        24,
+      ),
       itemCount: entries.length,
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: isWideLayout ? 3 : 2,
         crossAxisSpacing: 8,
         mainAxisSpacing: 8,
         childAspectRatio: 3 / 4,
@@ -3757,8 +3758,12 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
     const borderColor = Color(0xFFA7BFFF);
     final clampedPostedSubCategoryCount =
         postedSubCategoryCount.clamp(0, _subCategoryGoal);
-    final badgeRightInset =
-        (MediaQuery.of(context).size.width * 0.055).clamp(12.0, 22.0);
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isWideLayout = screenWidth >= 700;
+    final avatarSize = isWideLayout ? 148.0 : 116.0;
+    final avatarStackHeight = isWideLayout ? 184.0 : 126.0;
+    final badgeRightInset = (screenWidth * 0.055).clamp(12.0, 22.0);
+    final leftThirdBadgeWidth = (screenWidth * 0.28).clamp(170.0, 240.0);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -3802,7 +3807,7 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
             children: [
               SizedBox(
                 width: double.infinity,
-                height: 126,
+                height: avatarStackHeight,
                 child: Stack(
                   clipBehavior: Clip.none,
                   alignment: Alignment.topCenter,
@@ -3817,8 +3822,8 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                               );
                             },
                       child: Container(
-                        width: 116,
-                        height: 116,
+                        width: avatarSize,
+                        height: avatarSize,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
                           border: Border.all(
@@ -3865,23 +3870,45 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                     if (_activeSpontaneousTask != null)
                       _buildProfileSpontaneousTaskBubbles(
                         badgeRightInset: badgeRightInset,
+                        isWideLayout: isWideLayout,
+                        screenWidth: screenWidth,
                       ),
-                    Positioned(
-                      top: 86,
-                      left: badgeRightInset,
-                      child: SizedBox(
-                        width: 112,
-                        child: GestureDetector(
-                          onTap: () => _openTaskProgressCategoriesDialog(
-                            allDocs: allDocs,
+                    if (isWideLayout)
+                      Positioned(
+                        top: 86,
+                        left: (screenWidth * 0.04).clamp(16.0, 48.0),
+                        child: SizedBox(
+                          width: leftThirdBadgeWidth,
+                          child: GestureDetector(
+                            onTap: () => _openTaskProgressCategoriesDialog(
+                              allDocs: allDocs,
+                            ),
+                            child: _buildSubCategoryProgressBadge(
+                              count: clampedPostedSubCategoryCount,
+                              isLight: isLight,
+                              isWideLayout: true,
+                            ),
                           ),
-                          child: _buildSubCategoryProgressBadge(
-                            count: clampedPostedSubCategoryCount,
-                            isLight: isLight,
+                        ),
+                      )
+                    else
+                      Positioned(
+                        top: 92,
+                        left: badgeRightInset,
+                        child: SizedBox(
+                          width: 112,
+                          child: GestureDetector(
+                            onTap: () => _openTaskProgressCategoriesDialog(
+                              allDocs: allDocs,
+                            ),
+                            child: _buildSubCategoryProgressBadge(
+                              count: clampedPostedSubCategoryCount,
+                              isLight: isLight,
+                              isWideLayout: false,
+                            ),
                           ),
                         ),
                       ),
-                    ),
                   ],
                 ),
               ),
@@ -4183,18 +4210,27 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
 
   Widget _buildProfileSpontaneousTaskBubbles({
     required double badgeRightInset,
+    required bool isWideLayout,
+    required double screenWidth,
   }) {
     final task = _activeSpontaneousTask;
     if (task == null) {
       return const SizedBox.shrink();
     }
 
-    final rightInset = (badgeRightInset - 14).clamp(0.0, 80.0);
+    final rightInset = isWideLayout
+        ? (screenWidth * 0.04).clamp(16.0, 48.0)
+        : (badgeRightInset - 14).clamp(0.0, 80.0);
+    final bubbleWidth = isWideLayout
+        ? (screenWidth * 0.28).clamp(170.0, 240.0)
+        : 118.0;
+    final verticalOffset = isWideLayout ? 86.0 : 92.0;
+    final timerGap = isWideLayout ? 10.0 : 10.0;
     return Positioned(
-      top: 82,
+      top: verticalOffset,
       right: rightInset,
       child: SizedBox(
-        width: 118,
+        width: bubbleWidth,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
@@ -4206,7 +4242,7 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                   onTap: _openActiveSpontaneousTaskModal,
                   borderRadius: BorderRadius.circular(16),
                   child: Container(
-                    width: 118,
+                    width: bubbleWidth,
                     padding:
                         const EdgeInsets.symmetric(horizontal: 7, vertical: 6),
                     decoration: BoxDecoration(
@@ -4249,7 +4285,7 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                 ),
               ),
             ),
-            const SizedBox(height: 6),
+            SizedBox(height: timerGap),
             Directionality(
               textDirection: TextDirection.rtl,
               child: Material(
@@ -4258,7 +4294,7 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                   onTap: _openActiveSpontaneousTaskModal,
                   borderRadius: BorderRadius.circular(16),
                   child: Container(
-                    width: 108,
+                    width: bubbleWidth * 0.95,
                     padding:
                         const EdgeInsets.symmetric(horizontal: 7, vertical: 6),
                     decoration: BoxDecoration(
@@ -4330,6 +4366,7 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
   Widget _buildSubCategoryProgressBadge({
     required int count,
     required bool isLight,
+    required bool isWideLayout,
   }) {
     final clampedCount = count.clamp(0, _subCategoryGoal);
     final isComplete = clampedCount >= _subCategoryGoal;
@@ -4360,8 +4397,12 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                 )),
     );
 
+    final badgeHeight = isWideLayout ? 88.0 : 64.0;
+    final topFontSize = isWideLayout ? 17.5 : 15.0;
+    final bottomFontSize = isWideLayout ? 10.8 : 9.2;
+
     return Container(
-      height: 64,
+      height: badgeHeight,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(20),
         gradient: const LinearGradient(
@@ -4418,7 +4459,7 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                 color: isComplete
                     ? Colors.white
                     : (isLight ? Colors.black : Colors.white),
-                fontSize: 15,
+                fontSize: topFontSize,
                 fontWeight: FontWeight.w900,
                 letterSpacing: 0.35,
                 shadows: isComplete
@@ -4444,7 +4485,7 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                     : (isLight
                         ? const Color(0xFF2A355A)
                         : const Color(0xFFD6CDFF)),
-                fontSize: 9.2,
+                fontSize: bottomFontSize,
                 fontWeight: FontWeight.w800,
                 letterSpacing: 0.2,
               ),

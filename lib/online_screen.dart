@@ -3988,7 +3988,7 @@ class _OnlineScreenState extends State<OnlineScreen>
                     crossAxisCount: 3,
                     crossAxisSpacing: 10,
                     mainAxisSpacing: 10,
-                    mainAxisExtent: 194,
+                    childAspectRatio: 0.58,
                   ),
                   itemBuilder: (context, index) {
                     if (index == 0) {
