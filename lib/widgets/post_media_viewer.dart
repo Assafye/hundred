@@ -225,6 +225,35 @@ class _PostMediaViewerState extends State<PostMediaViewer> {
           ),
         if (widget.showIndicators && widget.mediaItems.length > 1)
           Positioned(
+            top: 12,
+            right: 12,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.42),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x22000000),
+                    blurRadius: 12,
+                    offset: Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Text(
+                '${_currentIndex + 1}/${widget.mediaItems.length}',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.2,
+                ),
+              ),
+            ),
+          ),
+        if (widget.showIndicators && widget.mediaItems.length > 1)
+          Positioned(
             bottom: 10,
             left: 0,
             right: 0,
@@ -244,7 +273,7 @@ class _PostMediaViewerState extends State<PostMediaViewer> {
                       borderRadius: BorderRadius.circular(999),
                       color: isActive
                           ? Colors.white
-                          : Colors.white.withValues(alpha:  0.38),
+                          : Colors.white.withValues(alpha: 0.38),
                       boxShadow: isActive
                           ? const [
                               BoxShadow(

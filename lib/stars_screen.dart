@@ -13,6 +13,7 @@ import 'main_bottom_nav.dart';
 import 'post_media_utils.dart';
 import 'post_detail_view.dart';
 import 'app_categories.dart';
+import 'services/social_service.dart';
 import 'services/spontaneous_challenge_service.dart';
 import 'services/weekly_challenge_service.dart';
 import 'widgets/swipe_back_wrapper.dart';
@@ -274,6 +275,46 @@ class _StarsScreenState extends State<StarsScreen> {
     return !date.isBefore(nowUtc.subtract(const Duration(days: 7)));
   }
 
+  String _postAudience(Map<String, dynamic> post) {
+    return (post['audience'] as String? ?? 'public').trim().toLowerCase();
+  }
+
+  Future<List<Map<String, dynamic>>> _filterVisiblePostsForViewer(
+    List<Map<String, dynamic>> posts,
+  ) async {
+    final currentUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    if (currentUid.isEmpty) {
+      return posts
+          .where((post) => _postAudience(post) != 'friends')
+          .toList(growable: false);
+    }
+
+    final socialService = SocialService();
+    final visible = <Map<String, dynamic>>[];
+    for (final post in posts) {
+      final audience = _postAudience(post);
+      if (audience != 'friends') {
+        visible.add(post);
+        continue;
+      }
+
+      final authorId = ((post['authorId'] as String?) ??
+              (post['uid'] as String?) ??
+              '')
+          .trim();
+      if (authorId.isEmpty || authorId == currentUid) {
+        visible.add(post);
+        continue;
+      }
+
+      final isMutual = await socialService.isMutualFollow(authorId);
+      if (isMutual) {
+        visible.add(post);
+      }
+    }
+    return visible;
+  }
+
   List<Map<String, dynamic>> _topPosts(
     Iterable<Map<String, dynamic>> source, {
     int limit = 10,
@@ -318,8 +359,13 @@ class _StarsScreenState extends State<StarsScreen> {
     final allRecentPosts =
         results[1].docs.map(_toPostMap).toList(growable: false);
 
+    final visibleWeeklyCategoryPosts =
+        await _filterVisiblePostsForViewer(weeklyCategoryPosts);
+    final visibleAllRecentPosts =
+        await _filterVisiblePostsForViewer(allRecentPosts);
+
     final weeklySubCategoryPosts = _topPosts(
-      weeklyCategoryPosts.where((post) {
+      visibleWeeklyCategoryPosts.where((post) {
         final subCategory = (post['subCategory'] as String? ?? '').trim();
         return subCategory == _challenge.subCategory &&
             _isInLastWeek(_createdAt(post).toUtc(), now);
@@ -327,13 +373,13 @@ class _StarsScreenState extends State<StarsScreen> {
     );
 
     final weeklyCategoryTopPosts = _topPosts(
-      weeklyCategoryPosts.where(
+      visibleWeeklyCategoryPosts.where(
         (post) => _isInLastWeek(_createdAt(post).toUtc(), now),
       ),
     );
 
     final weeklyGlobalTopPosts = _topPosts(
-      allRecentPosts.where(
+      visibleAllRecentPosts.where(
         (post) => _isInLastWeek(_createdAt(post).toUtc(), now),
       ),
     );
@@ -372,7 +418,8 @@ class _StarsScreenState extends State<StarsScreen> {
         .limit(600)
         .get();
 
-    return docs.docs.map(_toPostMap).toList(growable: false);
+    final posts = docs.docs.map(_toPostMap).toList(growable: false);
+    return _filterVisiblePostsForViewer(posts);
   }
 
   Future<void> _openPostInCategoryFeed(

@@ -3754,6 +3754,7 @@ class _PostDetailViewState extends State<PostDetailView> {
     }
 
     return SwipeBackWrapper(
+      enabled: false,
       child: Scaffold(
         backgroundColor: isLight ? Colors.white : const Color(0xFF0B1019),
         extendBodyBehindAppBar: true,

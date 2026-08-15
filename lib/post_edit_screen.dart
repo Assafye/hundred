@@ -3166,6 +3166,81 @@ class _PostEditScreenState extends State<PostEditScreen> {
     );
   }
 
+  Widget _buildAudienceSelector() {
+    final isLight = _isLight(context);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: _surfaceColor(context),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: _borderColor(context)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'הצגה',
+            style: TextStyle(
+              color: _secondaryTextColor(context),
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 8),
+          SegmentedButton<String>(
+            showSelectedIcon: false,
+            selected: {_audience},
+            onSelectionChanged: (selection) {
+              setState(() {
+                _audience = selection.first;
+              });
+            },
+            segments: const [
+              ButtonSegment<String>(
+                value: 'public',
+                label: Text('לכולם'),
+                icon: Icon(Icons.public_rounded),
+              ),
+              ButtonSegment<String>(
+                value: 'friends',
+                label: Text('פוסט לחברים בלבד'),
+                icon: Icon(Icons.people_rounded),
+              ),
+            ],
+            style: ButtonStyle(
+              backgroundColor: WidgetStateProperty.resolveWith((states) {
+                if (states.contains(WidgetState.selected)) {
+                  return isLight
+                      ? const Color(0xFF9E7CFF).withValues(alpha: 0.16)
+                      : const Color(0xFF9E7CFF).withValues(alpha: 0.22);
+                }
+                return Colors.transparent;
+              }),
+              foregroundColor: WidgetStateProperty.resolveWith((states) {
+                if (states.contains(WidgetState.selected)) {
+                  return const Color(0xFF9E7CFF);
+                }
+                return _primaryTextColor(context);
+              }),
+              side: WidgetStateProperty.resolveWith((states) {
+                if (states.contains(WidgetState.selected)) {
+                  return const BorderSide(color: Color(0xFF9E7CFF));
+                }
+                return BorderSide(color: _borderColor(context));
+              }),
+              shape: WidgetStatePropertyAll(
+                RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildEventSelector() {
     return Column(
       children: [
@@ -3404,6 +3479,8 @@ class _PostEditScreenState extends State<PostEditScreen> {
                             ),
                           ),
                         ),
+                        const SizedBox(height: 8),
+                        _buildAudienceSelector(),
                         const SizedBox(height: 8),
                         ListTile(
                           tileColor: _surfaceColor(context),
