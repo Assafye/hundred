@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:hundred_version1/services/auth_service.dart';
 
@@ -69,17 +70,69 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
+  String _describeLoginFailure(Object error) {
+    if (error is FirebaseAuthException) {
+      switch (error.code) {
+        case 'invalid-email':
+          return 'כתובת המייל/שם המשתמש שהוזן אינו תקין. / The email/username entered is invalid. Make sure it matches the account exactly.';
+        case 'user-not-found':
+          return 'לא נמצא חשבון עם הפרטים שהוזנו. / No account was found with the provided details. Check that the user exists in the correct Firebase project.';
+        case 'wrong-password':
+          return 'הסיסמה שגויה. / Incorrect password. Make sure the password matches exactly, including uppercase/lowercase letters and symbols.';
+        case 'invalid-credential':
+          return 'פרטי הכניסה לא תקינים או שהחשבון שייך לפרויקט Firebase אחר. / The login credentials are invalid or the account belongs to a different Firebase project. Check the production environment and the same account.';
+        case 'user-disabled':
+          return 'החשבון הושבת. / This account has been disabled. Reactivate it in Firebase or use a working test account.';
+        case 'too-many-requests':
+          return 'ניסיונות הכניסה נעצרו זמנית בגלל הגנה. / Too many login attempts. Wait a moment and try again, or check if the device/account is temporarily blocked.';
+        case 'network-request-failed':
+          return 'התקלה נובעת מרשת/חיבור. / Network connection issue. Check the internet, VPN, firewall, or whether the app is pointing to a local/dev server instead of production.';
+        case 'email-not-verified':
+          return 'החשבון קיים, אבל המייל עדיין לא אומת. / The account exists, but the email is not verified yet. Please verify the email before logging in.';
+        case 'registration-incomplete':
+          return 'החשבון קיים אך התהליך של ההרשמה לא הושלם. / The account exists, but registration is incomplete. Please complete the profile before logging in.';
+        case 'session-expired':
+          return 'פג תוקף ההתחברות. / Login session expired. Close the app and try again.';
+        case 'account-exists-with-different-credential':
+          return 'החשבון כבר קיים עם שיטת כניסה אחרת. / This account already exists with a different sign-in method. Use the same account and method configured for this project.';
+        case 'operation-not-allowed':
+          return 'כניסה עם פרטי חשבון אלה לא מאופשרת בפרויקט Firebase זה. / Sign-in with these credentials is not enabled in this Firebase project. Check the Auth configuration.';
+        case 'app-not-authorized':
+          return 'האפליקציה לא מאושרת לשימוש ב-Firebase Auth של הפרויקט. / This app is not authorized to use Firebase Auth in this project. Check the Firebase/App configuration.';
+        case 'permission-denied':
+          return 'הגישה ל-Firebase נדחתה. / Firebase access denied. Check permissions, Firebase config, and whether you are using the correct production/development environment.';
+        case 'internal-error':
+          return 'שגיאת שרת פנימית של Firebase. / Internal Firebase server error. Try again; if this is a reviewer, verify the account exists in the correct environment.';
+        case 'unknown':
+          return 'שגיאת התחברות לא מזוהה. / Unknown sign-in error. Check that the details are correct and that the app is using the correct Firebase project.';
+        default:
+          return 'ההתחברות נכשלה. / Login failed. Make sure the account exists, the email/password is correct, and the app is using the same Firebase environment.';
+      }
+    }
+
+    if (error is PlatformException) {
+      final message = (error.message ?? '').trim();
+      if (message.toLowerCase().contains('network')) {
+        return 'הבעיה היא בחיבור רשת/שרת. / This is a network/server issue. Check VPN, firewall, or whether the app is pointing to a local/dev server instead of production.';
+      }
+      return 'התחברות נכשלה עקב שגיאת מערכת/רשת. / Login failed due to a system/network error. Check whether the app is connected to the correct Firebase project.';
+    }
+
+    return 'ההתחברות נכשלה. אם זה בודק חיצוני, בדוק שהאותו חשבון קיים ב-Firebase של האפליקציה, שהמייל מאומת והסיסמה נכונה. / Login failed. If this is an external reviewer, verify that the same account exists in the app Firebase project, the email is verified, and the password is correct.';
+  }
+
   Future<void> _onLoginPressed() async {
     final emailOrUsername = _usernameController.text.trim();
     final password = _passwordController.text.trim();
 
     if (emailOrUsername.isEmpty || password.isEmpty) {
+      const message = 'נא למלא מייל / Mail או שם משתמש וסיסמה / Password. / Please enter email / mail or username and password.';
       setState(() {
         _showError = true;
-        _errorMessage = 'נא למלא אימייל/שם משתמש וסיסמה.';
+        _errorMessage = message;
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('נא למלא אימייל/שם משתמש וסיסמה.')),
+        const SnackBar(content: Text(message)),
       );
       return;
     }
@@ -109,10 +162,10 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!mounted) return;
       AuthService.clearPendingAuthUiMessage();
       final message = e.code == AuthService.emailNotVerifiedCode
-          ? 'האימייל שלך עדיין לא אומת. נא לאשר את המייל ולהתחבר שוב.'
+          ? 'האימייל שלך עדיין לא אומת. נא לאשר את המייל ולהתחבר שוב. / Your email is not verified yet. Please verify it and sign in again.'
           : (e.code == AuthService.registrationIncompleteCode
-              ? 'החשבון שלך עדיין לא הושלם. נא להשלים את הפרטים האישיים לאחר ההתחברות.'
-              : 'שם המשתמש/האימייל או הסיסמה שגויים.');
+              ? 'החשבון שלך עדיין לא הושלם. נא להשלים את הפרטים האישיים לאחר ההתחברות. / Your account is not complete yet. Please finish the profile details after logging in.'
+              : _describeLoginFailure(e));
       setState(() {
         _showError = true;
         _errorMessage = message;
@@ -126,12 +179,13 @@ class _LoginScreenState extends State<LoginScreen> {
       print('[LoginScreen][_onLoginPressed] error: $e');
       print('[LoginScreen][_onLoginPressed] stackTrace: $stackTrace');
       if (!mounted) return;
+      final message = _describeLoginFailure(e);
       setState(() {
         _showError = true;
-        _errorMessage = 'ההתחברות נכשלה. נסה שוב בעוד רגע.';
+        _errorMessage = message;
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('ההתחברות נכשלה. נסה שוב בעוד רגע.')),
+        SnackBar(content: Text(message)),
       );
     }
   }
@@ -372,12 +426,15 @@ class _LoginScreenState extends State<LoginScreen> {
                         const SizedBox(height: 24),
                         TextField(
                           controller: _usernameController,
+                          keyboardType: TextInputType.emailAddress,
                           textInputAction: TextInputAction.next,
                           textDirection: TextDirection.rtl,
                           textAlign: TextAlign.right,
+                          autocorrect: false,
+                          enableSuggestions: false,
                           style: const TextStyle(
                               color: _textPrimary, fontWeight: FontWeight.w500),
-                          decoration: _inputDecoration('אימייל או שם משתמש'),
+                          decoration: _inputDecoration('מייל / Mail או שם משתמש'),
                         ),
                         const SizedBox(height: 14),
                         TextField(
@@ -385,9 +442,11 @@ class _LoginScreenState extends State<LoginScreen> {
                           obscureText: _hidePassword,
                           textDirection: TextDirection.rtl,
                           textAlign: TextAlign.right,
+                          autocorrect: false,
+                          enableSuggestions: false,
                           style: const TextStyle(
                               color: _textPrimary, fontWeight: FontWeight.w500),
-                          decoration: _inputDecoration('סיסמה').copyWith(
+                          decoration: _inputDecoration('סיסמה / Password').copyWith(
                             suffixIcon: IconButton(
                               onPressed: () => setState(
                                   () => _hidePassword = !_hidePassword),
