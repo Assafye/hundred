@@ -74,51 +74,51 @@ class _LoginScreenState extends State<LoginScreen> {
     if (error is FirebaseAuthException) {
       switch (error.code) {
         case 'invalid-email':
-          return 'כתובת המייל/שם המשתמש שהוזן אינו תקין. / The email/username entered is invalid. Make sure it matches the account exactly.';
+          return 'כתובת המייל או שם המשתמש שהוזנו אינם תקינים. / The email or username is invalid. Check that it matches the account exactly.';
         case 'user-not-found':
-          return 'לא נמצא חשבון עם הפרטים שהוזנו. / No account was found with the provided details. Check that the user exists in the correct Firebase project.';
+          return 'לא נמצא חשבון עם הפרטים שהוזנו. / No account was found with the provided details. Check that the account exists in the active Firebase project.';
         case 'wrong-password':
-          return 'הסיסמה שגויה. / Incorrect password. Make sure the password matches exactly, including uppercase/lowercase letters and symbols.';
+          return 'הסיסמה שהזנת שגויה. / The password is incorrect. Please try again and make sure it matches exactly.';
         case 'invalid-credential':
-          return 'פרטי הכניסה לא תקינים או שהחשבון שייך לפרויקט Firebase אחר. / The login credentials are invalid or the account belongs to a different Firebase project. Check the production environment and the same account.';
+          return 'פרטי הכניסה לא תקינים או שהחשבון שייך לפרויקט Firebase אחר. / The login credentials are invalid or belong to a different Firebase project. Verify the environment and the same account.';
         case 'user-disabled':
-          return 'החשבון הושבת. / This account has been disabled. Reactivate it in Firebase or use a working test account.';
+          return 'החשבון מושבת או נחסם. / This account has been disabled or blocked. Please use an active account or contact support.';
         case 'too-many-requests':
-          return 'ניסיונות הכניסה נעצרו זמנית בגלל הגנה. / Too many login attempts. Wait a moment and try again, or check if the device/account is temporarily blocked.';
+          return 'ניסיונות הכניסה נעצרו לזמן קצר עקב הגנה. / Too many attempts were made. Please wait a moment and try again.';
         case 'network-request-failed':
-          return 'התקלה נובעת מרשת/חיבור. / Network connection issue. Check the internet, VPN, firewall, or whether the app is pointing to a local/dev server instead of production.';
+          return 'אין חיבור אינטרנט או יש בעיית רשת. / No internet connection or network problem. Check your connection and try again.';
         case 'email-not-verified':
-          return 'החשבון קיים, אבל המייל עדיין לא אומת. / The account exists, but the email is not verified yet. Please verify the email before logging in.';
+          return 'האימייל עדיין לא אומת. / Your email has not been verified yet. Please verify it and try again.';
         case 'registration-incomplete':
-          return 'החשבון קיים אך התהליך של ההרשמה לא הושלם. / The account exists, but registration is incomplete. Please complete the profile before logging in.';
+          return 'החשבון עדיין לא הושלם. / Your account is not complete yet. Please finish the registration steps and try again.';
         case 'session-expired':
-          return 'פג תוקף ההתחברות. / Login session expired. Close the app and try again.';
+          return 'הסשן פג תוקף. / Your login session has expired. Please sign in again.';
         case 'account-exists-with-different-credential':
-          return 'החשבון כבר קיים עם שיטת כניסה אחרת. / This account already exists with a different sign-in method. Use the same account and method configured for this project.';
+          return 'החשבון כבר קיים בשיטת אימות אחרת. / This account already exists with a different sign-in method. Use the same method and project.';
         case 'operation-not-allowed':
-          return 'כניסה עם פרטי חשבון אלה לא מאופשרת בפרויקט Firebase זה. / Sign-in with these credentials is not enabled in this Firebase project. Check the Auth configuration.';
+          return 'כניסה עם פרטי חשבון אלה אינה מאופשרת. / Sign-in with these credentials is not allowed in this Firebase project.';
         case 'app-not-authorized':
-          return 'האפליקציה לא מאושרת לשימוש ב-Firebase Auth של הפרויקט. / This app is not authorized to use Firebase Auth in this project. Check the Firebase/App configuration.';
+          return 'האפליקציה אינה מאושרת לשימוש ב-Firebase Auth. / This app is not authorized to use Firebase Auth in this project.';
         case 'permission-denied':
-          return 'הגישה ל-Firebase נדחתה. / Firebase access denied. Check permissions, Firebase config, and whether you are using the correct production/development environment.';
+          return 'הגישה ל-Firebase נדחתה. / Firebase access was denied. Check project permissions and configuration.';
         case 'internal-error':
-          return 'שגיאת שרת פנימית של Firebase. / Internal Firebase server error. Try again; if this is a reviewer, verify the account exists in the correct environment.';
+          return 'שגיאת שרת פנימית של Firebase. / Internal Firebase server error. Please try again in a moment.';
         case 'unknown':
-          return 'שגיאת התחברות לא מזוהה. / Unknown sign-in error. Check that the details are correct and that the app is using the correct Firebase project.';
+          return 'אירעה שגיאה לא ידועה בהתחברות. / An unknown login error occurred. Please verify the account and try again.';
         default:
-          return 'ההתחברות נכשלה. / Login failed. Make sure the account exists, the email/password is correct, and the app is using the same Firebase environment.';
+          return 'ההתחברות נכשלה. / Login failed. Please check the login details and try again.';
       }
     }
 
     if (error is PlatformException) {
       final message = (error.message ?? '').trim();
       if (message.toLowerCase().contains('network')) {
-        return 'הבעיה היא בחיבור רשת/שרת. / This is a network/server issue. Check VPN, firewall, or whether the app is pointing to a local/dev server instead of production.';
+        return 'אין חיבור אינטרנט או יש בעיית רשת. / No internet connection or network issue. Check your network and try again.';
       }
-      return 'התחברות נכשלה עקב שגיאת מערכת/רשת. / Login failed due to a system/network error. Check whether the app is connected to the correct Firebase project.';
+      return 'התחברות נכשלה עקב שגיאת מערכת. / Login failed due to a system error. Please try again in a moment.';
     }
 
-    return 'ההתחברות נכשלה. אם זה בודק חיצוני, בדוק שהאותו חשבון קיים ב-Firebase של האפליקציה, שהמייל מאומת והסיסמה נכונה. / Login failed. If this is an external reviewer, verify that the same account exists in the app Firebase project, the email is verified, and the password is correct.';
+    return 'ההתחברות נכשלה. / Login failed. Please check the account details and try again.';
   }
 
   Future<void> _onLoginPressed() async {
@@ -157,8 +157,20 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
       );
     } on FirebaseAuthException catch (e, stackTrace) {
-      print('[LoginScreen][_onLoginPressed] FirebaseAuthException: $e');
-      print('[LoginScreen][_onLoginPressed] stackTrace: $stackTrace');
+      debugPrint('[LoginScreen][_onLoginPressed] FirebaseAuthException: $e');
+      debugPrint('[LoginScreen][_onLoginPressed] stackTrace: $stackTrace');
+      FlutterError.reportError(
+        FlutterErrorDetails(
+          exception: e,
+          stack: stackTrace,
+          library: 'LoginScreen',
+          context: ErrorDescription('FirebaseAuthException during login'),
+          informationCollector: () sync* {
+            yield ErrorDescription('Auth code: ${e.code}');
+            yield ErrorDescription('Auth message: ${e.message ?? 'null'}');
+          },
+        ),
+      );
       if (!mounted) return;
       AuthService.clearPendingAuthUiMessage();
       final message = e.code == AuthService.emailNotVerifiedCode
@@ -173,11 +185,21 @@ class _LoginScreenState extends State<LoginScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(message),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 4),
         ),
       );
     } catch (e, stackTrace) {
-      print('[LoginScreen][_onLoginPressed] error: $e');
-      print('[LoginScreen][_onLoginPressed] stackTrace: $stackTrace');
+      debugPrint('[LoginScreen][_onLoginPressed] error: $e');
+      debugPrint('[LoginScreen][_onLoginPressed] stackTrace: $stackTrace');
+      FlutterError.reportError(
+        FlutterErrorDetails(
+          exception: e,
+          stack: stackTrace,
+          library: 'LoginScreen',
+          context: ErrorDescription('Unexpected login error'),
+        ),
+      );
       if (!mounted) return;
       final message = _describeLoginFailure(e);
       setState(() {
@@ -185,7 +207,11 @@ class _LoginScreenState extends State<LoginScreen> {
         _errorMessage = message;
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message)),
+        SnackBar(
+          content: Text(message),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 4),
+        ),
       );
     }
   }

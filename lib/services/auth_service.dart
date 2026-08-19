@@ -171,6 +171,41 @@ class AuthService {
 
   String _normalizeEmail(String email) => email.trim().toLowerCase();
 
+  void logAuthFailure(String source, Object error, [StackTrace? stackTrace]) {
+    final details = <String>[
+      '[AuthService][$source] FirebaseAuth failure',
+      'type=${error.runtimeType}',
+    ];
+
+    if (error is FirebaseAuthException) {
+      details.add('code=${error.code}');
+      details.add('message=${error.message ?? 'no-message'}');
+    }
+
+    details.add('error=$error');
+    final message = details.join(' | ');
+    debugPrint(message);
+    if (stackTrace != null) {
+      debugPrint('[AuthService][$source] stackTrace: $stackTrace');
+    }
+
+    FlutterError.reportError(
+      FlutterErrorDetails(
+        exception: error,
+        stack: stackTrace,
+        library: 'AuthService',
+        context: ErrorDescription('FirebaseAuth failure during $source'),
+        informationCollector: () sync* {
+          yield ErrorDescription('FirebaseAuth failure source: $source');
+          if (error is FirebaseAuthException) {
+            yield ErrorDescription('FirebaseAuthException code: ${error.code}');
+            yield ErrorDescription('FirebaseAuthException message: ${error.message ?? 'null'}');
+          }
+        },
+      ),
+    );
+  }
+
   Future<void> _logUserAuthSnapshot(String source, User? user) async {
     if (user == null) {
       debugPrint('[AuthService][$source] user snapshot: user=null');
@@ -775,8 +810,11 @@ class AuthService {
       unawaited(
           _notificationService.initializeCurrentUserNotificationSettings());
       return verifiedUser;
-    } catch (e) {
-      debugPrint("Error in login: ${e.toString()}");
+    } on FirebaseAuthException catch (error, stackTrace) {
+      logAuthFailure('loginWithEmailAndPassword', error, stackTrace);
+      rethrow;
+    } catch (error, stackTrace) {
+      logAuthFailure('loginWithEmailAndPassword', error, stackTrace);
       rethrow;
     }
   }
@@ -795,51 +833,66 @@ class AuthService {
     String email = input;
 
     if (!isEmail) {
-      final normalizedUsername = _normalizeUsername(input);
-      final lowerSnapshot = await _db
-          .collection('users')
-          .where('usernameLowercase', isEqualTo: normalizedUsername)
-          .limit(1)
-          .get();
+      try {
+        final normalizedUsername = _normalizeUsername(input);
+        final lowerSnapshot = await _db
+            .collection('users')
+            .where('usernameLowercase', isEqualTo: normalizedUsername)
+            .limit(1)
+            .get();
 
-      final snapshot = lowerSnapshot.docs.isNotEmpty
-          ? lowerSnapshot
-          : await _db
-              .collection('users')
-              .where('username', isEqualTo: normalizedUsername)
-              .limit(1)
-              .get();
+        final snapshot = lowerSnapshot.docs.isNotEmpty
+            ? lowerSnapshot
+            : await _db
+                .collection('users')
+                .where('username', isEqualTo: normalizedUsername)
+                .limit(1)
+                .get();
 
-      if (snapshot.docs.isEmpty) {
-        throw FirebaseAuthException(
-          code: 'user-not-found',
-          message: 'האימייל או שם המשתמש לא קיימים.',
-        );
-      }
+        if (snapshot.docs.isEmpty) {
+          throw FirebaseAuthException(
+            code: 'user-not-found',
+            message: 'האימייל או שם המשתמש לא קיימים.',
+          );
+        }
 
-      email = (snapshot.docs.first.data()['email'] as String? ?? '').trim();
-      if (email.isEmpty) {
-        throw FirebaseAuthException(
-          code: 'user-not-found',
-          message: 'לא נמצאה כתובת אימייל למשתמש.',
-        );
+        email = (snapshot.docs.first.data()['email'] as String? ?? '').trim();
+        if (email.isEmpty) {
+          throw FirebaseAuthException(
+            code: 'user-not-found',
+            message: 'לא נמצאה כתובת אימייל למשתמש.',
+          );
+        }
+      } on FirebaseAuthException {
+        rethrow;
+      } catch (error, stackTrace) {
+        logAuthFailure('loginWithEmailOrUsername.userLookup', error, stackTrace);
+        rethrow;
       }
     }
 
-    final result = await _auth.signInWithEmailAndPassword(
-      email: email,
-      password: password,
-    );
-    final user = result.user;
-    if (user == null) {
-      return null;
-    }
+    try {
+      final result = await _auth.signInWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+      final user = result.user;
+      if (user == null) {
+        return null;
+      }
 
-    final verifiedUser = await requireCompletedRegistration(user);
-    // Do not block login flow on best-effort profile/settings sync.
-    unawaited(ensureCurrentUserPublicProfile());
-    unawaited(_notificationService.initializeCurrentUserNotificationSettings());
-    return verifiedUser;
+      final verifiedUser = await requireCompletedRegistration(user);
+      // Do not block login flow on best-effort profile/settings sync.
+      unawaited(ensureCurrentUserPublicProfile());
+      unawaited(_notificationService.initializeCurrentUserNotificationSettings());
+      return verifiedUser;
+    } on FirebaseAuthException catch (error, stackTrace) {
+      logAuthFailure('loginWithEmailOrUsername', error, stackTrace);
+      rethrow;
+    } catch (error, stackTrace) {
+      logAuthFailure('loginWithEmailOrUsername', error, stackTrace);
+      rethrow;
+    }
   }
 
   Future<void> sendPasswordResetForEmailOrUsername(String emailOrUsername) async {
@@ -890,23 +943,13 @@ class AuthService {
         '[AuthService][sendPasswordResetForEmailOrUsername] sendPasswordResetEmail completed for email=$email, app=${_auth.app.name}',
       );
     } on FirebaseAuthException catch (error, stackTrace) {
-      print(
-        '[AuthService][sendPasswordResetForEmailOrUsername] FirebaseAuthException: $error',
-      );
-      print(
-        '[AuthService][sendPasswordResetForEmailOrUsername] stackTrace: $stackTrace',
-      );
+      logAuthFailure('sendPasswordResetForEmailOrUsername', error, stackTrace);
       if (error.code == 'user-not-found') {
         return;
       }
       rethrow;
     } catch (error, stackTrace) {
-      print(
-        '[AuthService][sendPasswordResetForEmailOrUsername] unexpected error: $error',
-      );
-      print(
-        '[AuthService][sendPasswordResetForEmailOrUsername] stackTrace: $stackTrace',
-      );
+      logAuthFailure('sendPasswordResetForEmailOrUsername', error, stackTrace);
       rethrow;
     }
   }
