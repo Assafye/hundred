@@ -45,4 +45,13 @@ post_install do |installer|
       end
     end
   end
+  installer.pods_project.targets.each do |target|
+    target.build_configurations.each do |config|
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
+      
+      # מוסיף את השורה הבאה שמונעת מהפלאטר לדרוס חזרה ל-13
+      config.build_settings.delete('IPHONEOS_DEPLOYMENT_TARGET') if config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] == '13.0'
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
+    end
+  end
 end
