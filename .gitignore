@@ -34,3 +34,9 @@ windows/flutter/ephemeral/
 # Logs and temp
 *.log
 coverage/
+
+# Local environment secrets
+.env
+.env.*
+!.env.example
+!.env.feed-staging.example
