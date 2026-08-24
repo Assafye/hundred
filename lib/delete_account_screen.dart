@@ -102,26 +102,27 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
       padding: const EdgeInsets.fromLTRB(18, 22, 18, 18),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(26),
-        color: isLight ? Colors.white.withValues(alpha:  0.72) : null,
+        color: isLight ? Colors.white.withValues(alpha: 0.72) : null,
         gradient: isLight
             ? null
             : LinearGradient(
                 colors: [
-                  _cardTop.withValues(alpha:  0.95),
-                  _cardBottom.withValues(alpha:  0.95),
+                  _cardTop.withValues(alpha: 0.95),
+                  _cardBottom.withValues(alpha: 0.95),
                 ],
                 begin: Alignment.topRight,
                 end: Alignment.bottomLeft,
               ),
         border: Border.all(
-          color:
-              isLight ? const Color(0xFFA9C3FF) : _accentCyan.withValues(alpha:  0.24),
+          color: isLight
+              ? const Color(0xFFA9C3FF)
+              : _accentCyan.withValues(alpha: 0.24),
         ),
         boxShadow: [
           BoxShadow(
             color: isLight
-                ? _accentCyan.withValues(alpha:  0.08)
-                : Colors.black.withValues(alpha:  0.22),
+                ? _accentCyan.withValues(alpha: 0.08)
+                : Colors.black.withValues(alpha: 0.22),
             blurRadius: 18,
             offset: const Offset(0, 8),
           ),
@@ -141,7 +142,7 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
               border: Border.all(
                 color: isLight
                     ? const Color(0xFFFFB6C6)
-                    : const Color(0xFFFF7F9C).withValues(alpha:  0.35),
+                    : const Color(0xFFFF7F9C).withValues(alpha: 0.35),
               ),
             ),
             child: Icon(
@@ -183,7 +184,7 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
                 side: BorderSide(
                   color: isLight
                       ? const Color(0xFFA9C3FF)
-                      : _accentCyan.withValues(alpha:  0.24),
+                      : _accentCyan.withValues(alpha: 0.24),
                 ),
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 shape: RoundedRectangleBorder(
@@ -232,14 +233,14 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
                 ),
                 filled: true,
                 fillColor: isLight
-                    ? Colors.white.withValues(alpha:  0.92)
+                    ? Colors.white.withValues(alpha: 0.92)
                     : const Color(0xFF101A2B),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(18),
                   borderSide: BorderSide(
                     color: isLight
                         ? const Color(0xFFFFC2D0)
-                        : const Color(0xFFFF7F9C).withValues(alpha:  0.26),
+                        : const Color(0xFFFF7F9C).withValues(alpha: 0.26),
                   ),
                 ),
                 enabledBorder: OutlineInputBorder(
@@ -247,7 +248,7 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
                   borderSide: BorderSide(
                     color: isLight
                         ? const Color(0xFFFFC2D0)
-                        : const Color(0xFFFF7F9C).withValues(alpha:  0.26),
+                        : const Color(0xFFFF7F9C).withValues(alpha: 0.26),
                   ),
                 ),
                 focusedBorder: OutlineInputBorder(
@@ -275,7 +276,7 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
                 side: BorderSide(
                   color: isLight
                       ? const Color(0xFFA9C3FF)
-                      : _accentCyan.withValues(alpha:  0.24),
+                      : _accentCyan.withValues(alpha: 0.24),
                 ),
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 shape: RoundedRectangleBorder(
@@ -331,73 +332,72 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
       textDirection: TextDirection.rtl,
       child: SwipeBackWrapper(
         child: Scaffold(
-        backgroundColor: isLight ? _bgBottom : _darkBgBottom,
-        appBar: AppBar(
-          backgroundColor:
-              isLight ? const Color(0xFFCFEFFF) : const Color(0xFF131E31),
-          elevation: 0,
-          surfaceTintColor: Colors.transparent,
-          centerTitle: true,
-          leading: IconButton(
-            icon: Icon(Icons.arrow_back, color: titleColor),
-            onPressed: () => Navigator.of(context).pop(),
+          backgroundColor: isLight ? _bgBottom : _darkBgBottom,
+          appBar: AppBar(
+            backgroundColor:
+                isLight ? const Color(0xFFCFEFFF) : const Color(0xFF131E31),
+            elevation: 0,
+            surfaceTintColor: Colors.transparent,
+            centerTitle: true,
+            leading: IconButton(
+              icon: Icon(Icons.arrow_back, color: titleColor),
+              onPressed: () => Navigator.of(context).pop(),
+            ),
+            title: Text(
+              'מחיקת חשבון',
+              style: TextStyle(color: titleColor, fontWeight: FontWeight.w800),
+            ),
           ),
-          title: Text(
-            'מחיקת חשבון',
-            style: TextStyle(color: titleColor, fontWeight: FontWeight.w800),
-          ),
-        ),
-        body: Stack(
-          children: [
-            Positioned.fill(
-              child: Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: isLight
-                        ? const [_bgTop, _bgBottom]
-                        : const [_darkBgTop, Color(0xFF131B33), _darkBgBottom],
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
+          body: Container(
+            constraints: const BoxConstraints.expand(),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: isLight
+                    ? const [_bgTop, _bgBottom]
+                    : const [_darkBgTop, Color(0xFF131B33), _darkBgBottom],
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+              ),
+            ),
+            child: Stack(
+              children: [
+                Positioned(
+                  top: -70,
+                  right: -45,
+                  child: Container(
+                    width: orbSizeA,
+                    height: orbSizeA,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: (isLight ? _accentCyan : _accentCyan)
+                          .withValues(alpha: 0.09),
+                    ),
                   ),
                 ),
-              ),
-            ),
-            Positioned(
-              top: -70,
-              right: -45,
-              child: Container(
-                width: orbSizeA,
-                height: orbSizeA,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color:
-                      (isLight ? _accentCyan : _accentCyan).withValues(alpha:  0.09),
+                Positioned(
+                  bottom: -100,
+                  left: -50,
+                  child: Container(
+                    width: orbSizeB,
+                    height: orbSizeB,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: (isLight ? _accentPurple : _accentPurple)
+                          .withValues(alpha: 0.08),
+                    ),
+                  ),
                 ),
-              ),
-            ),
-            Positioned(
-              bottom: -100,
-              left: -50,
-              child: Container(
-                width: orbSizeB,
-                height: orbSizeB,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: (isLight ? _accentPurple : _accentPurple)
-                      .withValues(alpha:  0.08),
+                SafeArea(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+                    child: SingleChildScrollView(
+                      child: _buildCard(isLight: isLight),
+                    ),
+                  ),
                 ),
-              ),
+              ],
             ),
-            SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
-                child: SingleChildScrollView(
-                  child: _buildCard(isLight: isLight),
-                ),
-              ),
-            ),
-          ],
-        ),
+          ),
         ),
       ),
     );

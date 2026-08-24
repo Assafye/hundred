@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -18,8 +16,6 @@ class PersonalDetailsScreen extends StatefulWidget {
 class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
   static const Color _bgTop = Color(0xFF0B1222);
   static const Color _bgBottom = Color(0xFF070B12);
-  static const Color _cardTop = Color(0xFF121C2A);
-  static const Color _cardBottom = Color(0xFF171B2B);
   static const Color _accentCyan = Color(0xFF53C1F9);
   static const Color _accentPurple = Color(0xFF9E7CFF);
 
@@ -32,7 +28,6 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
   bool _isLoading = true;
   bool _isSaving = false;
   String _currentEmail = '';
-  String _currentPhone = '';
   DateTime? _birthDate;
 
   @override
@@ -66,7 +61,9 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
         .get();
     final data = snapshot.data() ?? <String, dynamic>{};
     final phone = (data['phone'] as String? ?? '').trim();
-    final email = (data['email'] as String? ?? user.email ?? '').trim();
+    final authEmail = (user.email ?? '').trim();
+    final storedEmail = (data['email'] as String? ?? '').trim();
+    final email = authEmail.isNotEmpty ? authEmail : storedEmail;
     final birthDateRaw = (data['birthDate'] as String? ?? '').trim();
     DateTime? birthDate;
     if (birthDateRaw.isNotEmpty) {
@@ -75,7 +72,6 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
 
     if (!mounted) return;
     setState(() {
-      _currentPhone = phone;
       _currentEmail = email;
       _birthDate = birthDate;
       _phoneController.text = phone;
@@ -108,16 +104,18 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(20),
         borderSide: BorderSide(
-          color:
-              isLight ? const Color(0xFFA9C3FF) : _accentCyan.withValues(alpha:  0.14),
+          color: isLight
+              ? const Color(0xFFA9C3FF)
+              : _accentCyan.withValues(alpha: 0.14),
           width: 0.9,
         ),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(20),
         borderSide: BorderSide(
-          color:
-              isLight ? const Color(0xFFA9C3FF) : _accentCyan.withValues(alpha:  0.14),
+          color: isLight
+              ? const Color(0xFFA9C3FF)
+              : _accentCyan.withValues(alpha: 0.14),
           width: 0.9,
         ),
       ),
@@ -126,7 +124,7 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
         borderSide: BorderSide(
           color: isLight
               ? const Color(0xFFB79BFF)
-              : _accentPurple.withValues(alpha:  0.7),
+              : _accentPurple.withValues(alpha: 0.7),
           width: 1.0,
         ),
       ),
@@ -169,117 +167,6 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
     });
   }
 
-  Future<String?> _promptForSmsCode() async {
-    final controller = TextEditingController();
-    final code = await showDialog<String>(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) {
-        return Directionality(
-          textDirection: TextDirection.rtl,
-          child: AlertDialog(
-            backgroundColor: const Color(0xFF101826),
-            title: const Text(
-              'הזן קוד SMS',
-              style: TextStyle(color: Colors.white),
-            ),
-            content: TextField(
-              controller: controller,
-              keyboardType: TextInputType.number,
-              style: const TextStyle(color: Colors.white),
-              decoration: InputDecoration(
-                hintText: 'קוד חד פעמי',
-                hintStyle: const TextStyle(color: Colors.white38),
-                filled: true,
-                fillColor: const Color(0xFF1A2435),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(dialogContext).pop(null),
-                child: const Text('ביטול'),
-              ),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: _accentPurple,
-                  foregroundColor: Colors.black,
-                ),
-                onPressed: () =>
-                    Navigator.of(dialogContext).pop(controller.text.trim()),
-                child: const Text('אישור'),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-    controller.dispose();
-    return code;
-  }
-
-  Future<void> _verifyAndSavePhone(String newPhone) async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) {
-      throw FirebaseAuthException(
-        code: 'not-authenticated',
-        message: 'User must be logged in.',
-      );
-    }
-
-    final completer = Completer<void>();
-    await FirebaseAuth.instance.verifyPhoneNumber(
-      phoneNumber: newPhone,
-      verificationCompleted: (credential) async {
-        try {
-          await user.updatePhoneNumber(credential);
-          if (!completer.isCompleted) {
-            completer.complete();
-          }
-        } catch (error, stackTrace) {
-          if (!completer.isCompleted) {
-            completer.completeError(error, stackTrace);
-          }
-        }
-      },
-      verificationFailed: (error) {
-        if (!completer.isCompleted) {
-          completer.completeError(error);
-        }
-      },
-      codeSent: (verificationId, resendToken) async {
-        final code = await _promptForSmsCode();
-        if (code == null || code.isEmpty) {
-          if (!completer.isCompleted) {
-            completer.completeError(StateError('SMS verification cancelled'));
-          }
-          return;
-        }
-
-        try {
-          final credential = PhoneAuthProvider.credential(
-            verificationId: verificationId,
-            smsCode: code,
-          );
-          await user.updatePhoneNumber(credential);
-          if (!completer.isCompleted) {
-            completer.complete();
-          }
-        } catch (error, stackTrace) {
-          if (!completer.isCompleted) {
-            completer.completeError(error, stackTrace);
-          }
-        }
-      },
-      codeAutoRetrievalTimeout: (_) {},
-      timeout: const Duration(seconds: 60),
-    );
-
-    await completer.future;
-  }
-
   Future<void> _saveDetails() async {
     if (_isSaving || !_formKey.currentState!.validate()) return;
     final user = FirebaseAuth.instance.currentUser;
@@ -303,27 +190,51 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
     });
 
     try {
-      if (phoneValue.isNotEmpty && phoneValue != _currentPhone) {
-        await _verifyAndSavePhone(phoneValue);
+      await user!.reload();
+      final refreshedUser = FirebaseAuth.instance.currentUser ?? user;
+      final authEmail = (refreshedUser.email ?? '').trim();
+
+      final didRequestNewEmail = emailValue.isNotEmpty &&
+          emailValue != _currentEmail &&
+          emailValue != authEmail;
+      if (didRequestNewEmail) {
+        await refreshedUser.verifyBeforeUpdateEmail(emailValue);
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'שלחנו הודעת אימות למייל החדש. לאחר האימות חזור/י למסך ושמור/י שוב.',
+            ),
+          ),
+        );
+        return;
       }
 
-      if (emailValue.isNotEmpty && emailValue != _currentEmail) {
-        await user!.verifyBeforeUpdateEmail(emailValue);
+      final resolvedEmailForSave =
+          authEmail.isNotEmpty ? authEmail : emailValue;
+      final didSyncVerifiedEmail = resolvedEmailForSave.isNotEmpty &&
+          resolvedEmailForSave != _currentEmail;
+
+      if (didSyncVerifiedEmail) {
+        _emailController.text = resolvedEmailForSave;
       }
 
       await _authService.updateContactDetails(
         uid: uid,
         phone: phoneValue,
-        email: emailValue,
+        email: resolvedEmailForSave,
         birthDate: birthDateText,
       );
+
+      _currentEmail = resolvedEmailForSave;
+      _birthDate = birthDateValue;
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            emailValue != _currentEmail
-                ? 'הפרטים נשמרו. שלחנו אימות למייל החדש.'
+            didSyncVerifiedEmail
+                ? 'הפרטים נשמרו בהצלחה והמייל עודכן לאחר אימות.'
                 : 'הפרטים נשמרו בהצלחה.',
           ),
         ),
@@ -393,7 +304,7 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: (isLight ? const Color(0xFF9EEBFF) : _accentCyan)
-                        .withValues(alpha:  isLight ? 0.15 : 0.08),
+                        .withValues(alpha: isLight ? 0.15 : 0.08),
                   ),
                 ),
               ),
@@ -406,7 +317,7 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: (isLight ? const Color(0xFFB9A9FF) : _accentPurple)
-                        .withValues(alpha:  isLight ? 0.16 : 0.09),
+                        .withValues(alpha: isLight ? 0.16 : 0.09),
                   ),
                 ),
               ),
@@ -424,24 +335,7 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
                                 width: double.infinity,
                                 padding:
                                     const EdgeInsets.fromLTRB(20, 16, 20, 96),
-                                decoration: BoxDecoration(
-                                  color: isLight ? Colors.white : null,
-                                  gradient: isLight
-                                      ? null
-                                      : LinearGradient(
-                                          colors: [
-                                            _cardTop.withValues(alpha:  0.95),
-                                            _cardBottom.withValues(alpha:  0.95),
-                                          ],
-                                          begin: Alignment.topRight,
-                                          end: Alignment.bottomLeft,
-                                        ),
-                                  border: Border.all(
-                                      color: isLight
-                                          ? const Color(0xFFA9C3FF)
-                                          : _accentCyan.withValues(alpha:  0.12),
-                                      width: 0.8),
-                                ),
+                                decoration: const BoxDecoration(),
                                 child: Form(
                                   key: _formKey,
                                   child: Column(
@@ -458,7 +352,7 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
                                       ),
                                       const SizedBox(height: 8),
                                       Text(
-                                        'שינוי טלפון יתבצע לאחר אימות SMS. שינוי מייל ישלח לאימות לפני השמירה.',
+                                        'שינוי מייל ישלח לאימות לפני עדכון הפרטים.',
                                         style: TextStyle(
                                             color: mutedColor,
                                             fontWeight: FontWeight.w400),

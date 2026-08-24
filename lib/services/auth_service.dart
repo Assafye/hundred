@@ -11,6 +11,40 @@ import '../age_restrictions.dart';
 
 import 'notification_service.dart';
 
+enum OnboardingStep {
+  pendingVerification,
+  pendingProfile,
+  active,
+  expired;
+
+  static OnboardingStep fromFirestore(String? value) {
+    switch (value) {
+      case 'pending_profile':
+        return OnboardingStep.pendingProfile;
+      case 'active':
+        return OnboardingStep.active;
+      case 'expired':
+        return OnboardingStep.expired;
+      case 'pending_verification':
+      default:
+        return OnboardingStep.pendingVerification;
+    }
+  }
+
+  String get firestoreValue {
+    switch (this) {
+      case OnboardingStep.pendingVerification:
+        return 'pending_verification';
+      case OnboardingStep.pendingProfile:
+        return 'pending_profile';
+      case OnboardingStep.active:
+        return 'active';
+      case OnboardingStep.expired:
+        return 'expired';
+    }
+  }
+}
+
 class PendingRegistrationState {
   const PendingRegistrationState({
     required this.email,
@@ -23,11 +57,25 @@ class PendingRegistrationState {
   final bool didSendVerificationEmail;
 }
 
+enum LoginPreflightGate {
+  allow,
+  pendingVerification,
+  pendingProfile,
+  expired,
+}
+
 class AuthService {
   static final ValueNotifier<bool> registrationFlowInProgress =
       ValueNotifier<bool>(false);
   static final ValueNotifier<String?> pendingAuthUiMessage =
       ValueNotifier<String?>(null);
+  static const String onboardingStepField = 'onboardingStep';
+  static const String onboardingExpirationField = 'onboardingExpiresAt';
+  static const String onboardingStepPendingVerification =
+      'pending_verification';
+  static const String onboardingStepPendingProfile = 'pending_profile';
+  static const String onboardingStepActive = 'active';
+  static const String onboardingStepExpired = 'expired';
   static const String emailNotVerifiedCode = 'email-not-verified';
   static const String registrationIncompleteCode = 'registration-incomplete';
 
@@ -47,6 +95,67 @@ class AuthService {
     pendingAuthUiMessage.value = null;
   }
 
+  Future<void> savePendingRegistrationDraft({
+    required String firstName,
+    required String lastName,
+    required String birthDate,
+    required String phone,
+  }) async {
+    final currentUser = _auth.currentUser;
+    if (currentUser == null) {
+      throw FirebaseAuthException(
+        code: 'session-expired',
+        message: 'אין חשבון פעיל לשמירת פרטי ההרשמה.',
+      );
+    }
+
+    final payload = {
+      'firstName': firstName.trim(),
+      'lastName': lastName.trim(),
+      'birthDate': birthDate.trim(),
+      'phone': phone.trim(),
+      'pendingRegistrationDraft': <String, dynamic>{
+        'firstName': firstName.trim(),
+        'lastName': lastName.trim(),
+        'birthDate': birthDate.trim(),
+        'phone': phone.trim(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+    };
+
+    await _db.collection('users').doc(currentUser.uid).set(
+          payload,
+          SetOptions(merge: true),
+        );
+  }
+
+  Future<Map<String, dynamic>> loadPendingRegistrationDraftByEmail(
+    String email,
+  ) async {
+    final normalizedEmail = _normalizeEmail(email);
+    if (normalizedEmail.isEmpty) {
+      return const <String, dynamic>{};
+    }
+
+    final snapshot = await _db
+        .collection('users')
+        .where('email', isEqualTo: normalizedEmail)
+        .limit(1)
+        .get();
+
+    if (snapshot.docs.isEmpty) {
+      return const <String, dynamic>{};
+    }
+
+    final data = snapshot.docs.first.data();
+    final draft = data['pendingRegistrationDraft'];
+    if (draft is! Map) {
+      return const <String, dynamic>{};
+    }
+
+    return Map<String, dynamic>.from(draft);
+  }
+
   FirebaseApp _defaultApp() {
     if (Firebase.apps.isEmpty) {
       throw StateError(
@@ -58,9 +167,11 @@ class AuthService {
 
   FirebaseAuth get _auth => FirebaseAuth.instanceFor(app: _defaultApp());
 
-  FirebaseFirestore get _db => FirebaseFirestore.instanceFor(app: _defaultApp());
+  FirebaseFirestore get _db =>
+      FirebaseFirestore.instanceFor(app: _defaultApp());
 
-  FirebaseStorage get _storage => FirebaseStorage.instanceFor(app: _defaultApp());
+  FirebaseStorage get _storage =>
+      FirebaseStorage.instanceFor(app: _defaultApp());
 
   void _assertAuthBoundToDefaultApp(String source) {
     final defaultAppName = _defaultApp().name;
@@ -199,7 +310,8 @@ class AuthService {
           yield ErrorDescription('FirebaseAuth failure source: $source');
           if (error is FirebaseAuthException) {
             yield ErrorDescription('FirebaseAuthException code: ${error.code}');
-            yield ErrorDescription('FirebaseAuthException message: ${error.message ?? 'null'}');
+            yield ErrorDescription(
+                'FirebaseAuthException message: ${error.message ?? 'null'}');
           }
         },
       ),
@@ -244,9 +356,249 @@ class AuthService {
     }
   }
 
+  Future<String> resolveEmailForUsername(String username) async {
+    final normalizedUsername = _normalizeUsername(username);
+    if (normalizedUsername.isEmpty) {
+      return '';
+    }
+
+    try {
+      final snapshot = await _db
+          .collection('users')
+          .where('usernameLowercase', isEqualTo: normalizedUsername)
+          .limit(1)
+          .get();
+
+      final docs = snapshot.docs.isNotEmpty
+          ? snapshot.docs
+          : (await _db
+                  .collection('users')
+                  .where('username', isEqualTo: normalizedUsername)
+                  .limit(1)
+                  .get())
+              .docs;
+
+      if (docs.isEmpty) {
+        return '';
+      }
+
+      final email = (docs.first.data()['email'] as String? ?? '').trim();
+      return email;
+    } catch (_) {
+      return '';
+    }
+  }
+
+  Future<OnboardingStep> onboardingStepForEmail(String email) async {
+    final normalizedEmail = _normalizeEmail(email);
+    if (normalizedEmail.isEmpty) {
+      return OnboardingStep.pendingVerification;
+    }
+
+    try {
+      final snapshot = await _db
+          .collection('users')
+          .where('email', isEqualTo: normalizedEmail)
+          .limit(1)
+          .get();
+      if (snapshot.docs.isEmpty) {
+        return OnboardingStep.pendingVerification;
+      }
+      return OnboardingStep.fromFirestore(
+        snapshot.docs.first.data()['onboardingStep'] as String?,
+      );
+    } catch (_) {
+      return OnboardingStep.pendingVerification;
+    }
+  }
+
+  Future<OnboardingStep> currentUserOnboardingStep() async {
+    final currentUser = _auth.currentUser;
+    if (currentUser == null) {
+      return OnboardingStep.pendingVerification;
+    }
+    return _resolveOnboardingStepForUid(currentUser.uid);
+  }
+
+  Future<LoginPreflightGate> preflightLoginGate(String emailOrUsername) async {
+    final input = emailOrUsername.trim();
+    if (input.isEmpty) {
+      return LoginPreflightGate.allow;
+    }
+
+    final isEmail = RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(input);
+    String email = input;
+    if (!isEmail) {
+      email = await resolveEmailForUsername(input);
+      if (email.isEmpty) {
+        return LoginPreflightGate.allow;
+      }
+    }
+
+    final normalizedEmail = _normalizeEmail(email);
+    if (normalizedEmail.isEmpty) {
+      return LoginPreflightGate.allow;
+    }
+
+    try {
+      final snapshot = await _db
+          .collection('users')
+          .where('email', isEqualTo: normalizedEmail)
+          .limit(1)
+          .get();
+
+      if (snapshot.docs.isEmpty) {
+        return LoginPreflightGate.allow;
+      }
+
+      final data = snapshot.docs.first.data();
+      final step = OnboardingStep.fromFirestore(
+        data[onboardingStepField] as String?,
+      );
+
+      switch (step) {
+        case OnboardingStep.pendingVerification:
+          return LoginPreflightGate.pendingVerification;
+        case OnboardingStep.pendingProfile:
+          return LoginPreflightGate.pendingProfile;
+        case OnboardingStep.expired:
+          return LoginPreflightGate.expired;
+        case OnboardingStep.active:
+          return LoginPreflightGate.allow;
+      }
+    } catch (_) {
+      return LoginPreflightGate.allow;
+    }
+  }
+
+  Future<OnboardingStep> _resolveOnboardingStepForUid(String uid) async {
+    final snapshot = await _db.collection('users').doc(uid).get();
+    if (!snapshot.exists) {
+      return OnboardingStep.pendingVerification;
+    }
+
+    final rawValue = snapshot.data()?['onboardingStep'] as String?;
+    return OnboardingStep.fromFirestore(rawValue);
+  }
+
+  Future<void> _setOnboardingStepForUid(
+    String uid, {
+    required OnboardingStep step,
+  }) async {
+    final docRef = _db.collection('users').doc(uid);
+    final expiration = step == OnboardingStep.active
+        ? null
+        : Timestamp.fromDate(DateTime.now().add(const Duration(hours: 24)));
+
+    await docRef.set(
+      {
+        onboardingStepField: step.firestoreValue,
+        if (expiration != null) onboardingExpirationField: expiration,
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
+  }
+
+  bool isOnboardingExpired(Map<String, dynamic> data) {
+    final step = OnboardingStep.fromFirestore(
+      data[onboardingStepField] as String?,
+    );
+    if (step == OnboardingStep.active || step == OnboardingStep.expired) {
+      return step == OnboardingStep.expired;
+    }
+
+    final expiresAtRaw = data[onboardingExpirationField];
+    final expiresAt = expiresAtRaw is Timestamp ? expiresAtRaw.toDate() : null;
+    if (expiresAt == null) {
+      return false;
+    }
+
+    return DateTime.now().isAfter(expiresAt);
+  }
+
+  Future<void> _ensureUserOnboardingState(
+    User user, {
+    required OnboardingStep step,
+  }) async {
+    final uid = user.uid;
+    final snapshot = await _db.collection('users').doc(uid).get();
+    if (!snapshot.exists) {
+      await _db.collection('users').doc(uid).set(
+        {
+          'uid': uid,
+          'email': (user.email ?? '').trim(),
+          onboardingStepField: step.firestoreValue,
+          onboardingExpirationField: Timestamp.fromDate(
+            DateTime.now().add(const Duration(hours: 24)),
+          ),
+          'createdAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+      return;
+    }
+
+    final currentStep = OnboardingStep.fromFirestore(
+      snapshot.data()?[onboardingStepField] as String?,
+    );
+    if (currentStep == OnboardingStep.active && step != OnboardingStep.active) {
+      return;
+    }
+
+    await _setOnboardingStepForUid(uid, step: step);
+  }
+
+  bool _isFreshPendingRegistration(
+    Map<String, dynamic> userData, {
+    Duration maxAge = const Duration(minutes: 1),
+  }) {
+    final step = OnboardingStep.fromFirestore(
+      userData[onboardingStepField] as String?,
+    );
+
+    if (step == OnboardingStep.active) {
+      return false;
+    }
+
+    final createdAtRaw = userData['createdAt'];
+    final createdAt = createdAtRaw is Timestamp ? createdAtRaw.toDate() : null;
+    if (createdAt == null) {
+      return true;
+    }
+
+    return DateTime.now().difference(createdAt) <= maxAge;
+  }
+
   Future<bool> _hasCompletedPrivateProfile(String uid) async {
     final snapshot = await _db.collection('users').doc(uid).get();
-    return snapshot.exists;
+    if (!snapshot.exists) {
+      return false;
+    }
+
+    final data = snapshot.data() ?? <String, dynamic>{};
+    final username = (data['username'] as String? ?? '').trim();
+    final firstName = (data['firstName'] as String? ?? '').trim();
+    final lastName = (data['lastName'] as String? ?? '').trim();
+    final birthDate = (data['birthDate'] as String? ?? '').trim();
+    final phone = (data['phone'] as String? ?? '').trim();
+    final profilePictureUrl =
+        (data['profilePictureUrl'] as String? ?? '').trim();
+    final profileImages =
+        ((data['profileImageUrls'] as List?) ?? const <dynamic>[])
+            .whereType<String>()
+            .map((url) => url.trim())
+            .where((url) => url.isNotEmpty)
+            .toList(growable: false);
+
+    return username.isNotEmpty &&
+        firstName.isNotEmpty &&
+        lastName.isNotEmpty &&
+        birthDate.isNotEmpty &&
+        phone.isNotEmpty &&
+        profilePictureUrl.isNotEmpty &&
+        profileImages.isNotEmpty;
   }
 
   Future<User?> _createOrResumeRegistrationUser({
@@ -263,6 +615,10 @@ class AuthService {
       );
       debugPrint(
         '[AuthService][_createOrResumeRegistrationUser] createUserWithEmailAndPassword completed: additionalUserInfo.isNewUser=${result.additionalUserInfo?.isNewUser}',
+      );
+      await _ensureUserOnboardingState(
+        result.user!,
+        step: OnboardingStep.pendingVerification,
       );
       await _logUserAuthSnapshot(
         '_createOrResumeRegistrationUser.createUserWithEmailAndPassword',
@@ -281,18 +637,75 @@ class AuthService {
         rethrow;
       }
 
-      final result = await _auth.signInWithEmailAndPassword(
-        email: email,
-        password: password,
+      final userDoc = await _db
+          .collection('users')
+          .where('email', isEqualTo: email)
+          .limit(1)
+          .get();
+      if (userDoc.docs.isEmpty) {
+        rethrow;
+      }
+
+      final userDocData = userDoc.docs.first.data();
+      final onboardingStep = OnboardingStep.fromFirestore(
+        userDocData[onboardingStepField] as String?,
       );
-      debugPrint(
-        '[AuthService][_createOrResumeRegistrationUser] signInWithEmailAndPassword reused existing auth user',
-      );
-      await _logUserAuthSnapshot(
-        '_createOrResumeRegistrationUser.signInWithEmailAndPassword',
-        result.user,
-      );
-      return result.user;
+      final isFreshPendingRegistration =
+          _isFreshPendingRegistration(userDocData);
+      final isExpiredPendingRegistration = isOnboardingExpired(userDocData);
+      final shouldResumePendingFlow = onboardingStep != OnboardingStep.active &&
+          (isFreshPendingRegistration || isExpiredPendingRegistration);
+
+      if (!shouldResumePendingFlow) {
+        throw FirebaseAuthException(
+          code: 'email-already-in-use',
+          message:
+              'כתובת המייל כבר רשומה למשתמש פעיל או בתהליך סיום הרשמה. אם אתה רוצה להמשיך, יש לאמת את המייל או להתחבר.',
+        );
+      }
+
+      try {
+        final result = await _auth.signInWithEmailAndPassword(
+          email: email,
+          password: password,
+        );
+        debugPrint(
+          '[AuthService][_createOrResumeRegistrationUser] signInWithEmailAndPassword reused existing auth user',
+        );
+        final user = result.user;
+        if (user == null) {
+          rethrow;
+        }
+
+        final nextStep = onboardingStep == OnboardingStep.pendingProfile
+            ? OnboardingStep.pendingProfile
+            : OnboardingStep.pendingVerification;
+        if (isExpiredPendingRegistration) {
+          await _setOnboardingStepForUid(user.uid, step: nextStep);
+        } else {
+          await _ensureUserOnboardingState(user, step: nextStep);
+        }
+        if (!user.emailVerified) {
+          await _sendEmailVerificationWithLogging(
+            user,
+            source: '_createOrResumeRegistrationUser.resumePendingFlow',
+          );
+        }
+        await _logUserAuthSnapshot(
+          '_createOrResumeRegistrationUser.signInWithEmailAndPassword',
+          result.user,
+        );
+        return result.user;
+      } on FirebaseAuthException catch (signInError) {
+        if (signInError.code == 'wrong-password') {
+          throw FirebaseAuthException(
+            code: 'email-already-in-use',
+            message:
+                'יש כבר חשבון עם מייל זה, אך הסיסמה אינה תואמת. אם אתה מכיר את החשבון, התחבר עם הסיסמה הנכונה. אם לא, יש לאפס/לחדש תהליך הרשמה.',
+          );
+        }
+        rethrow;
+      }
     }
   }
 
@@ -358,6 +771,28 @@ class AuthService {
     }
   }
 
+  Future<bool> isEmailTaken(String email, {String? excludeUid}) async {
+    final normalized = _normalizeEmail(email);
+    if (normalized.isEmpty) return false;
+
+    try {
+      final snapshot = await _db
+          .collection('users')
+          .where('email', isEqualTo: normalized)
+          .limit(1)
+          .get();
+
+      if (snapshot.docs.isEmpty) return false;
+      if (excludeUid == null) return true;
+      return snapshot.docs.first.id != excludeUid;
+    } on FirebaseException catch (e) {
+      if (e.code == 'permission-denied') {
+        return false;
+      }
+      rethrow;
+    }
+  }
+
   Future<void> _sendEmailVerificationWithLogging(
     User user, {
     required String source,
@@ -397,6 +832,10 @@ class AuthService {
   Future<PendingRegistrationState> beginEmailVerificationRegistration({
     required String email,
     required String password,
+    String? firstName,
+    String? lastName,
+    String? birthDate,
+    String? phone,
   }) async {
     registrationFlowInProgress.value = true;
     try {
@@ -448,12 +887,35 @@ class AuthService {
         '[AuthService][beginEmailVerificationRegistration] hasCompletedPrivateProfile=$hasCompletedProfile for uid=${refreshedUser.uid}',
       );
 
-      if (hasCompletedProfile) {
+      final onboardingStep =
+          await _resolveOnboardingStepForUid(refreshedUser.uid);
+      if (hasCompletedProfile && onboardingStep == OnboardingStep.active) {
         throw FirebaseAuthException(
           code: 'email-already-in-use',
           message: refreshedUser.emailVerified
               ? 'קיים כבר חשבון מלא עם כתובת המייל הזו. אפשר להתחבר.'
               : 'קיים כבר חשבון עם כתובת המייל הזו, אך הוא עדיין לא אומת.',
+        );
+      }
+
+      await _ensureUserOnboardingState(
+        refreshedUser,
+        step: OnboardingStep.pendingVerification,
+      );
+
+      final normalizedFirstName = firstName?.trim() ?? '';
+      final normalizedLastName = lastName?.trim() ?? '';
+      final normalizedBirthDate = birthDate?.trim() ?? '';
+      final normalizedPhone = phone?.trim() ?? '';
+      if (normalizedFirstName.isNotEmpty &&
+          normalizedLastName.isNotEmpty &&
+          normalizedBirthDate.isNotEmpty &&
+          normalizedPhone.isNotEmpty) {
+        await savePendingRegistrationDraft(
+          firstName: normalizedFirstName,
+          lastName: normalizedLastName,
+          birthDate: normalizedBirthDate,
+          phone: normalizedPhone,
         );
       }
 
@@ -491,6 +953,8 @@ class AuthService {
       );
       registrationFlowInProgress.value = false;
       rethrow;
+    } finally {
+      registrationFlowInProgress.value = false;
     }
   }
 
@@ -571,9 +1035,9 @@ class AuthService {
       user,
       queueUiMessageOnFailure: queueUiMessageOnFailure,
     );
-    final hasCompletedProfile =
-        await _hasCompletedPrivateProfile(refreshedUser.uid);
-    if (hasCompletedProfile) {
+    final onboardingStep =
+        await _resolveOnboardingStepForUid(refreshedUser.uid);
+    if (onboardingStep == OnboardingStep.active) {
       return refreshedUser;
     }
 
@@ -595,22 +1059,37 @@ class AuthService {
       return false;
     }
 
-    // While registration is in progress, avoid bootstrap checks that may sign
-    // out the temporary auth session needed for profile image uploads.
     if (registrationFlowInProgress.value) {
       return true;
     }
 
     try {
-      await requireCompletedRegistration(
-        currentUser,
-        queueUiMessageOnFailure: false,
-      )
-          .timeout(const Duration(seconds: 8));
-      return true;
+      final onboardingStep =
+          await _resolveOnboardingStepForUid(currentUser.uid);
+      switch (onboardingStep) {
+        case OnboardingStep.pendingVerification:
+          setPendingAuthUiMessage(
+            'האימייל עדיין לא אומת. נא לאמת את המייל כדי להמשיך.',
+          );
+          return false;
+        case OnboardingStep.pendingProfile:
+          setPendingAuthUiMessage(
+            'ההרשמה לא הושלמה. נא להשלים את פרטי הפרופיל.',
+          );
+          return false;
+        case OnboardingStep.expired:
+          setPendingAuthUiMessage(
+            'תהליך ההרשמה פג תוקפו. נא להתחיל מחדש.',
+          );
+          return false;
+        case OnboardingStep.active:
+          await requireCompletedRegistration(
+            currentUser,
+            queueUiMessageOnFailure: false,
+          ).timeout(const Duration(seconds: 8));
+          return true;
+      }
     } on TimeoutException {
-      // Fail-open for existing signed-in user to avoid indefinite splash lock
-      // on transient network/auth stalls during bootstrap.
       return _auth.currentUser != null;
     } on FirebaseAuthException {
       return false;
@@ -647,12 +1126,19 @@ class AuthService {
         queueUiMessageOnFailure: false,
       );
       final hasCompletedProfile = await _hasCompletedPrivateProfile(user.uid);
-      if (hasCompletedProfile) {
+      if (hasCompletedProfile &&
+          (await _resolveOnboardingStepForUid(user.uid)) ==
+              OnboardingStep.active) {
         throw FirebaseAuthException(
           code: 'email-already-in-use',
           message: 'ההרשמה כבר הושלמה עבור כתובת המייל הזו.',
         );
       }
+
+      await _ensureUserOnboardingState(
+        user,
+        step: OnboardingStep.pendingProfile,
+      );
 
       final normalizedUsername = _normalizeUsername(username);
       if (normalizedUsername.isEmpty) {
@@ -737,6 +1223,7 @@ class AuthService {
       });
 
       await batch.commit();
+      await _setOnboardingStepForUid(user.uid, step: OnboardingStep.active);
 
       await _notificationService.initializeCurrentUserNotificationSettings();
       return user;
@@ -794,6 +1281,38 @@ class AuthService {
 
   // פונקציית התחברות (Login)
   Future<User?> loginWithEmailAndPassword(String email, String password) async {
+    final resolvedEmail = _normalizeEmail(email);
+    if (resolvedEmail.isNotEmpty) {
+      final preflight = await preflightLoginGate(resolvedEmail);
+      if (preflight == LoginPreflightGate.pendingVerification) {
+        if (_auth.currentUser != null) {
+          await _auth.signOut();
+        }
+        throw FirebaseAuthException(
+          code: emailNotVerifiedCode,
+          message: 'האימייל שלך עדיין לא אומת. שלחנו קישור/קוד אימות שוב.',
+        );
+      }
+      if (preflight == LoginPreflightGate.pendingProfile) {
+        if (_auth.currentUser != null) {
+          await _auth.signOut();
+        }
+        throw FirebaseAuthException(
+          code: registrationIncompleteCode,
+          message: 'המשתמש קיים אבל תהליך ההרשמה לא הושלם.',
+        );
+      }
+      if (preflight == LoginPreflightGate.expired) {
+        if (_auth.currentUser != null) {
+          await _auth.signOut();
+        }
+        throw FirebaseAuthException(
+          code: emailNotVerifiedCode,
+          message: 'תהליך ההרשמה פג תוקפו. שלחנו מייל אימות חדש כדי להמשיך.',
+        );
+      }
+    }
+
     try {
       UserCredential result = await _auth.signInWithEmailAndPassword(
         email: email,
@@ -802,6 +1321,54 @@ class AuthService {
       final user = result.user;
       if (user == null) {
         return null;
+      }
+
+      if (!user.emailVerified) {
+        await _sendEmailVerificationWithLogging(
+          user,
+          source: 'loginWithEmailAndPassword',
+        );
+        await _ensureUserOnboardingState(
+          user,
+          step: OnboardingStep.pendingVerification,
+        );
+        await _auth.signOut();
+        throw FirebaseAuthException(
+          code: emailNotVerifiedCode,
+          message: 'האימייל שלך עדיין לא אומת. שלחנו קישור/קוד אימות שוב.',
+        );
+      }
+
+      final onboardingStep = await _resolveOnboardingStepForUid(user.uid);
+      if (onboardingStep == OnboardingStep.expired ||
+          isOnboardingExpired(
+              (await _db.collection('users').doc(user.uid).get()).data() ??
+                  <String, dynamic>{})) {
+        await _setOnboardingStepForUid(
+          user.uid,
+          step: OnboardingStep.pendingVerification,
+        );
+        await _sendEmailVerificationWithLogging(
+          user,
+          source: 'loginWithEmailAndPassword.expiredPendingFlow',
+        );
+        throw FirebaseAuthException(
+          code: emailNotVerifiedCode,
+          message: 'תהליך ההרשמה פג תוקפו. שלחנו מייל אימות חדש כדי להמשיך.',
+        );
+      }
+
+      if (onboardingStep != OnboardingStep.active) {
+        await _ensureUserOnboardingState(
+          user,
+          step: onboardingStep == OnboardingStep.pendingProfile
+              ? OnboardingStep.pendingProfile
+              : OnboardingStep.pendingVerification,
+        );
+        throw FirebaseAuthException(
+          code: registrationIncompleteCode,
+          message: 'המשתמש קיים אבל תהליך ההרשמה לא הושלם.',
+        );
       }
 
       final verifiedUser = await requireCompletedRegistration(user);
@@ -866,9 +1433,39 @@ class AuthService {
       } on FirebaseAuthException {
         rethrow;
       } catch (error, stackTrace) {
-        logAuthFailure('loginWithEmailOrUsername.userLookup', error, stackTrace);
+        logAuthFailure(
+            'loginWithEmailOrUsername.userLookup', error, stackTrace);
         rethrow;
       }
+    }
+
+    final preflight = await preflightLoginGate(email);
+    if (preflight == LoginPreflightGate.pendingVerification) {
+      if (_auth.currentUser != null) {
+        await _auth.signOut();
+      }
+      throw FirebaseAuthException(
+        code: emailNotVerifiedCode,
+        message: 'האימייל שלך עדיין לא אומת. שלחנו קישור/קוד אימות שוב.',
+      );
+    }
+    if (preflight == LoginPreflightGate.pendingProfile) {
+      if (_auth.currentUser != null) {
+        await _auth.signOut();
+      }
+      throw FirebaseAuthException(
+        code: registrationIncompleteCode,
+        message: 'המשתמש קיים אבל תהליך ההרשמה לא הושלם.',
+      );
+    }
+    if (preflight == LoginPreflightGate.expired) {
+      if (_auth.currentUser != null) {
+        await _auth.signOut();
+      }
+      throw FirebaseAuthException(
+        code: emailNotVerifiedCode,
+        message: 'תהליך ההרשמה פג תוקפו. שלחנו מייל אימות חדש כדי להמשיך.',
+      );
     }
 
     try {
@@ -881,10 +1478,59 @@ class AuthService {
         return null;
       }
 
+      if (!user.emailVerified) {
+        await _sendEmailVerificationWithLogging(
+          user,
+          source: 'loginWithEmailOrUsername',
+        );
+        await _ensureUserOnboardingState(
+          user,
+          step: OnboardingStep.pendingVerification,
+        );
+        await _auth.signOut();
+        throw FirebaseAuthException(
+          code: emailNotVerifiedCode,
+          message: 'האימייל שלך עדיין לא אומת. שלחנו קישור/קוד אימות שוב.',
+        );
+      }
+
+      final onboardingStep = await _resolveOnboardingStepForUid(user.uid);
+      if (onboardingStep == OnboardingStep.expired ||
+          isOnboardingExpired(
+              (await _db.collection('users').doc(user.uid).get()).data() ??
+                  <String, dynamic>{})) {
+        await _setOnboardingStepForUid(
+          user.uid,
+          step: OnboardingStep.pendingVerification,
+        );
+        await _sendEmailVerificationWithLogging(
+          user,
+          source: 'loginWithEmailOrUsername.expiredPendingFlow',
+        );
+        throw FirebaseAuthException(
+          code: emailNotVerifiedCode,
+          message: 'תהליך ההרשמה פג תוקפו. שלחנו מייל אימות חדש כדי להמשיך.',
+        );
+      }
+
+      if (onboardingStep != OnboardingStep.active) {
+        await _ensureUserOnboardingState(
+          user,
+          step: onboardingStep == OnboardingStep.pendingProfile
+              ? OnboardingStep.pendingProfile
+              : OnboardingStep.pendingVerification,
+        );
+        throw FirebaseAuthException(
+          code: registrationIncompleteCode,
+          message: 'המשתמש קיים אך תהליך ההרשמה לא הושלם.',
+        );
+      }
+
       final verifiedUser = await requireCompletedRegistration(user);
       // Do not block login flow on best-effort profile/settings sync.
       unawaited(ensureCurrentUserPublicProfile());
-      unawaited(_notificationService.initializeCurrentUserNotificationSettings());
+      unawaited(
+          _notificationService.initializeCurrentUserNotificationSettings());
       return verifiedUser;
     } on FirebaseAuthException catch (error, stackTrace) {
       logAuthFailure('loginWithEmailOrUsername', error, stackTrace);
@@ -895,7 +1541,8 @@ class AuthService {
     }
   }
 
-  Future<void> sendPasswordResetForEmailOrUsername(String emailOrUsername) async {
+  Future<void> sendPasswordResetForEmailOrUsername(
+      String emailOrUsername) async {
     _assertAuthBoundToDefaultApp('sendPasswordResetForEmailOrUsername');
     final input = emailOrUsername.trim();
     if (input.isEmpty) {

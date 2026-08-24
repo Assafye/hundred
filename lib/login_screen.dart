@@ -10,6 +10,16 @@ import 'register_screen.dart';
 import 'widgets/animated_infinity_splash_screen.dart';
 import 'widgets/swipe_back_wrapper.dart';
 
+bool shouldBlockLoginForState({
+  required bool isEmailVerified,
+  required OnboardingStep onboardingStep,
+}) {
+  return !isEmailVerified ||
+      onboardingStep == OnboardingStep.pendingVerification ||
+      onboardingStep == OnboardingStep.pendingProfile ||
+      onboardingStep == OnboardingStep.expired;
+}
+
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -38,7 +48,7 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
       final pendingMessage = AuthService.consumePendingAuthUiMessage();
       if (pendingMessage != null && pendingMessage.trim().isNotEmpty) {
@@ -50,6 +60,8 @@ class _LoginScreenState extends State<LoginScreen> {
           SnackBar(content: Text(pendingMessage)),
         );
       }
+
+      if (!mounted) return;
       setState(() {
         _animateBg = true;
       });
@@ -68,6 +80,53 @@ class _LoginScreenState extends State<LoginScreen> {
     _usernameController.dispose();
     _passwordController.dispose();
     super.dispose();
+  }
+
+  Future<void> _routeToUnverifiedLoginGate({
+    required String email,
+    required String password,
+    User? user,
+  }) async {
+    final rootNavigator = Navigator.of(context, rootNavigator: true);
+    User? userToVerify = user ?? FirebaseAuth.instance.currentUser;
+
+    if (userToVerify != null) {
+      try {
+        await userToVerify.reload();
+        userToVerify = FirebaseAuth.instance.currentUser ?? userToVerify;
+      } catch (_) {
+        // Ignore reload failures and continue with the signed-in user snapshot.
+      }
+    }
+
+    try {
+      if (userToVerify != null && !userToVerify.emailVerified) {
+        await userToVerify.sendEmailVerification();
+        debugPrint(
+          '[LoginScreen][_routeToUnverifiedLoginGate] verification email sent to ${userToVerify.email}',
+        );
+      }
+    } catch (error, stackTrace) {
+      debugPrint(
+        '[LoginScreen][_routeToUnverifiedLoginGate] sendEmailVerification failed: $error',
+      );
+      debugPrint(stackTrace.toString());
+    }
+
+    Navigator.of(context, rootNavigator: true).pushReplacement(
+      MaterialPageRoute(
+        builder: (_) => EmailVerificationGateScreen(
+          email: email,
+          password: password,
+          onExitToLogin: () {
+            rootNavigator.pushAndRemoveUntil(
+              MaterialPageRoute(builder: (_) => const LoginScreen()),
+              (route) => false,
+            );
+          },
+        ),
+      ),
+    );
   }
 
   String _describeLoginFailure(Object error) {
@@ -126,7 +185,8 @@ class _LoginScreenState extends State<LoginScreen> {
     final password = _passwordController.text.trim();
 
     if (emailOrUsername.isEmpty || password.isEmpty) {
-      const message = 'נא למלא מייל / Mail או שם משתמש וסיסמה / Password. / Please enter email / mail or username and password.';
+      const message =
+          'נא למלא מייל / Mail או שם משתמש וסיסמה / Password. / Please enter email / mail or username and password.';
       setState(() {
         _showError = true;
         _errorMessage = message;
@@ -137,11 +197,45 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
 
+    final navigator = Navigator.of(context);
+    final messenger = ScaffoldMessenger.maybeOf(context);
+
+    String resolvedEmail = emailOrUsername;
+    if (!emailOrUsername.contains('@')) {
+      resolvedEmail =
+          await _authService.resolveEmailForUsername(emailOrUsername);
+    }
+
+    if (resolvedEmail.isEmpty) {
+      resolvedEmail = emailOrUsername;
+    }
+
     try {
-      await _authService.loginWithEmailOrUsername(
-        emailOrUsername,
-        password,
+      final userCredential =
+          await FirebaseAuth.instance.signInWithEmailAndPassword(
+        email: resolvedEmail,
+        password: password,
       );
+
+      final user = userCredential.user;
+      if (user == null) {
+        return;
+      }
+
+      final onboardingStep = await _authService.currentUserOnboardingStep();
+      final shouldBlockLogin = shouldBlockLoginForState(
+        isEmailVerified: user.emailVerified,
+        onboardingStep: onboardingStep,
+      );
+
+      if (shouldBlockLogin) {
+        await _routeToUnverifiedLoginGate(
+          email: resolvedEmail,
+          password: password,
+          user: user,
+        );
+        return;
+      }
 
       if (!mounted) return;
       setState(() {
@@ -149,7 +243,7 @@ class _LoginScreenState extends State<LoginScreen> {
         _errorMessage = null;
       });
 
-      Navigator.of(context).pushReplacement(
+      navigator.pushReplacement(
         PageRouteBuilder(
           pageBuilder: (_, __, ___) => const _PostLoginSplashScreen(),
           transitionDuration: Duration.zero,
@@ -171,24 +265,35 @@ class _LoginScreenState extends State<LoginScreen> {
           },
         ),
       );
+
       if (!mounted) return;
-      AuthService.clearPendingAuthUiMessage();
-      final message = e.code == AuthService.emailNotVerifiedCode
-          ? 'האימייל שלך עדיין לא אומת. נא לאשר את המייל ולהתחבר שוב. / Your email is not verified yet. Please verify it and sign in again.'
-          : (e.code == AuthService.registrationIncompleteCode
-              ? 'החשבון שלך עדיין לא הושלם. נא להשלים את הפרטים האישיים לאחר ההתחברות. / Your account is not complete yet. Please finish the profile details after logging in.'
-              : _describeLoginFailure(e));
+
+      final shouldOpenVerificationFlow =
+          e.code == 'email-not-verified' || e.code == 'registration-incomplete';
+
+      if (shouldOpenVerificationFlow) {
+        await _routeToUnverifiedLoginGate(
+          email: resolvedEmail,
+          password: password,
+          user: FirebaseAuth.instance.currentUser,
+        );
+        return;
+      }
+
+      final message = _describeLoginFailure(e);
       setState(() {
         _showError = true;
         _errorMessage = message;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(message),
-          behavior: SnackBarBehavior.floating,
-          duration: const Duration(seconds: 4),
-        ),
-      );
+      if (messenger != null) {
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(message),
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
     } catch (e, stackTrace) {
       debugPrint('[LoginScreen][_onLoginPressed] error: $e');
       debugPrint('[LoginScreen][_onLoginPressed] stackTrace: $stackTrace');
@@ -206,13 +311,15 @@ class _LoginScreenState extends State<LoginScreen> {
         _showError = true;
         _errorMessage = message;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(message),
-          behavior: SnackBarBehavior.floating,
-          duration: const Duration(seconds: 4),
-        ),
-      );
+      if (messenger != null) {
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(message),
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
     }
   }
 
@@ -246,8 +353,8 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: const Text('ביטול'),
               ),
               ElevatedButton(
-                onPressed: () => Navigator.of(dialogContext)
-                    .pop(controller.text.trim()),
+                onPressed: () =>
+                    Navigator.of(dialogContext).pop(controller.text.trim()),
                 child: const Text('שלח קישור איפוס'),
               ),
             ],
@@ -273,8 +380,10 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
       );
     } on FirebaseAuthException catch (e, stackTrace) {
-      print('[LoginScreen][_onForgotPasswordPressed] FirebaseAuthException: $e');
-      print('[LoginScreen][_onForgotPasswordPressed] stackTrace: $stackTrace');
+      debugPrint(
+          '[LoginScreen][_onForgotPasswordPressed] FirebaseAuthException: $e');
+      debugPrint(
+          '[LoginScreen][_onForgotPasswordPressed] stackTrace: $stackTrace');
       if (!mounted) return;
       if (e.code == 'invalid-email') {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -290,11 +399,13 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
       );
     } catch (e, stackTrace) {
-      print('[LoginScreen][_onForgotPasswordPressed] error: $e');
-      print('[LoginScreen][_onForgotPasswordPressed] stackTrace: $stackTrace');
+      debugPrint('[LoginScreen][_onForgotPasswordPressed] error: $e');
+      debugPrint(
+          '[LoginScreen][_onForgotPasswordPressed] stackTrace: $stackTrace');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('לא הצלחנו לשלוח כרגע, נסה שוב בעוד רגע.')),
+        const SnackBar(
+            content: Text('לא הצלחנו לשלוח כרגע, נסה שוב בעוד רגע.')),
       );
     }
   }
@@ -314,15 +425,18 @@ class _LoginScreenState extends State<LoginScreen> {
       fillColor: _fieldFill,
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(20),
-        borderSide: BorderSide(color: _accent.withValues( alpha: 0.16), width: 0.9),
+        borderSide:
+            BorderSide(color: _accent.withValues(alpha: 0.16), width: 0.9),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(20),
-        borderSide: BorderSide(color: _accent.withValues( alpha: 0.14), width: 0.9),
+        borderSide:
+            BorderSide(color: _accent.withValues(alpha: 0.14), width: 0.9),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(20),
-        borderSide: BorderSide(color: _accent.withValues( alpha: 0.66), width: 1.0),
+        borderSide:
+            BorderSide(color: _accent.withValues(alpha: 0.66), width: 1.0),
       ),
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
     );
@@ -337,59 +451,60 @@ class _LoginScreenState extends State<LoginScreen> {
     final orbSizeB = (screenWidth * 0.9).clamp(250.0, 350.0);
     return SwipeBackWrapper(
       child: Scaffold(
-      resizeToAvoidBottomInset: false,
-      backgroundColor: _bgBottom,
-      body: SafeArea(
-        child: Stack(
+        resizeToAvoidBottomInset: false,
+        backgroundColor: _bgBottom,
+        body: SafeArea(
+          child: Stack(
             children: [
-            Positioned.fill(
-              child: AnimatedContainer(
+              Positioned.fill(
+                child: AnimatedContainer(
+                  duration: const Duration(seconds: 8),
+                  curve: Curves.easeInOut,
+                  onEnd: _toggleBgAnimation,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin:
+                          _animateBg ? Alignment.topLeft : Alignment.topRight,
+                      end: _animateBg
+                          ? Alignment.bottomRight
+                          : Alignment.bottomLeft,
+                      colors: const [_bgTop, Color(0xFF0E1627), _bgBottom],
+                    ),
+                  ),
+                ),
+              ),
+              AnimatedPositioned(
                 duration: const Duration(seconds: 8),
                 curve: Curves.easeInOut,
-                onEnd: _toggleBgAnimation,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: _animateBg ? Alignment.topLeft : Alignment.topRight,
-                    end: _animateBg
-                        ? Alignment.bottomRight
-                        : Alignment.bottomLeft,
-                    colors: const [_bgTop, Color(0xFF0E1627), _bgBottom],
+                top: _animateBg ? -130 : -95,
+                left: _animateBg ? -85 : -45,
+                child: Container(
+                  width: orbSizeA,
+                  height: orbSizeA,
+                  decoration: const BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: RadialGradient(
+                      colors: [Color(0x3853D9FF), Color(0x0053D9FF)],
+                    ),
                   ),
                 ),
               ),
-            ),
-            AnimatedPositioned(
-              duration: const Duration(seconds: 8),
-              curve: Curves.easeInOut,
-              top: _animateBg ? -130 : -95,
-              left: _animateBg ? -85 : -45,
-              child: Container(
-                width: orbSizeA,
-                height: orbSizeA,
-                decoration: const BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: RadialGradient(
-                    colors: [Color(0x3853D9FF), Color(0x0053D9FF)],
+              AnimatedPositioned(
+                duration: const Duration(seconds: 8),
+                curve: Curves.easeInOut,
+                bottom: _animateBg ? -145 : -110,
+                right: _animateBg ? -95 : -55,
+                child: Container(
+                  width: orbSizeB,
+                  height: orbSizeB,
+                  decoration: const BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: RadialGradient(
+                      colors: [Color(0x3B7B79FF), Color(0x007B79FF)],
+                    ),
                   ),
                 ),
               ),
-            ),
-            AnimatedPositioned(
-              duration: const Duration(seconds: 8),
-              curve: Curves.easeInOut,
-              bottom: _animateBg ? -145 : -110,
-              right: _animateBg ? -95 : -55,
-              child: Container(
-                width: orbSizeB,
-                height: orbSizeB,
-                decoration: const BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: RadialGradient(
-                    colors: [Color(0x3B7B79FF), Color(0x007B79FF)],
-                  ),
-                ),
-              ),
-            ),
               LayoutBuilder(
                 builder: (context, constraints) {
                   return SingleChildScrollView(
@@ -411,169 +526,190 @@ class _LoginScreenState extends State<LoginScreen> {
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 24, vertical: 16),
                               child: Container(
-                    padding: const EdgeInsets.fromLTRB(20, 24, 20, 18),
-                    decoration: BoxDecoration(
-                      color: const Color(0xD0121A2B),
-                      borderRadius: BorderRadius.circular(30),
-                      border: Border.all(
-                          color: _accent.withValues( alpha: 0.12), width: 0.8),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues( alpha: 0.24),
-                          blurRadius: 28,
-                          offset: const Offset(0, 14),
-                        ),
-                      ],
-                    ),
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                        const Text(
-                          'התחברות',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: _textPrimary,
-                            fontSize: 30,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 0.3,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        const Text(
-                          'איזה כיף, חיכינו לך בחזרה',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: _textSecondary,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w400,
-                          ),
-                        ),
-                        const SizedBox(height: 24),
-                        TextField(
-                          controller: _usernameController,
-                          keyboardType: TextInputType.emailAddress,
-                          textInputAction: TextInputAction.next,
-                          textDirection: TextDirection.rtl,
-                          textAlign: TextAlign.right,
-                          autocorrect: false,
-                          enableSuggestions: false,
-                          style: const TextStyle(
-                              color: _textPrimary, fontWeight: FontWeight.w500),
-                          decoration: _inputDecoration('מייל / Mail או שם משתמש'),
-                        ),
-                        const SizedBox(height: 14),
-                        TextField(
-                          controller: _passwordController,
-                          obscureText: _hidePassword,
-                          textDirection: TextDirection.rtl,
-                          textAlign: TextAlign.right,
-                          autocorrect: false,
-                          enableSuggestions: false,
-                          style: const TextStyle(
-                              color: _textPrimary, fontWeight: FontWeight.w500),
-                          decoration: _inputDecoration('סיסמה / Password').copyWith(
-                            suffixIcon: IconButton(
-                              onPressed: () => setState(
-                                  () => _hidePassword = !_hidePassword),
-                              icon: Icon(
-                                _hidePassword
-                                    ? Icons.visibility_off_rounded
-                                    : Icons.visibility_rounded,
-                                color: _textSecondary,
-                              ),
-                            ),
-                          ),
-                        ),
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: TextButton(
-                            onPressed: _onForgotPasswordPressed,
-                            child: const Text(
-                              'שכחתי סיסמה',
-                              style: TextStyle(
-                                color: _accent,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Text(
-                              'אין לך עדיין חשבון? - ',
-                              style: TextStyle(
-                                  color: _textSecondary, fontSize: 13),
-                            ),
-                            InkWell(
-                              onTap: () {
-                                Navigator.of(context).push(
-                                  MaterialPageRoute(
-                                      builder: (_) => const RegisterScreen()),
-                                );
-                              },
-                              child: const Text(
-                                'הרשמה',
-                                style: TextStyle(
-                                  color: _accent,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w700,
+                                padding:
+                                    const EdgeInsets.fromLTRB(20, 24, 20, 18),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xD0121A2B),
+                                  borderRadius: BorderRadius.circular(30),
+                                  border: Border.all(
+                                      color: _accent.withValues(alpha: 0.12),
+                                      width: 0.8),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color:
+                                          Colors.black.withValues(alpha: 0.24),
+                                      blurRadius: 28,
+                                      offset: const Offset(0, 14),
+                                    ),
+                                  ],
+                                ),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    const Text(
+                                      'התחברות',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        color: _textPrimary,
+                                        fontSize: 30,
+                                        fontWeight: FontWeight.w700,
+                                        letterSpacing: 0.3,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    const Text(
+                                      'איזה כיף, חיכינו לך בחזרה',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        color: _textSecondary,
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w400,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 24),
+                                    TextField(
+                                      controller: _usernameController,
+                                      keyboardType: TextInputType.emailAddress,
+                                      textInputAction: TextInputAction.next,
+                                      textDirection: TextDirection.rtl,
+                                      textAlign: TextAlign.right,
+                                      autocorrect: false,
+                                      enableSuggestions: false,
+                                      style: const TextStyle(
+                                          color: _textPrimary,
+                                          fontWeight: FontWeight.w500),
+                                      decoration: _inputDecoration(
+                                          'מייל / Mail או שם משתמש'),
+                                    ),
+                                    const SizedBox(height: 14),
+                                    TextField(
+                                      controller: _passwordController,
+                                      obscureText: _hidePassword,
+                                      textDirection: TextDirection.rtl,
+                                      textAlign: TextAlign.right,
+                                      autocorrect: false,
+                                      enableSuggestions: false,
+                                      style: const TextStyle(
+                                          color: _textPrimary,
+                                          fontWeight: FontWeight.w500),
+                                      decoration:
+                                          _inputDecoration('סיסמה / Password')
+                                              .copyWith(
+                                        suffixIcon: IconButton(
+                                          onPressed: () => setState(() =>
+                                              _hidePassword = !_hidePassword),
+                                          icon: Icon(
+                                            _hidePassword
+                                                ? Icons.visibility_off_rounded
+                                                : Icons.visibility_rounded,
+                                            color: _textSecondary,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    Align(
+                                      alignment: Alignment.centerLeft,
+                                      child: TextButton(
+                                        onPressed: _onForgotPasswordPressed,
+                                        child: const Text(
+                                          'שכחתי סיסמה',
+                                          style: TextStyle(
+                                            color: _accent,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      children: [
+                                        const Text(
+                                          'אין לך עדיין חשבון? - ',
+                                          style: TextStyle(
+                                              color: _textSecondary,
+                                              fontSize: 13),
+                                        ),
+                                        InkWell(
+                                          onTap: () {
+                                            Navigator.of(context).push(
+                                              MaterialPageRoute(
+                                                  builder: (_) =>
+                                                      const RegisterScreen()),
+                                            );
+                                          },
+                                          child: const Text(
+                                            'הרשמה',
+                                            style: TextStyle(
+                                              color: _accent,
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 24),
+                                    ElevatedButton(
+                                      onPressed: _onLoginPressed,
+                                      style: ElevatedButton.styleFrom(
+                                        foregroundColor: Colors.white,
+                                        padding: const EdgeInsets.symmetric(
+                                            vertical: 16),
+                                        shape: RoundedRectangleBorder(
+                                            borderRadius:
+                                                BorderRadius.circular(20)),
+                                        elevation: 0,
+                                      ).copyWith(
+                                        backgroundColor:
+                                            WidgetStateProperty.resolveWith(
+                                          (states) => states
+                                                  .contains(WidgetState.pressed)
+                                              ? _primary
+                                              : const Color(0xFF6978FF),
+                                        ),
+                                      ),
+                                      child: const Text(
+                                        'כניסה',
+                                        style: TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 16),
+                                      ),
+                                    ),
+                                    AnimatedSwitcher(
+                                      duration:
+                                          const Duration(milliseconds: 250),
+                                      child: _showError
+                                          ? Padding(
+                                              padding: const EdgeInsets.only(
+                                                  top: 12),
+                                              child: Row(
+                                                mainAxisAlignment:
+                                                    MainAxisAlignment.center,
+                                                children: [
+                                                  Flexible(
+                                                    child: Text(
+                                                      _errorMessage ??
+                                                          'לא הצלחנו להתחבר. נסה שוב.',
+                                                      style: const TextStyle(
+                                                          color:
+                                                              Colors.redAccent,
+                                                          fontSize: 13),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            )
+                                          : const SizedBox(height: 0),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ),
-                          ],
-                        ),
-                        const SizedBox(height: 24),
-                        ElevatedButton(
-                          onPressed: _onLoginPressed,
-                          style: ElevatedButton.styleFrom(
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(20)),
-                            elevation: 0,
-                          ).copyWith(
-                            backgroundColor: WidgetStateProperty.resolveWith(
-                              (states) => states.contains(WidgetState.pressed)
-                                  ? _primary
-                                  : const Color(0xFF6978FF),
-                            ),
                           ),
-                          child: const Text(
-                            'כניסה',
-                            style: TextStyle(
-                                fontWeight: FontWeight.bold, fontSize: 16),
-                          ),
-                        ),
-                        AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 250),
-                          child: _showError
-                              ? Padding(
-                                  padding: const EdgeInsets.only(top: 12),
-                                  child: Row(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      Flexible(
-                                        child: Text(
-                                          _errorMessage ??
-                                              'לא הצלחנו להתחבר. נסה שוב.',
-                                            style: const TextStyle(
-                                              color: Colors.redAccent,
-                                              fontSize: 13),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                )
-                              : const SizedBox(height: 0),
-                        ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
                         ),
                       ),
                     ),
@@ -582,7 +718,409 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
             ],
           ),
+        ),
       ),
+    );
+  }
+}
+
+class EmailVerificationGateScreen extends StatefulWidget {
+  const EmailVerificationGateScreen({
+    super.key,
+    required this.email,
+    required this.password,
+    required this.onExitToLogin,
+  });
+
+  final String email;
+  final String password;
+  final VoidCallback onExitToLogin;
+
+  @override
+  State<EmailVerificationGateScreen> createState() =>
+      _EmailVerificationGateScreenState();
+}
+
+class _EmailVerificationGateScreenState
+    extends State<EmailVerificationGateScreen> {
+  bool _isBusy = false;
+  bool _isResending = false;
+  String? _errorMessage;
+  DateTime _resendAvailableAt = DateTime.now().add(const Duration(minutes: 1));
+  Timer? _resendTimer;
+
+  int get _resendRemainingSeconds {
+    final remaining = _resendAvailableAt.difference(DateTime.now()).inSeconds;
+    return remaining < 0 ? 0 : remaining;
+  }
+
+  String get _resendCountdownLabel {
+    final remaining = _resendRemainingSeconds;
+    final minutes = (remaining ~/ 60).toString().padLeft(2, '0');
+    final seconds = (remaining % 60).toString().padLeft(2, '0');
+    return 'ניתן לשלוח שוב בעוד $minutes:$seconds';
+  }
+
+  String _describeVerificationError(Object error) {
+    if (error is FirebaseAuthException) {
+      switch (error.code) {
+        case 'wrong-password':
+          return 'הסיסמה שהזנת שגויה. נסה שוב.';
+        case 'user-not-found':
+          return 'לא נמצא משתמש עם הפרטים האלה.';
+        case 'email-not-verified':
+          return 'המייל עדיין לא אומת. אמת אותו ואז נסה שוב.';
+        case 'network-request-failed':
+          return 'אין חיבור לרשת. נסה שוב בעוד רגע.';
+        default:
+          return 'לא הצלחנו לאמת את המייל כרגע. נסה שוב בעוד רגע.';
+      }
+    }
+
+    return 'לא הצלחנו לאמת את המייל כרגע. נסה שוב בעוד רגע.';
+  }
+
+  Future<void> _sendVerificationEmail() async {
+    if (_isResending || DateTime.now().isBefore(_resendAvailableAt)) {
+      return;
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _isResending = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final userCredential =
+          await FirebaseAuth.instance.signInWithEmailAndPassword(
+        email: widget.email,
+        password: widget.password,
+      );
+
+      final user = userCredential.user;
+      if (user == null) {
+        throw FirebaseAuthException(
+          code: 'user-not-found',
+          message: 'לא נמצא משתמש פעיל לשליחת אימות.',
+        );
+      }
+
+      await user.reload();
+      final refreshedUser = FirebaseAuth.instance.currentUser ?? user;
+      if (refreshedUser.emailVerified) {
+        setState(() {
+          _errorMessage = 'המייל כבר אומת. אפשר ללחוץ על "אימתתי" ולהמשיך.';
+        });
+      } else {
+        await refreshedUser.sendEmailVerification();
+      }
+      if (!mounted) return;
+      setState(() {
+        _resendAvailableAt = DateTime.now().add(const Duration(minutes: 1));
+      });
+      _startResendTimer();
+    } on FirebaseAuthException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _errorMessage = _describeVerificationError(error);
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _errorMessage = _describeVerificationError(error);
+      });
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _isResending = false;
+    });
+  }
+
+  void _startResendTimer() {
+    _resendTimer?.cancel();
+    _resendTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      setState(() {});
+      if (!DateTime.now().isBefore(_resendAvailableAt)) {
+        timer.cancel();
+      }
+    });
+  }
+
+  Future<void> _confirmVerification() async {
+    if (!mounted) return;
+    setState(() {
+      _isBusy = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final userCredential =
+          await FirebaseAuth.instance.signInWithEmailAndPassword(
+        email: widget.email,
+        password: widget.password,
+      );
+
+      final user = userCredential.user;
+      if (user == null) {
+        throw FirebaseAuthException(
+          code: 'user-not-found',
+          message: 'לא נמצא משתמש נוכחי אחרי התחברות מחדש.',
+        );
+      }
+
+      await user.reload();
+      final refreshedUser = FirebaseAuth.instance.currentUser;
+      final isVerified = refreshedUser?.emailVerified ?? user.emailVerified;
+      if (!mounted) return;
+
+      if (isVerified) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => RegisterScreen(
+              initialStep: 1,
+              prefilledEmail: widget.email,
+              prefilledPassword: widget.password,
+              onExitToLogin: widget.onExitToLogin,
+            ),
+          ),
+        );
+        return;
+      }
+
+      setState(() {
+        _errorMessage =
+            'עדיין לא זיהינו אימות. אנא פתח/י את המייל, אמת/י, ואז לחץ/י שוב על "אימתתי".';
+      });
+    } on FirebaseAuthException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _errorMessage = _describeVerificationError(error);
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _errorMessage = _describeVerificationError(error);
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isBusy = false;
+        });
+      }
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _startResendTimer();
+  }
+
+  @override
+  void dispose() {
+    _resendTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Color(0xFF0B1222),
+              Color(0xFF070B12),
+            ],
+          ),
+        ),
+        child: SafeArea(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 420),
+                child: Container(
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF101A2B).withValues(alpha: 0.94),
+                    borderRadius: BorderRadius.circular(28),
+                    border: Border.all(
+                      color: const Color(0xFF53D9FF).withValues(alpha: 0.25),
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF7B79FF).withValues(alpha: 0.18),
+                        blurRadius: 24,
+                        offset: const Offset(0, 12),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 72,
+                        height: 72,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: const LinearGradient(
+                            colors: [
+                              Color(0xFF7B79FF),
+                              Color(0xFF53D9FF),
+                            ],
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: const Color(0xFF53D9FF)
+                                  .withValues(alpha: 0.35),
+                              blurRadius: 20,
+                              offset: const Offset(0, 8),
+                            ),
+                          ],
+                        ),
+                        child: const Icon(
+                          Icons.mail_outline_rounded,
+                          size: 36,
+                          color: Colors.white,
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      const Text(
+                        'אימות כתובת המייל',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 26,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFFEAF0FF),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'שלחנו קישור אימות לכתובת:\n${widget.email}',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          height: 1.6,
+                          color: Color(0xFFAAB7E8),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        '* אם המייל לא הגיע, יש לבדוק גם בתיבת הספאם.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 13,
+                          height: 1.4,
+                          color: Color(0xFF53D9FF),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: _isBusy ? null : _confirmVerification,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF7B79FF),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            elevation: 0,
+                          ),
+                          child: _isBusy
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                      Colors.white,
+                                    ),
+                                  ),
+                                )
+                              : const Text(
+                                  'אימתתי',
+                                  style: TextStyle(fontWeight: FontWeight.w700),
+                                ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        width: double.infinity,
+                        child: _resendRemainingSeconds > 0
+                            ? Text(
+                                _resendCountdownLabel,
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFFAAB7E8),
+                                ),
+                              )
+                            : TextButton(
+                                onPressed: _isResending
+                                    ? null
+                                    : _sendVerificationEmail,
+                                child: _isResending
+                                    ? const SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          valueColor:
+                                              AlwaysStoppedAnimation<Color>(
+                                            Color(0xFF53D9FF),
+                                          ),
+                                        ),
+                                      )
+                                    : const Text(
+                                        'שלח שוב',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w700,
+                                          color: Color(0xFF53D9FF),
+                                        ),
+                                      ),
+                              ),
+                      ),
+                      if (_errorMessage != null) ...[
+                        const SizedBox(height: 10),
+                        Text(
+                          _errorMessage!,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: Colors.redAccent,
+                            fontSize: 13,
+                            height: 1.4,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 12),
+                      TextButton(
+                        onPressed: widget.onExitToLogin,
+                        child: const Text(
+                          'חזור להתחברות',
+                          style: TextStyle(
+                            color: Color(0xFFEAF0FF),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }

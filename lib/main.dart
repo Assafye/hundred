@@ -536,10 +536,18 @@ class StartupGate extends StatefulWidget {
   State<StartupGate> createState() => _StartupGateState();
 }
 
+bool shouldShowDynamicStartupSplash({
+  required bool hasResolvedAuth,
+  required User? user,
+  required OnboardingStep onboardingStep,
+}) {
+  return hasResolvedAuth &&
+      user != null &&
+      onboardingStep == OnboardingStep.active &&
+      user.emailVerified;
+}
+
 class _StartupGateState extends State<StartupGate> {
-  bool _hasSeenLoggedOutState = false;
-  DateTime? _postLoginSplashUntil;
-  Timer? _postLoginSplashTimer;
   Timer? _authResolveTimeoutTimer;
   bool _authResolveTimedOut = false;
 
@@ -555,31 +563,8 @@ class _StartupGateState extends State<StartupGate> {
     });
   }
 
-  bool get _isPostLoginSplashActive {
-    final until = _postLoginSplashUntil;
-    if (until == null) {
-      return false;
-    }
-    return DateTime.now().isBefore(until);
-  }
-
-  void _startPostLoginSplash() {
-    _postLoginSplashTimer?.cancel();
-    _postLoginSplashUntil = DateTime.now().add(const Duration(seconds: 2));
-
-    _postLoginSplashTimer = Timer(const Duration(seconds: 2), () {
-      if (!mounted) {
-        return;
-      }
-
-      _postLoginSplashUntil = null;
-      setState(() {});
-    });
-  }
-
   @override
   void dispose() {
-    _postLoginSplashTimer?.cancel();
     _authResolveTimeoutTimer?.cancel();
     super.dispose();
   }
@@ -609,23 +594,15 @@ class _StartupGateState extends State<StartupGate> {
               _authResolveTimeoutTimer = null;
             }
 
-            if (hasResolvedAuth && user == null) {
-              _hasSeenLoggedOutState = true;
-            }
-
-            if (hasResolvedAuth &&
-                user != null &&
-                _hasSeenLoggedOutState &&
-                _postLoginSplashUntil == null) {
-              _hasSeenLoggedOutState = false;
-              _startPostLoginSplash();
-            }
-
-            if (!hasResolvedAuth || _isPostLoginSplashActive) {
+            if (!hasResolvedAuth) {
               return const AnimatedInfinitySplashScreen();
             }
 
             if (user != null) {
+              if (!user.emailVerified) {
+                return const LoginScreen();
+              }
+
               return KeyedSubtree(
                 key: ValueKey('${user.uid}:${user.emailVerified}'),
                 child: const VerifiedSessionGate(),
@@ -680,7 +657,7 @@ class VerifiedSessionGate extends StatefulWidget {
 
 class _VerifiedSessionGateState extends State<VerifiedSessionGate> {
   final AuthService _authService = AuthService();
-  late final Future<bool> _verificationCheck;
+  late final Future<OnboardingStep> _verificationCheck;
 
   @override
   void initState() {
@@ -688,20 +665,35 @@ class _VerifiedSessionGateState extends State<VerifiedSessionGate> {
     _verificationCheck = _ensureVerifiedSession();
   }
 
-  Future<bool> _ensureVerifiedSession() async {
-    return _authService.canCurrentUserAccessApp();
+  Future<OnboardingStep> _ensureVerifiedSession() async {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null) {
+      return OnboardingStep.pendingVerification;
+    }
+
+    if (await _authService.canCurrentUserAccessApp()) {
+      return OnboardingStep.active;
+    }
+
+    return await _authService.currentUserOnboardingStep();
   }
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<bool>(
+    return FutureBuilder<OnboardingStep>(
       future: _verificationCheck,
       builder: (context, snapshot) {
         if (snapshot.connectionState != ConnectionState.done) {
           return const AnimatedInfinitySplashScreen();
         }
 
-        if (snapshot.data == true) {
+        final onboardingStep = snapshot.data ?? OnboardingStep.pendingVerification;
+        final currentUser = FirebaseAuth.instance.currentUser;
+        final isReady = onboardingStep == OnboardingStep.active &&
+            currentUser != null &&
+            currentUser.emailVerified;
+
+        if (isReady) {
           return const AuthenticatedAppShell();
         }
 

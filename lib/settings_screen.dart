@@ -506,14 +506,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     const SizedBox(height: 10),
                                     _navTile(
                                       isLight: isLight,
-                                      icon: Icons.privacy_tip_rounded,
-                                      title:
-                                          'צפייה במדיניות פרטיות ותנאי משתמש',
+                                      icon: Icons.block_rounded,
+                                      title: 'משתמשים חסומים',
                                       subtitle:
-                                          'בחירה מהירה בין מדיניות פרטיות ותנאי שימוש',
-                                      onTap: () =>
-                                          showLegalDocumentsPickerDialog(
-                                              context),
+                                          'צפייה ברשימת המשתמשים שחסמת וביטול חסימה',
+                                      onTap: () => Navigator.of(context).push(
+                                        MaterialPageRoute(
+                                          builder: (_) =>
+                                              const BlockedUsersScreen(),
+                                        ),
+                                      ),
                                     ),
                                     const SizedBox(height: 10),
                                     _navTile(
@@ -534,16 +536,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     const SizedBox(height: 10),
                                     _navTile(
                                       isLight: isLight,
-                                      icon: Icons.block_rounded,
-                                      title: 'משתמשים חסומים',
+                                      icon: Icons.privacy_tip_rounded,
+                                      title:
+                                          'צפייה במדיניות פרטיות ותנאי משתמש',
                                       subtitle:
-                                          'צפייה ברשימת המשתמשים שחסמת וביטול חסימה',
-                                      onTap: () => Navigator.of(context).push(
-                                        MaterialPageRoute(
-                                          builder: (_) =>
-                                              const BlockedUsersScreen(),
-                                        ),
-                                      ),
+                                          'בחירה מהירה בין מדיניות פרטיות ותנאי שימוש',
+                                      onTap: () =>
+                                          showLegalDocumentsPickerDialog(
+                                              context),
                                     ),
                                   ],
                                 ),
@@ -565,7 +565,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     ),
                                     const SizedBox(height: 8),
                                     Text(
-                                      'בחר מצב כהה, בהיר או התאמה אוטומטית לפי המכשיר.',
+                                      'בחר מצב כהה, בהיר או התאמה אוטומטית לפי שעות היממה.',
                                       style: TextStyle(color: subtitleColor),
                                     ),
                                     const SizedBox(height: 12),
@@ -618,7 +618,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                           icon: const Icon(
                                               Icons.brightness_auto_rounded,
                                               size: 18),
-                                          label: _themeSegmentLabel('מערכת'),
+                                          label: _themeSegmentLabel('אוטומטי'),
                                         ),
                                       ],
                                       selected: <ThemeMode>{_selectedThemeMode},
@@ -637,39 +637,41 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   crossAxisAlignment:
                                       CrossAxisAlignment.stretch,
                                   children: [
-                                    Text(
-                                      'חשבון פרטי',
-                                      style: TextStyle(
-                                        color: titleColor,
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.w800,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 8),
-                                    Text(
-                                      'רק חברים יוכלו לצפות בתוכן הפרופיל והפופים שלך.',
-                                      style: TextStyle(color: subtitleColor),
-                                    ),
-                                    const SizedBox(height: 12),
-                                    SwitchListTile.adaptive(
-                                      contentPadding: EdgeInsets.zero,
-                                      value: isPrivate,
-                                      onChanged: _togglePrivacy,
-                                      activeTrackColor: isLight
-                                          ? _accentCyan.withValues(alpha: 0.8)
-                                          : _accentPurple.withValues(
-                                              alpha: 0.55),
-                                      title: Text(
-                                        'הפוך את החשבון לפרטי',
-                                        style: TextStyle(
-                                          color: titleColor,
-                                          fontWeight: FontWeight.w700,
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.stretch,
+                                            children: [
+                                              Text(
+                                                'חשבון פרטי',
+                                                style: TextStyle(
+                                                  color: titleColor,
+                                                  fontSize: 18,
+                                                  fontWeight: FontWeight.w800,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 8),
+                                              Text(
+                                                'רק עוקבים יוכלו לצפות בתוכן הפרופיל שלך',
+                                                style: TextStyle(
+                                                    color: subtitleColor),
+                                              ),
+                                            ],
+                                          ),
                                         ),
-                                      ),
-                                      subtitle: Text(
-                                        'משתמשים שאינם חברים יקבלו הודעת נעילה בפרופיל.',
-                                        style: TextStyle(color: subtitleColor),
-                                      ),
+                                        const SizedBox(width: 12),
+                                        Switch.adaptive(
+                                          value: isPrivate,
+                                          onChanged: _togglePrivacy,
+                                          activeTrackColor: isLight
+                                              ? _accentCyan.withValues(
+                                                  alpha: 0.8)
+                                              : _accentPurple.withValues(
+                                                  alpha: 0.55),
+                                        ),
+                                      ],
                                     ),
                                   ],
                                 ),
