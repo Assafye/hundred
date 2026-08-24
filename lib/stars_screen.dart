@@ -1599,219 +1599,234 @@ class _ActiveSpontaneousTaskDialogState
       child: Container(
         width: 356,
         margin: const EdgeInsets.symmetric(horizontal: 18),
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(1.8),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(24),
-          gradient: LinearGradient(
-            colors: isLight
-                ? const [
-                    Color(0xFFEAFBFF),
-                    Color(0xFFF3EFFF),
-                    Color(0xFFE8FFF7)
-                  ]
-                : const [
-                    Color(0xFF10204B),
-                    Color(0xFF311B60),
-                    Color(0xFF13476D)
-                  ],
+          borderRadius: BorderRadius.circular(26),
+          gradient: const LinearGradient(
+            colors: [
+              Color(0xFF67E5FF),
+              Color(0xFF9D5FFF),
+            ],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
-          border: Border.all(
-            color: const Color(0xFF9BE2FF).withValues(alpha:  0.55),
-          ),
           boxShadow: [
             BoxShadow(
-              color: const Color(0xFF72D9FF).withValues(alpha:  0.24),
-              blurRadius: 22,
-              offset: const Offset(0, 10),
+              color: const Color(0xFF75DAFF).withValues(alpha: 0.35),
+              blurRadius: 24,
+              spreadRadius: 1,
+              offset: const Offset(0, 12),
             ),
           ],
         ),
-        child: Directionality(
-          textDirection: TextDirection.rtl,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
-                textDirection: TextDirection.ltr,
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  IconButton(
-                    onPressed: () => Navigator.of(context).maybePop(),
-                    icon: const Icon(Icons.close_rounded),
-                    color: isLight ? const Color(0xFF34405A) : Colors.white70,
-                    visualDensity: VisualDensity.compact,
-                    padding: EdgeInsets.zero,
-                    constraints:
-                        const BoxConstraints(minWidth: 36, minHeight: 36),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'המשימה שלך:',
-                      textAlign: TextAlign.right,
-                      style: TextStyle(
-                        color: isLight ? const Color(0xFF243355) : Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w900,
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(24),
+            gradient: LinearGradient(
+              colors: isLight
+                  ? const [
+                      Color(0xFFEAFBFF),
+                      Color(0xFFF3EFFF),
+                      Color(0xFFE8FFF7)
+                    ]
+                  : const [
+                      Color(0xFF10204B),
+                      Color(0xFF311B60),
+                      Color(0xFF13476D)
+                    ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            border: Border.all(
+              color: const Color(0xFF9BE2FF).withValues(alpha: 0.65),
+            ),
+          ),
+          child: Directionality(
+            textDirection: TextDirection.rtl,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  textDirection: TextDirection.ltr,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    IconButton(
+                      onPressed: () => Navigator.of(context).maybePop(),
+                      icon: const Icon(Icons.close_rounded),
+                      color: isLight ? const Color(0xFF34405A) : Colors.white70,
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints:
+                          const BoxConstraints(minWidth: 36, minHeight: 36),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'המשימה שלך:',
+                        textAlign: TextAlign.right,
+                        style: TextStyle(
+                          color: isLight ? const Color(0xFF243355) : Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w900,
+                        ),
                       ),
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(1.8),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(21),
-                  gradient: const LinearGradient(
-                    colors: [
-                      Color(0xFF7DE3FF),
-                      Color(0xFFBDA2FF),
-                      Color(0xFF6FE2FF),
-                    ],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
+                  ],
                 ),
-                child: Container(
+                const SizedBox(height: 10),
+                Container(
                   width: double.infinity,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 18, vertical: 20),
+                  padding: const EdgeInsets.all(1.8),
                   decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(19),
+                    borderRadius: BorderRadius.circular(21),
                     gradient: const LinearGradient(
-                      colors: [Color(0xFF8DE8FF), Color(0xFFC9B5FF)],
+                      colors: [
+                        Color(0xFF7DE3FF),
+                        Color(0xFFBDA2FF),
+                        Color(0xFF6FE2FF),
+                      ],
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                     ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFF76CFFF).withValues(alpha:  0.35),
-                        blurRadius: 12,
-                        offset: const Offset(0, 6),
-                      ),
-                    ],
                   ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Icon(categoryIcon,
-                          color: const Color(0xFF2A2361), size: 30),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          children: [
-                            Text(
-                              _task.category,
-                              textAlign: TextAlign.center,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: Color(0xFF2A2361),
-                                fontWeight: FontWeight.w900,
-                                fontSize: 19,
-                                height: 1.15,
-                              ),
-                            ),
-                            const SizedBox(height: 5),
-                            Text(
-                              _task.subCategory,
-                              textAlign: TextAlign.center,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: Color(0xFF2A2361),
-                                fontWeight: FontWeight.w800,
-                                fontSize: 17,
-                                height: 1.2,
-                              ),
-                            ),
-                          ],
+                  child: Container(
+                    width: double.infinity,
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 18, vertical: 20),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(19),
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF8DE8FF), Color(0xFFC9B5FF)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFF76CFFF).withValues(alpha: 0.35),
+                          blurRadius: 12,
+                          offset: const Offset(0, 6),
                         ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 14),
-              _buildTimerRow(
-                title: hasX10Window ? 'זמן שנשאר ל-X10:' : 'X10 הסתיים:',
-                clockValue: _formatClock(_x10Remaining),
-                daysLabel: _daysLabel(_x10Remaining),
-                statusText: hasX10Window ? null : 'עדיין אפשר להשיג ניקוד X5',
-                isLight: isLight,
-              ),
-              const SizedBox(height: 10),
-              _buildTimerRow(
-                title: 'זמן שנשאר ל-X5:',
-                clockValue: _formatClock(_x5Remaining),
-                daysLabel: _daysLabel(_x5Remaining),
-                isLight: isLight,
-              ),
-              const SizedBox(height: 12),
-              Text(
-                'עשיתם את המשימה? למה אתם מחכים?\nתעלו את הפוסט!',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: isLight ? const Color(0xFF324061) : Colors.white,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w900,
-                  height: 1.25,
-                ),
-              ),
-              const SizedBox(height: 16),
-              Center(
-                child: SizedBox(
-                  width: 238,
-                  child: Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      onTap: () {
-                        final navigator = Navigator.of(context);
-                        navigator.pop();
-                        navigator.push(
-                          MaterialPageRoute(
-                              builder: (_) => const CreatePostScreen()),
-                        );
-                      },
-                      borderRadius: BorderRadius.circular(18),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 12),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(18),
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFF6F8CFF), Color(0xFF78E0FF)],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
+                      ],
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(categoryIcon,
+                            color: const Color(0xFF2A2361), size: 30),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              Text(
+                                _task.category,
+                                textAlign: TextAlign.center,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Color(0xFF2A2361),
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 19,
+                                  height: 1.15,
+                                ),
+                              ),
+                              const SizedBox(height: 5),
+                              Text(
+                                _task.subCategory,
+                                textAlign: TextAlign.center,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Color(0xFF2A2361),
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 17,
+                                  height: 1.2,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                        child: const Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.add_rounded,
-                                color: Colors.white, size: 20),
-                            SizedBox(width: 8),
-                            Text(
-                              'העלאת פוסט',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w900,
-                              ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                _buildTimerRow(
+                  title: hasX10Window ? 'זמן שנשאר ל-X10:' : 'X10 הסתיים:',
+                  clockValue: _formatClock(_x10Remaining),
+                  daysLabel: _daysLabel(_x10Remaining),
+                  statusText: hasX10Window ? null : 'עדיין אפשר להשיג ניקוד X5',
+                  isLight: isLight,
+                ),
+                const SizedBox(height: 10),
+                _buildTimerRow(
+                  title: 'זמן שנשאר ל-X5:',
+                  clockValue: _formatClock(_x5Remaining),
+                  daysLabel: _daysLabel(_x5Remaining),
+                  isLight: isLight,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'עשיתם את המשימה? למה אתם מחכים?\nתעלו את הפוסט!',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: isLight ? const Color(0xFF324061) : Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w900,
+                    height: 1.25,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Center(
+                  child: SizedBox(
+                    width: 238,
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: () {
+                          final navigator = Navigator.of(context);
+                          navigator.pop();
+                          navigator.push(
+                            MaterialPageRoute(
+                                builder: (_) => const CreatePostScreen()),
+                          );
+                        },
+                        borderRadius: BorderRadius.circular(18),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 12),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(18),
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFF6F8CFF), Color(0xFF78E0FF)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
                             ),
-                          ],
+                          ),
+                          child: const Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.add_rounded,
+                                  color: Colors.white, size: 20),
+                              SizedBox(width: 8),
+                              Text(
+                                'העלאת פוסט',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

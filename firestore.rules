@@ -391,6 +391,40 @@ service cloud.firestore {
         ]);
     }
 
+    function isCommentReplyCountIncrementUpdate() {
+      return isSignedIn() &&
+        request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'replyCount',
+          'updatedAt'
+        ]) &&
+        request.resource.data.replyCount is number &&
+        (
+          (
+            'replyCount' in resource.data &&
+            resource.data.replyCount is number
+          )
+            ? request.resource.data.replyCount == resource.data.replyCount + 1
+            : request.resource.data.replyCount == 1
+        );
+    }
+
+    function isCommentCountIncrementUpdate() {
+      return isSignedIn() &&
+        request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'commentsCount',
+          'updatedAt'
+        ]) &&
+        request.resource.data.commentsCount is number &&
+        (
+          (
+            'commentsCount' in resource.data &&
+            resource.data.commentsCount is number
+          )
+            ? request.resource.data.commentsCount == resource.data.commentsCount + 1
+            : request.resource.data.commentsCount == 1
+        );
+    }
+
     function isCreatingOwnPost() {
       return isSignedIn() && (
         (
@@ -520,7 +554,7 @@ service cloud.firestore {
     }
 
     match /groups/{groupId} {
-      allow read: if canReadGroup(groupId);
+      allow read, list: if request.auth != null;
       allow create: if (isSignedIn() && request.resource.data.adminUid == request.auth.uid) ||
         isPopGroupCreateForAuthorAdmin();
       allow update: if isGroupAdmin(groupId) || (
@@ -585,14 +619,15 @@ service cloud.firestore {
     match /posts/{postId} {
       allow read: if isSignedIn();
       allow create: if isCreatingOwnPost();
-      allow update, delete: if isPostOwner();
+      allow update: if isPostOwner() || isCommentCountIncrementUpdate();
+      allow delete: if isPostOwner();
 
       match /comments/{commentId} {
         allow read: if isSignedIn();
         allow create: if isSignedIn() && request.resource.data.authorId == request.auth.uid;
         allow update: if (
           isSignedIn() && resource.data.authorId == request.auth.uid
-        ) || isCommentLikeToggleUpdate();
+        ) || isCommentLikeToggleUpdate() || isCommentReplyCountIncrementUpdate() || isCommentOnMyPost(postId);
         allow delete: if isSignedIn() && (
           resource.data.authorId == request.auth.uid ||
           isCommentOnMyPost(postId)
@@ -608,9 +643,9 @@ service cloud.firestore {
       allow delete: if isSignedIn() && resource.data.authorUid == request.auth.uid;
     }
 
-    match /users_public/{uid} {
-      allow read: if isSignedIn();
-      allow create, update, delete: if isSelf(uid);
+    match /users_public/{document} {
+      allow read, list: if request.auth != null;
+      allow create, update, delete: if isSelf(document);
     }
 
     match /user_presence/{uid} {
@@ -618,35 +653,35 @@ service cloud.firestore {
       allow create, update, delete: if isSelf(uid);
     }
 
-    match /users/{uid} {
-      allow read: if isSignedIn();
-      allow create, update, delete: if isSelf(uid);
+    match /users/{document} {
+      allow read, list: if request.auth != null;
+      allow create, update, delete: if isSelf(document);
 
       match /blocked_users/{blockedUid} {
-        allow read: if isSelf(uid) || (isSignedIn() && blockedUid == request.auth.uid);
-        allow create: if isSignedIn() && request.auth.uid == uid;
-        allow update, delete: if isSignedIn() && request.auth.uid == uid;
+        allow read: if isSelf(document) || (isSignedIn() && blockedUid == request.auth.uid);
+        allow create: if isSignedIn() && request.auth.uid == document;
+        allow update, delete: if isSignedIn() && request.auth.uid == document;
       }
 
       match /secure_actions/{actionId} {
-        allow read, create, update, delete: if isSelf(uid);
+        allow read, create, update, delete: if isSelf(document);
       }
 
       match /activity/{activityId} {
-        allow read, create, delete: if isSelf(uid);
+        allow read, create, delete: if isSelf(document);
         allow update: if false;
       }
 
       match /activity_limits/{postId} {
-        allow read, create, update, delete: if isSelf(uid);
+        allow read, create, update, delete: if isSelf(document);
       }
 
       match /saved_posts/{postId} {
-        allow read, create, update, delete: if isSelf(uid);
+        allow read, create, update, delete: if isSelf(document);
       }
 
       match /notifications/{notificationId} {
-        allow read, create, update, delete: if isSelf(uid);
+        allow read, create, update, delete: if isSelf(document);
       }
     }
 

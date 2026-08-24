@@ -29,6 +29,7 @@ import 'widgets/post_comments_sheet.dart';
 import 'widgets/report_dialogs.dart';
 import 'widgets/post_share_targets_sheet.dart';
 import 'widgets/swipe_back_wrapper.dart';
+import 'widgets/expandable_post_description.dart';
 
 enum _PostDetailShareMenuAction { copyLink, sendToFriend, systemShare }
 
@@ -3361,6 +3362,7 @@ class _PostDetailViewState extends State<PostDetailView> {
                             horizontal: 10, vertical: 6),
                         child: Text(
                           title,
+                          textDirection: TextDirection.rtl,
                           textAlign: TextAlign.right,
                           style: const TextStyle(
                             color: Colors.white,
@@ -3386,9 +3388,11 @@ class _PostDetailViewState extends State<PostDetailView> {
                       Container(
                         padding: const EdgeInsets.symmetric(
                             horizontal: 10, vertical: 7),
-                        child: Text(
-                          effectiveDescription,
+                        child: ExpandablePostDescription(
+                          text: effectiveDescription,
+                          maxLines: 2,
                           textAlign: TextAlign.right,
+                          textDirection: TextDirection.rtl,
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 14,
@@ -3404,8 +3408,12 @@ class _PostDetailViewState extends State<PostDetailView> {
                             ],
                             height: 1.28,
                           ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
+                          toggleStyle: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            height: 1.2,
+                          ),
                         ),
                       ),
                     ],

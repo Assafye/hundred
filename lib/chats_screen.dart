@@ -49,6 +49,102 @@ class _PublicFilterChoiceOption {
   });
 }
 
+DateTime defaultPublicGroupExecutionDate({DateTime? now}) {
+  return (now ?? DateTime.now()).add(const Duration(hours: 24));
+}
+
+bool isPublicGroupStillActive(
+  Map<String, dynamic> data, {
+  DateTime? now,
+}) {
+  final executionDate = _publicGroupExecutionDate(data);
+  if (executionDate == null) {
+    return true;
+  }
+  final effectiveNow = now ?? DateTime.now();
+  return executionDate.isAfter(effectiveNow);
+}
+
+DateTime? _publicGroupExecutionDate(Map<String, dynamic> data) {
+  final raw = data['date'] ?? data['executionDate'];
+  if (raw is Timestamp) return raw.toDate();
+  if (raw is DateTime) return raw;
+  if (raw is String) return DateTime.tryParse(raw.trim());
+  return null;
+}
+
+String _normalizeSearchText(String input) {
+  final stripped = input
+      .trim()
+      .toLowerCase()
+      .replaceAll(RegExp(r'[\u200e\u200f]'), '')
+      .replaceAll(RegExp(r'^@+'), '')
+      .replaceAll(RegExp(r'\s+'), ' ');
+  return stripped.trim();
+}
+
+bool _matchesSearchQuery(String haystack, String query) {
+  final normalizedQuery = _normalizeSearchText(query);
+  if (normalizedQuery.isEmpty) return true;
+
+  final tokens = _normalizeSearchText(haystack)
+      .split(RegExp(r'\s+'))
+      .where((token) => token.isNotEmpty)
+      .toList(growable: false);
+
+  for (final token in tokens) {
+    if (token.startsWith(normalizedQuery)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+String buildGlobalSearchText(Map<String, dynamic> data, {required bool isGroup}) {
+  final values = <String>[];
+
+  void addFieldValues(List<String> keys) {
+    for (final key in keys) {
+      final raw = data[key];
+      if (raw == null) continue;
+      final text = raw.toString().trim();
+      if (text.isNotEmpty) {
+        values.add(text);
+        if (key == 'usernameLowercase' || key == 'username' || key == 'handle') {
+          final handleText = text.startsWith('@') ? text : '@$text';
+          values.add(handleText);
+        }
+      }
+    }
+  }
+
+  if (isGroup) {
+    addFieldValues(const [
+      'groupName',
+      'name',
+      'title',
+      'publicName',
+      'group_title',
+      'displayName',
+    ]);
+  } else {
+    addFieldValues(const [
+      'displayName',
+      'fullName',
+      'name',
+      'firstName',
+      'lastName',
+      'username',
+      'usernameLowercase',
+      'handle',
+      'publicName',
+    ]);
+  }
+
+  return values.join(' ');
+}
+
 class ChatsScreen extends StatefulWidget {
   final int initialTabIndex;
   final DateTime? initialPublicFilterFromDate;
@@ -100,7 +196,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
   bool _hasNewGroupsNotification = false;
   DateTime _usersTabAcknowledgedAt = DateTime.now();
   DateTime _groupsTabAcknowledgedAt = DateTime.now();
-  String searchQuery = '';
+  String _globalSearchQuery = '';
   RangeValues _publicFilterAgeRange = RangeValues(
     minimumUserAge.toDouble(),
     maximumAgeRange.toDouble(),
@@ -122,7 +218,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
         _publicFilterAgeRange.end != maximumAgeRange;
   }
 
-  bool get _hasSearchQuery => searchQuery.trim().isNotEmpty;
+  bool get _hasSearchQuery => _globalSearchQuery.trim().isNotEmpty;
 
   @override
   void initState() {
@@ -1247,7 +1343,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
                                 onTapOutside: (_) {},
                                 onChanged: (value) {
                                   setState(() {
-                                    searchQuery = value;
+                                    _globalSearchQuery = value;
                                   });
                                 },
                                 style: baseTextStyle,
@@ -1402,152 +1498,165 @@ class _ChatsScreenState extends State<ChatsScreen> {
                                 : Colors.transparent,
                           ),
                         ),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: GestureDetector(
-                                onTap: () {
-                                  setState(() {
-                                    _selectedChatsTabIndex = 0;
-                                    _hasNewUsersNotification = false;
-                                    _usersTabAcknowledgedAt = DateTime.now();
-                                    _searchController.clear();
-                                    searchQuery = '';
-                                  });
-                                },
-                                child: Container(
-                                  padding:
-                                      const EdgeInsets.symmetric(vertical: 12),
-                                  decoration: BoxDecoration(
-                                    color: _selectedChatsTabIndex == 0
-                                        ? (isLight
-                                            ? const Color(0xFFE8EEFF)
-                                            : const Color(0xFF9E7CFF))
-                                        : Colors.transparent,
-                                    borderRadius: BorderRadius.circular(20),
-                                  ),
-                                  alignment: Alignment.center,
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      Flexible(
-                                        child: FittedBox(
-                                          fit: BoxFit.scaleDown,
-                                          child: Text(
-                                            'משתמשים',
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: baseTextStyle.copyWith(
-                                                color: isLight
-                                                    ? Colors.black
-                                                    : Colors.white,
-                                                fontWeight: FontWeight.w600),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(23),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: GestureDetector(
+                                  onTap: () {
+                                    setState(() {
+                                      _selectedChatsTabIndex = 0;
+                                      _hasNewUsersNotification = false;
+                                      _usersTabAcknowledgedAt = DateTime.now();
+                                      _searchController.clear();
+                                      _globalSearchQuery = '';
+                                    });
+                                  },
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 12,
+                                    ),
+                                    margin: const EdgeInsets.all(4),
+                                    decoration: BoxDecoration(
+                                      color: _selectedChatsTabIndex == 0
+                                          ? (isLight
+                                              ? const Color(0xFFE8EEFF)
+                                              : const Color(0xFF9E7CFF))
+                                          : Colors.transparent,
+                                      borderRadius: BorderRadius.circular(18),
+                                    ),
+                                    alignment: Alignment.center,
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      children: [
+                                        Flexible(
+                                          child: FittedBox(
+                                            fit: BoxFit.scaleDown,
+                                            child: Text(
+                                              'משתמשים',
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: baseTextStyle.copyWith(
+                                                  color: isLight
+                                                      ? Colors.black
+                                                      : Colors.white,
+                                                  fontWeight:
+                                                      FontWeight.w600),
+                                            ),
                                           ),
                                         ),
-                                      ),
-                                      if (_hasNewUsersNotification) ...[
-                                        const SizedBox(width: 6),
-                                        _buildGroupsTabNotificationDot(
-                                          isLight: isLight,
-                                        ),
-                                      ],
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
-                            Expanded(
-                              child: GestureDetector(
-                                onTap: () {
-                                  setState(() {
-                                    _selectedChatsTabIndex = 1;
-                                    _hasNewGroupsNotification = false;
-                                    _groupsTabAcknowledgedAt = DateTime.now();
-                                    _searchController.clear();
-                                    searchQuery = '';
-                                  });
-                                },
-                                child: Container(
-                                  padding:
-                                      const EdgeInsets.symmetric(vertical: 12),
-                                  decoration: BoxDecoration(
-                                    color: _selectedChatsTabIndex == 1
-                                        ? (isLight
-                                            ? const Color(0xFFE8EEFF)
-                                            : const Color(0xFF9E7CFF))
-                                        : Colors.transparent,
-                                    borderRadius: BorderRadius.circular(20),
-                                  ),
-                                  alignment: Alignment.center,
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      Flexible(
-                                        child: FittedBox(
-                                          fit: BoxFit.scaleDown,
-                                          child: Text(
-                                            'קבוצות',
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: baseTextStyle.copyWith(
-                                                color: isLight
-                                                    ? Colors.black
-                                                    : Colors.white,
-                                                fontWeight: FontWeight.w600),
+                                        if (_hasNewUsersNotification) ...[
+                                          const SizedBox(width: 6),
+                                          _buildGroupsTabNotificationDot(
+                                            isLight: isLight,
                                           ),
-                                        ),
-                                      ),
-                                      if (_hasNewGroupsNotification) ...[
-                                        const SizedBox(width: 6),
-                                        _buildGroupsTabNotificationDot(
-                                          isLight: isLight,
-                                        ),
+                                        ],
                                       ],
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
-                            Expanded(
-                              child: GestureDetector(
-                                onTap: () {
-                                  setState(() {
-                                    _selectedChatsTabIndex = 2;
-                                    _searchController.clear();
-                                    searchQuery = '';
-                                  });
-                                },
-                                child: Container(
-                                  padding:
-                                      const EdgeInsets.symmetric(vertical: 12),
-                                  decoration: BoxDecoration(
-                                    color: _selectedChatsTabIndex == 2
-                                        ? (isLight
-                                            ? const Color(0xFFE8EEFF)
-                                            : const Color(0xFF9E7CFF))
-                                        : Colors.transparent,
-                                    borderRadius: BorderRadius.circular(20),
-                                  ),
-                                  alignment: Alignment.center,
-                                  child: FittedBox(
-                                    fit: BoxFit.scaleDown,
-                                    child: Text(
-                                      'קבוצות ציבוריות',
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: baseTextStyle.copyWith(
-                                          color: isLight
-                                              ? Colors.black
-                                              : Colors.white,
-                                          fontWeight: FontWeight.w600),
                                     ),
                                   ),
                                 ),
                               ),
-                            ),
-                          ],
+                              Expanded(
+                                child: GestureDetector(
+                                  onTap: () {
+                                    setState(() {
+                                      _selectedChatsTabIndex = 1;
+                                      _hasNewGroupsNotification = false;
+                                      _groupsTabAcknowledgedAt = DateTime.now();
+                                      _searchController.clear();
+                                      _globalSearchQuery = '';
+                                    });
+                                  },
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 12,
+                                    ),
+                                    margin: const EdgeInsets.all(4),
+                                    decoration: BoxDecoration(
+                                      color: _selectedChatsTabIndex == 1
+                                          ? (isLight
+                                              ? const Color(0xFFE8EEFF)
+                                              : const Color(0xFF9E7CFF))
+                                          : Colors.transparent,
+                                      borderRadius: BorderRadius.circular(18),
+                                    ),
+                                    alignment: Alignment.center,
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      children: [
+                                        Flexible(
+                                          child: FittedBox(
+                                            fit: BoxFit.scaleDown,
+                                            child: Text(
+                                              'קבוצות',
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: baseTextStyle.copyWith(
+                                                  color: isLight
+                                                      ? Colors.black
+                                                      : Colors.white,
+                                                  fontWeight:
+                                                      FontWeight.w600),
+                                            ),
+                                          ),
+                                        ),
+                                        if (_hasNewGroupsNotification) ...[
+                                          const SizedBox(width: 6),
+                                          _buildGroupsTabNotificationDot(
+                                            isLight: isLight,
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              Expanded(
+                                child: GestureDetector(
+                                  onTap: () {
+                                    setState(() {
+                                      _selectedChatsTabIndex = 2;
+                                      _searchController.clear();
+                                      _globalSearchQuery = '';
+                                    });
+                                  },
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 12,
+                                    ),
+                                    margin: const EdgeInsets.all(4),
+                                    decoration: BoxDecoration(
+                                      color: _selectedChatsTabIndex == 2
+                                          ? (isLight
+                                              ? const Color(0xFFE8EEFF)
+                                              : const Color(0xFF9E7CFF))
+                                          : Colors.transparent,
+                                      borderRadius: BorderRadius.circular(18),
+                                    ),
+                                    alignment: Alignment.center,
+                                    child: FittedBox(
+                                      fit: BoxFit.scaleDown,
+                                      child: Text(
+                                        'קבוצות ציבוריות',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: baseTextStyle.copyWith(
+                                            color: isLight
+                                                ? Colors.black
+                                                : Colors.white,
+                                            fontWeight: FontWeight.w600),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
@@ -2392,20 +2501,9 @@ class _ChatsScreenState extends State<ChatsScreen> {
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _filterAndSortChats(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
   ) {
-    final query = searchQuery.trim().toLowerCase();
-    final filtered = query.isEmpty
-        ? docs.toList(growable: false)
-        : docs.where((doc) {
-            final data = doc.data();
-            final name = ((data['name'] as String?) ?? '').toLowerCase();
-            final description =
-                ((data['description'] as String?) ?? '').toLowerCase();
-            final lastMessage =
-                ((data['lastMessage'] as String?) ?? '').toLowerCase();
-            return name.contains(query) ||
-                description.contains(query) ||
-                lastMessage.contains(query);
-          }).toList(growable: false);
+    // The global search field is intentionally isolated from the main chats list.
+    // This list must remain stable regardless of the search panel state.
+    final filtered = docs.toList(growable: false);
 
     filtered.sort((a, b) {
       final aDate = _chatActivityDate(a.data());
@@ -2420,18 +2518,11 @@ class _ChatsScreenState extends State<ChatsScreen> {
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _filterPublicChats(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
   ) {
-    final query = searchQuery.trim().toLowerCase();
-    if (query.isEmpty) {
-      return docs.toList(growable: false);
-    }
-
-    return docs.where((doc) {
-      final data = doc.data();
-      final name = ((data['name'] as String?) ?? '').toLowerCase();
-      final description =
-          ((data['description'] as String?) ?? '').toLowerCase();
-      return name.contains(query) || description.contains(query);
-    }).toList(growable: false);
+    // The public groups tab is intentionally not filtered by the global search query.
+    // The search panel is independent and must not mutate the regular chats state.
+    return docs
+        .where((doc) => isPublicGroupStillActive(doc.data()))
+        .toList(growable: false);
   }
 
   Future<List<Map<String, dynamic>>> _resolvePublicGroupEntries(
@@ -2458,11 +2549,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
   }
 
   DateTime? _publicGroupDate(Map<String, dynamic> data) {
-    final raw = data['date'] ?? data['executionDate'];
-    if (raw is Timestamp) return raw.toDate();
-    if (raw is DateTime) return raw;
-    if (raw is String) return DateTime.tryParse(raw.trim());
-    return null;
+    return _publicGroupExecutionDate(data);
   }
 
   int _publicGroupMinAge(Map<String, dynamic> data) {
@@ -2515,6 +2602,10 @@ class _ChatsScreenState extends State<ChatsScreen> {
     List<Map<String, dynamic>> entries,
   ) {
     return entries.where((entry) {
+      if (!isPublicGroupStillActive(entry)) {
+        return false;
+      }
+
       final minAge = _publicGroupMinAge(entry).toDouble();
       final maxAge = _publicGroupMaxAge(entry).toDouble();
       final overlap = maxAge >= _publicFilterAgeRange.start &&
@@ -3705,32 +3796,161 @@ class _ChatsScreenState extends State<ChatsScreen> {
   }
 
   Future<List<_GlobalSearchResult>> _globalSearchResults(String query) {
-    final normalizedQuery = query.trim().toLowerCase();
+    final normalizedQuery = query.trim();
     if (normalizedQuery.isEmpty) {
       return Future.value(const <_GlobalSearchResult>[]);
     }
 
     return _globalSearchCache.putIfAbsent(normalizedQuery, () async {
       final currentUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
-      final blockedUids = await _blockUserService.fetchBlockedConnections();
-      final usersFuture = FirebaseFirestore.instance
-          .collection('users_public')
-          .limit(250)
-          .get();
-      final groupsFuture = FirebaseFirestore.instance
-          .collection('groups')
-          .where('isPublic', isEqualTo: true)
-          .limit(250)
-          .get();
+      debugPrint(
+        '[ChatsScreen][globalSearch] query="$normalizedQuery" currentUid=${currentUid.isEmpty ? 'empty' : currentUid}',
+      );
 
-      final results = await Future.wait<dynamic>([usersFuture, groupsFuture]);
-      final usersSnapshot = results[0] as QuerySnapshot<Map<String, dynamic>>;
-      final groupsSnapshot = results[1] as QuerySnapshot<Map<String, dynamic>>;
+      Set<String> blockedUids = const <String>{};
+      try {
+        blockedUids = await _blockUserService.fetchBlockedConnections();
+      } catch (error, stackTrace) {
+        debugPrint(
+          '[ChatsScreen][globalSearch] blocked connections lookup failed: $error\n$stackTrace',
+        );
+        blockedUids = const <String>{};
+      }
+
+      QuerySnapshot<Map<String, dynamic>>? publicUsersSnapshot;
+      final groupSnapshots = <QuerySnapshot<Map<String, dynamic>>>[];
+
+      try {
+        debugPrint('[ChatsScreen][globalSearch] path=users_public get()');
+        publicUsersSnapshot = await FirebaseFirestore.instance
+            .collection('users_public')
+            .get();
+      } catch (error, stackTrace) {
+        debugPrint(
+          '[ChatsScreen][globalSearch] users_public denied: $error\n$stackTrace',
+        );
+        publicUsersSnapshot = null;
+      }
+
+      final publicDocs = publicUsersSnapshot?.docs ??
+          const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+      debugPrint(
+        '[ChatsScreen][globalSearch] users_public docs=${publicDocs.length}, query="$normalizedQuery"',
+      );
+
+      final groupCollection = FirebaseFirestore.instance.collection('groups');
+      final groupQueries = <Future<QuerySnapshot<Map<String, dynamic>>>>[];
+
+      try {
+        debugPrint('[ChatsScreen][globalSearch] path=groups where(isPublic==true)');
+        groupQueries.add(
+          groupCollection
+              .where('isPublic', isEqualTo: true)
+              .limit(300)
+              .get(),
+        );
+      } catch (error, stackTrace) {
+        debugPrint(
+          '[ChatsScreen][globalSearch] groups public query setup failed: $error\n$stackTrace',
+        );
+      }
+
+      if (currentUid.isNotEmpty) {
+        try {
+          debugPrint(
+            '[ChatsScreen][globalSearch] path=groups where(adminUid==currentUid) uid=$currentUid',
+          );
+          groupQueries.add(
+            groupCollection
+                .where('adminUid', isEqualTo: currentUid)
+                .limit(300)
+                .get(),
+          );
+        } catch (error, stackTrace) {
+          debugPrint(
+            '[ChatsScreen][globalSearch] groups admin query failed: $error\n$stackTrace',
+          );
+        }
+
+        try {
+          debugPrint(
+            '[ChatsScreen][globalSearch] path=groups where(members arrayContains currentUid) uid=$currentUid',
+          );
+          groupQueries.add(
+            groupCollection
+                .where('members', arrayContains: currentUid)
+                .limit(300)
+                .get(),
+          );
+        } catch (error, stackTrace) {
+          debugPrint(
+            '[ChatsScreen][globalSearch] groups members query failed: $error\n$stackTrace',
+          );
+        }
+
+        try {
+          debugPrint(
+            '[ChatsScreen][globalSearch] path=groups where(membersList arrayContains currentUid) uid=$currentUid',
+          );
+          groupQueries.add(
+            groupCollection
+                .where('membersList', arrayContains: currentUid)
+                .limit(300)
+                .get(),
+          );
+        } catch (error, stackTrace) {
+          debugPrint(
+            '[ChatsScreen][globalSearch] groups membersList query failed: $error\n$stackTrace',
+          );
+        }
+
+        try {
+          debugPrint(
+            '[ChatsScreen][globalSearch] path=groups where(participants arrayContains currentUid) uid=$currentUid',
+          );
+          groupQueries.add(
+            groupCollection
+                .where('participants', arrayContains: currentUid)
+                .limit(300)
+                .get(),
+          );
+        } catch (error, stackTrace) {
+          debugPrint(
+            '[ChatsScreen][globalSearch] groups participants query failed: $error\n$stackTrace',
+          );
+        }
+      }
+
+      for (final future in groupQueries) {
+        try {
+          final snapshot = await future;
+          groupSnapshots.add(snapshot);
+        } catch (error, stackTrace) {
+          debugPrint(
+            '[ChatsScreen][globalSearch] group query denied: $error\n$stackTrace',
+          );
+        }
+      }
+
+      final mergedUsers = <String, Map<String, dynamic>>{};
+      for (final doc in publicDocs) {
+        final uid = doc.id.trim();
+        if (uid.isEmpty || uid == currentUid) {
+          continue;
+        }
+
+        final data = doc.data();
+        final isPrivateProfile = (data['isPrivate'] as bool?) ?? false;
+        if (isPrivateProfile) {
+          continue;
+        }
+
+        mergedUsers[uid] = data;
+      }
 
       final userResults = <_GlobalSearchResult>[];
-      for (final doc in usersSnapshot.docs) {
-        final data = doc.data();
-        final uid = doc.id.trim();
+      for (final entry in mergedUsers.entries) {
+        final uid = entry.key;
         if (uid.isEmpty || uid == currentUid) {
           continue;
         }
@@ -3738,24 +3958,35 @@ class _ChatsScreenState extends State<ChatsScreen> {
           continue;
         }
 
+        final data = entry.value;
         final displayName = ((data['displayName'] as String?) ?? '').trim();
-        final username = ((data['username'] as String?) ?? '').trim();
-        final searchHaystack =
-            '$displayName $username ${uid.toLowerCase()}'.toLowerCase();
-        if (!searchHaystack.contains(normalizedQuery)) {
+        final username = ((data['usernameLowercase'] as String?) ??
+                (data['username'] as String?) ??
+                '').trim();
+        final directName = ((data['name'] as String?) ?? '').trim();
+        final finalName = displayName.isNotEmpty
+            ? displayName
+            : (directName.isNotEmpty ? directName : (username.isNotEmpty ? username : uid));
+        final subtitleUser = username.isNotEmpty
+            ? (username.startsWith('@') ? username : '@$username')
+            : (uid.isNotEmpty ? uid : 'משתמש');
+        final searchHaystack = buildGlobalSearchText(data, isGroup: false);
+        final matches = _matchesSearchQuery(searchHaystack, normalizedQuery);
+        if (!matches) {
+          debugPrint(
+            '[ChatsScreen] user filter failed: uid=$uid, query="$normalizedQuery", displayName="$displayName", usernameLowercase="${(data['usernameLowercase'] as String?) ?? ''}", username="${(data['username'] as String?) ?? ''}", haystack="$searchHaystack"',
+          );
           continue;
         }
 
         userResults.add(
           _GlobalSearchResult(
             id: uid,
-            name: displayName.isNotEmpty
-                ? displayName
-                : (username.isNotEmpty ? username : uid),
-            subtitle: username.isNotEmpty
-                ? (username.startsWith('@') ? username : '@$username')
-                : uid,
-            imageUrl: ((data['profilePictureUrl'] as String?) ?? '').trim(),
+            name: finalName.isNotEmpty ? finalName : uid,
+            subtitle: subtitleUser,
+            imageUrl: ((data['profilePictureUrl'] as String?) ??
+                    (data['profileImageUrl'] as String?) ??
+                    '').trim(),
             isGroup: false,
             isMember: false,
           ),
@@ -3763,46 +3994,67 @@ class _ChatsScreenState extends State<ChatsScreen> {
       }
 
       final groupResults = <_GlobalSearchResult>[];
-      for (final doc in groupsSnapshot.docs) {
-        final data = doc.data();
-        final isPublic = (data['isPublic'] as bool?) ?? false;
+      final groupsById = <String, Map<String, dynamic>>{};
+      for (final snapshot in groupSnapshots) {
+        for (final doc in snapshot.docs) {
+          final docId = doc.id.trim();
+          if (docId.isEmpty) continue;
+          groupsById[docId] = doc.data();
+        }
+      }
+
+      for (final entry in groupsById.entries) {
+        final docId = entry.key;
+        final data = entry.value;
         final isDeleted = (data['isDeleted'] as bool?) ?? false;
         final deletedAt = data['deletedAt'];
         final isArchived = (data['isArchived'] as bool?) ?? false;
         final status = ((data['status'] as String?) ?? '').trim().toLowerCase();
         final isActive = (data['isActive'] as bool?) ?? true;
         final isVisible = (data['isVisible'] as bool?) ?? true;
+        final isPublic = (data['isPublic'] as bool?) ?? false;
+        final adminUid = ((data['adminUid'] as String?) ?? '').trim();
+        final participantsRaw = (data['participants'] as List<dynamic>?) ??
+            const <dynamic>[];
+        final membersRaw = (data['members'] as List<dynamic>?) ??
+            (data['membersList'] as List<dynamic>?) ??
+            const <dynamic>[];
+        final memberIds = <String>{
+          ...participantsRaw.map((item) => item.toString().trim()),
+          ...membersRaw.map((item) => item.toString().trim()),
+        }.where((value) => value.isNotEmpty).toSet();
 
+        final canReadByMembership = currentUid.isNotEmpty &&
+            (adminUid == currentUid || memberIds.contains(currentUid));
         final hiddenByStatus = status == 'deleted' ||
             status == 'removed' ||
             status == 'archived' ||
             status == 'inactive';
+        final expiredPublicGroup = isPublic && !isPublicGroupStillActive(data);
 
-        if (!isPublic ||
-            isDeleted ||
+        if (isDeleted ||
             isArchived ||
             !isActive ||
             !isVisible ||
             hiddenByStatus ||
-            deletedAt != null) {
+            deletedAt != null ||
+            expiredPublicGroup ||
+            (!isPublic && !canReadByMembership)) {
           continue;
         }
 
-        final groupName = ((data['groupName'] as String?) ?? '').trim();
-        final description = ((data['description'] as String?) ?? '').trim();
+        final groupName = ((data['groupName'] as String?) ??
+                (data['name'] as String?) ??
+                '')
+            .trim();
         final category = ((data['category'] as String?) ?? '').trim();
         final subCategory = ((data['subCategory'] as String?) ?? '').trim();
-        final membersRaw = (data['members'] as List<dynamic>?) ??
-            (data['membersList'] as List<dynamic>?) ??
-            const <dynamic>[];
-        final memberIds = membersRaw
-            .map((item) => item.toString().trim())
-            .where((value) => value.isNotEmpty)
-            .toSet();
 
-        final searchHaystack =
-            '$groupName $description $category $subCategory'.toLowerCase();
-        if (!searchHaystack.contains(normalizedQuery)) {
+        final searchHaystack = buildGlobalSearchText(
+          <String, dynamic>{...data, 'id': docId},
+          isGroup: true,
+        );
+        if (!_matchesSearchQuery(searchHaystack, normalizedQuery)) {
           continue;
         }
 
@@ -3812,7 +4064,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
 
         groupResults.add(
           _GlobalSearchResult(
-            id: doc.id,
+            id: docId,
             name: groupName.isEmpty ? 'קבוצה' : groupName,
             subtitle: subtitle,
             imageUrl: ((data['groupImageUrl'] as String?) ?? '').trim(),
@@ -3823,7 +4075,11 @@ class _ChatsScreenState extends State<ChatsScreen> {
       }
 
       int scoreName(_GlobalSearchResult result) {
-        return result.name.toLowerCase().startsWith(normalizedQuery) ? 0 : 1;
+        return result.name
+                .toLowerCase()
+                .startsWith(_normalizeSearchText(normalizedQuery))
+            ? 0
+            : 1;
       }
 
       userResults.sort((a, b) {
@@ -3861,13 +4117,30 @@ class _ChatsScreenState extends State<ChatsScreen> {
           ),
         ),
         child: FutureBuilder<List<_GlobalSearchResult>>(
-          future: _globalSearchResults(searchQuery),
+          future: _globalSearchResults(_globalSearchQuery),
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting &&
                 !snapshot.hasData) {
               return const Padding(
                 padding: EdgeInsets.all(14),
                 child: Center(child: CircularProgressIndicator()),
+              );
+            }
+
+            if (snapshot.hasError) {
+              debugPrint(
+                '[ChatsScreen] global search error for "$_globalSearchQuery": ${snapshot.error}',
+              );
+              return Padding(
+                padding: const EdgeInsets.all(14),
+                child: Text(
+                  'לא ניתן לבצע חיפוש כרגע. נסה שוב בעוד רגע.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: isLight ? Colors.black87 : Colors.grey[400],
+                    fontSize: 13,
+                  ),
+                ),
               );
             }
 
@@ -3921,7 +4194,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
                       setState(() {
                         _selectedChatsTabIndex = 2;
                         _searchController.text = result.name;
-                        searchQuery = result.name;
+                        _globalSearchQuery = result.name;
                       });
                       return;
                     }

@@ -156,6 +156,26 @@ class PostService {
         .toSet();
   }
 
+  Set<String> _commentRewardUserIds({
+    required String postAuthorId,
+    String? parentCommentAuthorId,
+  }) {
+    final rewardUserIds = <String>{};
+
+    final normalizedPostAuthorId = postAuthorId.trim();
+    if (normalizedPostAuthorId.isNotEmpty) {
+      rewardUserIds.add(normalizedPostAuthorId);
+    }
+
+    final normalizedParentCommentAuthorId =
+        (parentCommentAuthorId ?? '').trim();
+    if (normalizedParentCommentAuthorId.isNotEmpty) {
+      rewardUserIds.add(normalizedParentCommentAuthorId);
+    }
+
+    return rewardUserIds;
+  }
+
   int _postScoreFromData(Map<String, dynamic> data) {
     final scoreAwarded = (data['scoreAwarded'] as num?)?.toInt() ??
         int.tryParse('${data['scoreAwarded'] ?? ''}') ??
@@ -1986,6 +2006,8 @@ class PostService {
       throw ArgumentError('text is required');
     }
 
+    var transactionCommitted = false;
+
     try {
       final postRef = _db.collection('posts').doc(normalizedPostId);
       final commentsRef = postRef.collection('comments');
@@ -2100,6 +2122,7 @@ class PostService {
         taggedScoreDelta = _taggedBonusForPostScore(newPostScore) -
             _taggedBonusForPostScore(oldPostScore);
       });
+      transactionCommitted = true;
 
       if (!allowed) {
         _logCommentFlow(traceId, 'blocked by hourly comment limit');
@@ -2120,9 +2143,15 @@ class PostService {
         );
       }
 
-      if (normalizedAuthorId.isNotEmpty) {
+      final rewardUserIds = _commentRewardUserIds(
+        postAuthorId: normalizedAuthorId,
+        parentCommentAuthorId:
+            normalizedParentId.isNotEmpty ? parentCommentAuthorId : null,
+      );
+
+      if (rewardUserIds.isNotEmpty) {
         await _safeIncrementScoreForExistingUsers(
-          userIds: <String>[normalizedAuthorId],
+          userIds: rewardUserIds.toList(growable: false),
           delta: 2,
         );
       }
@@ -2160,6 +2189,16 @@ class PostService {
       _logCommentFlow(traceId, 'completed successfully');
     } catch (error, stackTrace) {
       if (_isPermissionDenied(error)) {
+        if (transactionCommitted) {
+          _logCommentFlow(
+            traceId,
+            'permission-denied after commit; skipping fallback because comment already exists',
+            error: error,
+            stackTrace: stackTrace,
+          );
+          return;
+        }
+
         _logCommentFlow(traceId,
             'permission-denied, creating comment self-only and queueing side-effects');
 

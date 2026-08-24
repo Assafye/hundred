@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
 
 import 'package:cached_network_image/cached_network_image.dart';
@@ -28,6 +29,7 @@ import 'chat_room_screen.dart';
 import 'group_details_screen.dart';
 import 'user_profile_screen.dart';
 import 'main_bottom_nav.dart';
+import 'online_screen.dart';
 import 'stars_screen.dart'
     show
         StarsScreen,
@@ -38,8 +40,42 @@ import 'widgets/post_media_viewer.dart';
 import 'widgets/post_comments_sheet.dart';
 import 'widgets/post_share_targets_sheet.dart';
 import 'widgets/report_dialogs.dart';
+import 'widgets/expandable_post_description.dart';
 
 enum _FeedShareMenuAction { copyLink, sendToFriend, systemShare }
+
+const int _feedSeenHistoryLimit = 400;
+const int _feedSeenHistoryRetentionDays = 30;
+const String _feedSeenHistoryStorageKey = 'feed_seen_history_v1';
+
+List<PostModel> filterFeedPostsForFreshnessAndSeen(
+  List<PostModel> posts, {
+  required Set<String> seenPostIds,
+  DateTime? now,
+}) {
+  final currentTime = now ?? DateTime.now();
+  final cutoff = currentTime.subtract(
+    const Duration(days: _feedSeenHistoryRetentionDays),
+  );
+
+  return posts.where((post) {
+    final id = post.id.trim();
+    if (id.isEmpty) {
+      return false;
+    }
+
+    if (seenPostIds.contains(id)) {
+      return false;
+    }
+
+    final createdAt = post.createdAt;
+    if (createdAt != null && createdAt.isBefore(cutoff)) {
+      return false;
+    }
+
+    return true;
+  }).toList(growable: false);
+}
 
 class FeedScreen extends StatefulWidget {
   const FeedScreen({
@@ -95,6 +131,8 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
   final Set<String> _saveInFlightPostIds = <String>{};
   final Set<String> _shareInFlightPostIds = <String>{};
   final Map<String, Future<PublicUserProfile?>> _authorFutureCache = {};
+  final Map<String, DateTime> _feedSeenHistory = <String, DateTime>{};
+  Set<String> _feedSeenIds = <String>{};
   Offset _heartTapPosition = Offset.zero;
   bool _showDoubleTapHeart = false;
   String _activeHeartPostId = '';
@@ -109,16 +147,126 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
   Map<String, int> _randomizedFeedOrder = <String, int>{};
   String _lastPrecachedFeedSignature = '';
   bool _didScheduleSpontaneousPrompt = false;
+  bool _hasShownExhaustedFeedSheet = false;
+  late final List<String> _emptyFeedSuggestionOptions;
 
   @override
   void initState() {
     super.initState();
     categories = appMainCategories;
+    _emptyFeedSuggestionOptions = _buildEmptyFeedSuggestionOptions();
     MainBottomNav.feedPlaybackPausedByComposer
         .addListener(_syncForegroundStateWithComposer);
     _syncForegroundStateWithComposer();
+    _loadSeenFeedHistory();
     _scheduleSpontaneousPromptIfNeeded();
     _loadActiveSpontaneousTask();
+  }
+
+  Future<void> _loadSeenFeedHistory() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_feedSeenHistoryStorageKey);
+    if (!mounted) {
+      return;
+    }
+
+    final loaded = <String, DateTime>{};
+    if (raw != null && raw.trim().isNotEmpty) {
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) {
+          final values = decoded.cast<String, dynamic>();
+          for (final entry in values.entries) {
+            final key = entry.key.toString().trim();
+            if (key.isEmpty) {
+              continue;
+            }
+            final value = int.tryParse(entry.value.toString());
+            if (value == null) {
+              continue;
+            }
+            loaded[key] = DateTime.fromMillisecondsSinceEpoch(value, isUtc: true);
+          }
+        }
+      } catch (_) {
+        // Ignore malformed persisted history and start fresh.
+      }
+    }
+
+    final now = DateTime.now();
+    final cutoff = now.subtract(
+      const Duration(days: _feedSeenHistoryRetentionDays),
+    );
+
+    final pruned = <String, DateTime>{};
+    for (final entry in loaded.entries) {
+      if (entry.value.isBefore(cutoff)) {
+        continue;
+      }
+      pruned[entry.key] = entry.value;
+    }
+
+    final sorted = pruned.entries.toList()
+      ..sort((a, b) => a.value.compareTo(b.value));
+    final limited = <String, DateTime>{};
+    for (final entry in sorted.take(_feedSeenHistoryLimit)) {
+      limited[entry.key] = entry.value;
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _feedSeenHistory.clear();
+      _feedSeenHistory.addAll(limited);
+      _feedSeenIds = _feedSeenHistory.keys.toSet();
+    });
+  }
+
+  Future<void> _persistSeenFeedHistory() async {
+    final entries = _feedSeenHistory.entries.toList()
+      ..sort((a, b) => a.value.compareTo(b.value));
+
+    final limitedEntries = entries.take(_feedSeenHistoryLimit).toList();
+    final payload = <String, int>{
+      for (final entry in limitedEntries)
+        entry.key: entry.value.millisecondsSinceEpoch,
+    };
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_feedSeenHistoryStorageKey, jsonEncode(payload));
+  }
+
+  void _recordSeenFeedPost(PostModel post) {
+    final id = post.id.trim();
+    if (id.isEmpty || _feedSeenIds.contains(id)) {
+      return;
+    }
+
+    final seenAt = DateTime.now();
+    _feedSeenHistory[id] = seenAt;
+    _feedSeenIds.add(id);
+
+    final cutoff = seenAt.subtract(
+      const Duration(days: _feedSeenHistoryRetentionDays),
+    );
+    _feedSeenHistory.removeWhere((postId, timestamp) {
+      return timestamp.isBefore(cutoff);
+    });
+
+    final sorted = _feedSeenHistory.entries.toList()
+      ..sort((a, b) => a.value.compareTo(b.value));
+    final trimmed = <String, DateTime>{};
+    for (final entry in sorted.take(_feedSeenHistoryLimit)) {
+      trimmed[entry.key] = entry.value;
+    }
+    _feedSeenHistory
+      ..clear()
+      ..addAll(trimmed);
+    _feedSeenIds = _feedSeenHistory.keys.toSet();
+
+    unawaited(_persistSeenFeedHistory());
   }
 
   void _syncForegroundStateWithComposer() {
@@ -135,6 +283,96 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
     setState(() {
       _isFeedInForeground = shouldBeForeground;
     });
+  }
+
+  Future<void> _showExhaustedFeedMessage() async {
+    if (!mounted || _hasShownExhaustedFeedSheet) {
+      return;
+    }
+
+    _hasShownExhaustedFeedSheet = true;
+    await showGeneralDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      barrierColor: Colors.black54,
+      transitionDuration: const Duration(milliseconds: 280),
+      pageBuilder: (dialogContext, animation, secondaryAnimation) {
+        final dialogWidth = MediaQuery.of(dialogContext).size.width;
+        final bubbleWidth = (dialogWidth * 0.74).clamp(240.0, 360.0);
+
+        return AnimatedBuilder(
+          animation: animation,
+          builder: (context, child) {
+            final progress = CurvedAnimation(
+              parent: animation,
+              curve: Curves.easeOutCubic,
+            ).value;
+            final offset = Offset(0, 160 * (1 - progress));
+            final opacity = progress.clamp(0.0, 1.0);
+
+            return Transform.translate(
+              offset: offset,
+              child: Opacity(
+                opacity: opacity,
+                child: Center(
+                  child: Container(
+                    width: bubbleWidth,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 18,
+                      vertical: 18,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF141B2A),
+                      borderRadius: BorderRadius.circular(28),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x66000000),
+                          blurRadius: 18,
+                          spreadRadius: 2,
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 54,
+                          height: 5,
+                          margin: const EdgeInsets.only(bottom: 12),
+                          decoration: BoxDecoration(
+                            color: Colors.white24,
+                            borderRadius: BorderRadius.circular(99),
+                          ),
+                        ),
+                        const Text(
+                          'סיימת לראות את כל הפוסטים העדכניים!',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        const Text(
+                          'זה הזמן ליצור עוד פוסטים בעצמך!',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.white70,
+                            fontSize: 13,
+                            height: 1.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   Future<void> _loadActiveSpontaneousTask() async {
@@ -242,6 +480,30 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
     }
   }
 
+  Future<void> _openSpontaneousFeedBubble() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    if (uid.isEmpty || !mounted) {
+      return;
+    }
+
+    if (_activeSpontaneousTask != null) {
+      await showActiveSpontaneousTaskModal(context, task: _activeSpontaneousTask!);
+      return;
+    }
+
+    await showSpontaneousLotteryModal(context, userId: uid);
+    if (!mounted) {
+      return;
+    }
+
+    await _loadActiveSpontaneousTask();
+    if (!mounted || _activeSpontaneousTask == null) {
+      return;
+    }
+
+    await showActiveSpontaneousTaskModal(context, task: _activeSpontaneousTask!);
+  }
+
   void _scheduleSpontaneousPromptIfNeeded() {
     if (_didScheduleSpontaneousPrompt) {
       return;
@@ -263,6 +525,212 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
         _maybeShowSpontaneousPrompt();
       });
     });
+  }
+
+  Widget _buildEmptyFeedActionBubble({
+    required String label,
+    required VoidCallback onTap,
+    required Color color,
+  }) {
+    final isLight = _isLightMode(context);
+    const timerTopColor = Color(0xFF8DE8FF);
+    const timerBottomColor = Color(0xFFC9B5FF);
+    const timerTextColor = Color(0xFF2A2361);
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(22),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          constraints: const BoxConstraints(minWidth: 126, minHeight: 54),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: isLight
+                  ? [timerTopColor, timerBottomColor]
+                  : [timerTopColor.withOpacity(0.82), timerBottomColor.withOpacity(0.82)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(
+              color: Colors.white.withOpacity(0.8),
+              width: 1.4,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: timerTopColor.withOpacity(isLight ? 0.28 : 0.22),
+                blurRadius: 18,
+                offset: const Offset(0, 7),
+              ),
+              BoxShadow(
+                color: timerBottomColor.withOpacity(isLight ? 0.24 : 0.18),
+                blurRadius: 20,
+                offset: const Offset(0, 10),
+              ),
+            ],
+          ),
+          child: Center(
+            child: Text(
+              label,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: timerTextColor,
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  List<String> _buildEmptyFeedSuggestionOptions() {
+    final tasks = <String>[];
+    for (final category in appMainCategories) {
+      if (category == kGeneralCategory) {
+        continue;
+      }
+      final subCategories = appSubCategories(category);
+      for (final subCategory in subCategories) {
+        final normalized = subCategory.trim();
+        if (normalized.isEmpty || normalized == 'אחר') {
+          continue;
+        }
+        tasks.add(normalized);
+      }
+    }
+
+    final deduped = <String>[];
+    for (final task in tasks) {
+      if (!deduped.contains(task)) {
+        deduped.add(task);
+      }
+    }
+
+    if (deduped.length <= 6) {
+      return deduped.toList(growable: false);
+    }
+
+    final shuffled = List<String>.from(deduped)..shuffle(Random());
+    return shuffled.take(6).toList(growable: false);
+  }
+
+  Widget _buildEmptyFeedSuggestionChip(String label) {
+    final isLight = _isLightMode(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: isLight
+              ? [const Color(0xFFEAF8FF), const Color(0xFFF0EBFF)]
+              : [const Color(0xFF1C2A3D), const Color(0xFF251E3B)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: const Color(0xFF9AC7FF).withOpacity(isLight ? 0.55 : 0.6),
+          width: 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF8DE8FF).withOpacity(isLight ? 0.12 : 0.16),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Text(
+        label,
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          color: isLight ? const Color(0xFF1E2331) : Colors.white,
+          fontSize: 12,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyFeedState({required bool isForYouFeed}) {
+    final isLight = _isLightMode(context);
+    final titleText = isForYouFeed
+        ? 'סיימת לראות את כל הפוסטים העדכניים בקטגוריה זו!'
+        : 'סיימת לראות את כל הפוסטים העדכניים של החברים בקטגוריה זו!';
+    final suggestionTitles = _emptyFeedSuggestionOptions;
+
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(20, 28, 20, 24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              titleText,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: isLight ? const Color(0xFF1D2330) : Colors.white,
+                fontSize: 24,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 18),
+            Wrap(
+              alignment: WrapAlignment.center,
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                _buildEmptyFeedActionBubble(
+                  label: 'המשימה הספונטנית שלי!',
+                  onTap: _openSpontaneousFeedBubble,
+                  color: const Color(0xFF8CCAFB),
+                ),
+                _buildEmptyFeedActionBubble(
+                  label: 'כוכבי השבוע',
+                  onTap: () async {
+                    await _pushWithFeedPlaybackPaused<void>(
+                      MaterialPageRoute(builder: (_) => const StarsScreen()),
+                    );
+                  },
+                  color: const Color(0xFFC7B9FF),
+                ),
+                _buildEmptyFeedActionBubble(
+                  label: 'לצפייה בפופים',
+                  onTap: () async {
+                    await _pushWithFeedPlaybackPaused<void>(
+                      MaterialPageRoute(builder: (_) => const OnlineScreen()),
+                    );
+                  },
+                  color: const Color(0xFF95D9E5),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            Text(
+              'רעיונות לדברים לעשות:',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: isLight ? const Color(0xFF3B465D) : Colors.white70,
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 14),
+            Wrap(
+              alignment: WrapAlignment.center,
+              spacing: 10,
+              runSpacing: 10,
+              children: suggestionTitles
+                  .map((title) => _buildEmptyFeedSuggestionChip(title))
+                  .toList(growable: false),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   List<String> _precacheMediaUrlsForPost(PostModel post) {
@@ -2816,6 +3284,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
   }
 
   void _refreshFeedOnScopeSwitch(bool forYouFeed) {
+    _hasShownExhaustedFeedSheet = false;
     setState(() {
       isForYouFeed = forYouFeed;
       _currentFeedPageIndex = 0;
@@ -3090,14 +3559,15 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                 return FutureBuilder<List<PostModel>>(
                   future: _resolveAudienceFilteredPosts(scopedPosts),
                   builder: (context, audienceSnapshot) {
-                    final feedPosts =
+                    final baseFeedPosts =
                         audienceSnapshot.data ?? const <PostModel>[];
+                    final feedPosts = filterFeedPostsForFreshnessAndSeen(
+                      baseFeedPosts,
+                      seenPostIds: _feedSeenIds,
+                    );
                     final activeFeedIndex = feedPosts.isEmpty
                         ? 0
                         : _currentFeedPageIndex.clamp(0, feedPosts.length - 1);
-                    final emptyMessage = isForYouFeed
-                        ? 'אין פוסטים להצגה בקטגוריה/תת-קטגוריה זו'
-                        : 'אין פוסטים של חברים להצגה';
 
                     _scheduleFeedMediaPrecache(feedPosts, activeFeedIndex);
                     final scrollControls =
@@ -3112,17 +3582,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                             : feedPosts[activeFeedIndex].subCategory,
                         showLoader: false,
                         child: feedPosts.isEmpty
-                            ? Center(
-                                child: Text(
-                                  emptyMessage,
-                                  style: TextStyle(
-                                    color: _isLightMode(context)
-                                        ? const Color(0xFF5A6783)
-                                        : Colors.white70,
-                                    fontSize: 18,
-                                  ),
-                                ),
-                              )
+                            ? _buildEmptyFeedState(isForYouFeed: isForYouFeed)
                             : PageView.builder(
                                 controller: _pageController,
                                 scrollDirection: Axis.vertical,
@@ -3130,13 +3590,29 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                                 itemCount: feedPosts.length,
                                 onPageChanged: (index) {
                                   if (_currentFeedPageIndex == index) return;
+
+                                  final visiblePost = feedPosts[index];
+                                  _recordSeenFeedPost(visiblePost);
+
+                                  final updatedSeenIds = Set<String>.from(_feedSeenIds);
+                                  final remainingAfterSeen = filterFeedPostsForFreshnessAndSeen(
+                                    baseFeedPosts,
+                                    seenPostIds: updatedSeenIds,
+                                  );
+
                                   setState(() {
                                     _currentFeedPageIndex = index;
                                   });
+
+                                  if (remainingAfterSeen.isEmpty &&
+                                      !_hasShownExhaustedFeedSheet) {
+                                    unawaited(_showExhaustedFeedMessage());
+                                  }
                                 },
                                 itemBuilder: (context, index) {
+                                  final visiblePost = feedPosts[index];
                                   return _buildPostBlock(
-                                    feedPosts[index],
+                                    visiblePost,
                                     isActive: _isFeedInForeground &&
                                         index == activeFeedIndex,
                                   );
@@ -3774,9 +4250,11 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                       ),
                     if (post.description.isNotEmpty) ...[
                       const SizedBox(height: 3),
-                      Text(
-                        post.description,
+                      ExpandablePostDescription(
+                        text: post.description,
+                        maxLines: 2,
                         textAlign: TextAlign.right,
+                        textDirection: TextDirection.rtl,
                         style: const TextStyle(
                           color: Colors.white,
                           fontSize: 14,
@@ -3792,8 +4270,12 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                           ],
                           height: 1.28,
                         ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
+                        toggleStyle: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          height: 1.2,
+                        ),
                       ),
                     ],
                     if (postTimestamp.isNotEmpty ||

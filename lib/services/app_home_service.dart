@@ -1309,7 +1309,9 @@ class AppHomeService {
         'category': category,
         'subCategory': subCategory,
         'location': location,
-        'date': Timestamp.fromDate(DateTime.now()),
+        'date': Timestamp.fromDate(
+          DateTime.now().add(const Duration(hours: 24)),
+        ),
         'ageRange': {
           'min': 13,
           'max': 99,

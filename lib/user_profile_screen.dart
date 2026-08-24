@@ -3882,6 +3882,32 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     return profiles;
   }
 
+  Future<Map<String, dynamic>> _mutualGroupRowData(
+    DocumentSnapshot<Map<String, dynamic>> doc,
+  ) async {
+    final data = doc.data() ?? const <String, dynamic>{};
+    final name = (data['groupName'] as String? ?? 'קבוצה').trim();
+    final description = (data['description'] as String? ?? '').trim();
+
+    String imageUrl = (data['groupImageUrl'] as String? ?? '').trim();
+    if (imageUrl.isEmpty) {
+      try {
+        final chatDoc = await _db.collection('chats').doc(doc.id).get();
+        final chatData = chatDoc.data() ?? const <String, dynamic>{};
+        imageUrl = ((chatData['groupImageUrl'] as String?) ?? '').trim();
+      } catch (_) {
+        imageUrl = '';
+      }
+    }
+
+    return {
+      'id': doc.id,
+      'name': name,
+      'description': description,
+      'imageUrl': imageUrl,
+    };
+  }
+
   Future<void> _showMutualGroupsSheet() async {
     List<DocumentSnapshot<Map<String, dynamic>>> groups;
     try {
@@ -3892,6 +3918,10 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     }
     if (!mounted) return;
 
+    final rows = await Future.wait(
+      groups.map(_mutualGroupRowData),
+    );
+
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: Theme.of(context).brightness == Brightness.light
@@ -3899,29 +3929,42 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
           : const Color(0xFF151D2A),
       builder: (context) {
         final isLight = Theme.of(context).brightness == Brightness.light;
-        if (groups.isEmpty) {
+        if (rows.isEmpty) {
           return _buildSheetEmptyState('אין קבוצות משותפות כרגע');
         }
 
         return _buildSheetList(
           title: 'קבוצות משותפות',
-          children: groups.map((doc) {
-            final data = doc.data() ?? const <String, dynamic>{};
-            final name = (data['groupName'] as String? ?? 'קבוצה').trim();
-            final description = (data['description'] as String? ?? '').trim();
-            final imageUrl = (data['groupImageUrl'] as String? ?? '').trim();
+          children: rows.map((row) {
+            final name = (row['name'] as String? ?? 'קבוצה').trim();
+            final description = (row['description'] as String? ?? '').trim();
+            final imageUrl = (row['imageUrl'] as String? ?? '').trim();
+            final groupId = (row['id'] as String? ?? '').trim();
+
             return ListTile(
               onTap: () {
                 Navigator.of(context).pop();
                 _openGroupChatFromProfile(
-                  groupId: doc.id,
+                  groupId: groupId,
                   groupName: name,
                   imageUrl: imageUrl,
                 );
               },
-              leading: const CircleAvatar(
-                  backgroundColor: Color(0xFF9E7CFF),
-                  child: Icon(Icons.groups_rounded, color: Colors.black)),
+              leading: CircleAvatar(
+                radius: 22,
+                backgroundColor: const Color(0xFF9E7CFF),
+                backgroundImage:
+                    imageUrl.isNotEmpty ? NetworkImage(imageUrl) : null,
+                child: imageUrl.isEmpty
+                    ? Text(
+                        name.isNotEmpty ? name.characters.first : 'G',
+                        style: const TextStyle(
+                          color: Colors.black,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      )
+                    : null,
+              ),
               title: Text(name,
                   style: TextStyle(
                       color: isLight ? Colors.black : Colors.white,

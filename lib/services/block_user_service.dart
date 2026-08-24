@@ -326,11 +326,19 @@ class BlockUserService {
       return const <String>{};
     }
 
-    final blockedByMeSnap = await _blockedUsersCol(myUid).get();
-    final blockedByMe = blockedByMeSnap.docs
-        .map((doc) => ((doc.data()['blockedUid'] as String?) ?? doc.id).trim())
-        .where((uid) => uid.isNotEmpty)
-        .toSet();
+    Set<String> blockedByMe = <String>{};
+    try {
+      final blockedByMeSnap = await _blockedUsersCol(myUid).get();
+      blockedByMe = blockedByMeSnap.docs
+          .map((doc) => ((doc.data()['blockedUid'] as String?) ?? doc.id).trim())
+          .where((uid) => uid.isNotEmpty)
+          .toSet();
+    } catch (error) {
+      if (!_isRecoverableBlockReadError(error)) {
+        rethrow;
+      }
+      blockedByMe = <String>{};
+    }
 
     Set<String> blockedMe = <String>{};
     try {
@@ -366,6 +374,7 @@ class BlockUserService {
       if (!_isRecoverableBlockReadError(error)) {
         rethrow;
       }
+      blockedMe = <String>{};
     }
 
     return <String>{...blockedByMe, ...blockedMe};
