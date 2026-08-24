@@ -1,12 +1,15 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 
 import 'age_restrictions.dart';
 import 'app_categories.dart';
 import 'services/group_service.dart';
+import 'services/keyboard_dismiss_controller.dart';
 import 'services/public_user_profile_service.dart';
 import 'widgets/group_avatar.dart';
 import 'widgets/swipe_back_wrapper.dart';
@@ -62,16 +65,36 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
   @override
   void initState() {
     super.initState();
+    KeyboardDismissController.suspend();
     _loadFriends();
   }
 
   @override
   void dispose() {
+    KeyboardDismissController.resume();
     _nameController.dispose();
     _descriptionController.dispose();
     _regionController.dispose();
     _minScoreController.dispose();
     super.dispose();
+  }
+
+  bool _tapHitsEditable(PointerDownEvent event) {
+    final hitTestResult = HitTestResult();
+    GestureBinding.instance.hitTest(hitTestResult, event.position);
+    for (final entry in hitTestResult.path) {
+      if (entry.target is RenderEditable) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  void _dismissKeyboardOnBackgroundTap(PointerDownEvent event) {
+    if (_tapHitsEditable(event)) {
+      return;
+    }
+    FocusManager.instance.primaryFocus?.unfocus();
   }
 
   Future<ImageSource?> _selectImageSource() async {
@@ -185,6 +208,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                   ),
                   const SizedBox(height: 12),
                   TextField(
+                    onTapOutside: (_) {},
                     onChanged: (v) {
                       final query = v.trim();
                       setModalState(() {
@@ -910,8 +934,11 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                   ),
                 ),
               ),
-            SafeArea(
-              child: Padding(
+            Listener(
+              behavior: HitTestBehavior.translucent,
+              onPointerDown: _dismissKeyboardOnBackgroundTap,
+              child: SafeArea(
+                child: Padding(
                 padding: const EdgeInsets.all(16),
                 child: Column(
                   children: [
@@ -968,6 +995,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                                 Expanded(
                                   child: TextField(
                                     controller: _nameController,
+                                    onTapOutside: (_) {},
                                     maxLength: 40,
                                     style: TextStyle(
                                         color: isLight
@@ -993,6 +1021,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                             const SizedBox(height: 8),
                             TextField(
                               controller: _descriptionController,
+                              onTapOutside: (_) {},
                               maxLines: 3,
                               style: TextStyle(
                                   color: isLight
@@ -1199,6 +1228,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                               const SizedBox(height: 8),
                               TextField(
                                 controller: _regionController,
+                                onTapOutside: (_) {},
                                 style: TextStyle(
                                     color:
                                         isLight ? Colors.black : Colors.white),
@@ -1217,6 +1247,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                               const SizedBox(height: 8),
                               TextField(
                                 controller: _minScoreController,
+                                onTapOutside: (_) {},
                                 keyboardType: TextInputType.number,
                                 style: TextStyle(
                                     color:
@@ -1444,6 +1475,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                     ),
                   ],
                 ),
+              ),
               ),
             ),
           ],

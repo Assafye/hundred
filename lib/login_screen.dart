@@ -1,12 +1,15 @@
 import 'dart:async';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:hundred_version1/services/auth_service.dart';
 
 import 'feed_screen.dart';
 import 'register_screen.dart';
+import 'services/keyboard_dismiss_controller.dart';
 import 'widgets/animated_infinity_splash_screen.dart';
 import 'widgets/swipe_back_wrapper.dart';
 
@@ -48,6 +51,7 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   void initState() {
     super.initState();
+    KeyboardDismissController.suspend();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
       final pendingMessage = AuthService.consumePendingAuthUiMessage();
@@ -77,9 +81,28 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   void dispose() {
+    KeyboardDismissController.resume();
     _usernameController.dispose();
     _passwordController.dispose();
     super.dispose();
+  }
+
+  bool _tapHitsEditable(PointerDownEvent event) {
+    final hitTestResult = HitTestResult();
+    GestureBinding.instance.hitTest(hitTestResult, event.position);
+    for (final entry in hitTestResult.path) {
+      if (entry.target is RenderEditable) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  void _dismissKeyboardOnBackgroundTap(PointerDownEvent event) {
+    if (_tapHitsEditable(event)) {
+      return;
+    }
+    FocusManager.instance.primaryFocus?.unfocus();
   }
 
   Future<void> _routeToUnverifiedLoginGate({
@@ -454,7 +477,10 @@ class _LoginScreenState extends State<LoginScreen> {
         resizeToAvoidBottomInset: false,
         backgroundColor: _bgBottom,
         body: SafeArea(
-          child: Stack(
+          child: Listener(
+            behavior: HitTestBehavior.translucent,
+            onPointerDown: _dismissKeyboardOnBackgroundTap,
+            child: Stack(
             children: [
               Positioned.fill(
                 child: AnimatedContainer(
@@ -717,6 +743,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 },
               ),
             ],
+          ),
           ),
         ),
       ),

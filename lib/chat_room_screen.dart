@@ -13,6 +13,7 @@ import 'group_details_screen.dart';
 import 'post_media_utils.dart';
 import 'post_detail_view.dart';
 import 'services/chat_service.dart';
+import 'services/keyboard_dismiss_controller.dart';
 import 'services/share_flow_log_service.dart';
 import 'user_profile_screen.dart';
 import 'models/post_media_item.dart';
@@ -81,7 +82,8 @@ class _PendingChatMedia {
   }
 }
 
-class _ChatRoomScreenState extends State<ChatRoomScreen> {
+class _ChatRoomScreenState extends State<ChatRoomScreen>
+  with SingleTickerProviderStateMixin {
   final TextEditingController _controller = TextEditingController();
   final FocusNode _inputFocusNode = FocusNode();
   final ScrollController _scrollController = ScrollController();
@@ -106,6 +108,15 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   bool _isSendingText = false;
   String _latestDirectOtherUid = '';
   _ReplyTarget? _replyTarget;
+  final GlobalKey _attachmentButtonKey = GlobalKey();
+  final Object _composerTapRegionGroupId = Object();
+  OverlayEntry? _attachmentMenuOverlay;
+  bool _isClosingAttachmentMenu = false;
+  late final AnimationController _attachmentMenuController;
+  late final Animation<double> _bottomBubbleScale;
+  late final Animation<double> _bottomBubbleOpacity;
+  late final Animation<double> _topBubbleScale;
+  late final Animation<double> _topBubbleOpacity;
 
   bool _isLightMode(BuildContext context) {
     return Theme.of(context).brightness == Brightness.light;
@@ -140,6 +151,35 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   @override
   void initState() {
     super.initState();
+    _attachmentMenuController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 190),
+    );
+    _bottomBubbleScale = Tween<double>(begin: 0.72, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _attachmentMenuController,
+        curve: const Interval(0.0, 0.58, curve: Curves.easeOutBack),
+      ),
+    );
+    _bottomBubbleOpacity = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _attachmentMenuController,
+        curve: const Interval(0.0, 0.42, curve: Curves.easeOut),
+      ),
+    );
+    _topBubbleScale = Tween<double>(begin: 0.72, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _attachmentMenuController,
+        curve: const Interval(0.28, 1.0, curve: Curves.easeOutBack),
+      ),
+    );
+    _topBubbleOpacity = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _attachmentMenuController,
+        curve: const Interval(0.28, 0.82, curve: Curves.easeOut),
+      ),
+    );
+    KeyboardDismissController.suspend();
     _scrollController.addListener(_handleScrollActivity);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -201,6 +241,11 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   Future<void> _sendMessage() async {
     final text = _controller.text.trim();
     if (text.isEmpty || _isSendingText) return;
+
+    // Keep the keyboard open when send is tapped.
+    if (!_inputFocusNode.hasFocus) {
+      _inputFocusNode.requestFocus();
+    }
 
     final replyTarget = _replyTarget;
 
@@ -267,149 +312,224 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     }
   }
 
-  Future<void> _openAttachmentActions() async {
-    final isLight = _isLightMode(context);
-    final choice = await showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: isLight ? Colors.white : const Color(0xFF1E2632),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
-      ),
-      builder: (sheetContext) {
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: const Icon(Icons.photo_library_rounded),
-                title: const Text('גלריה'),
-                onTap: () {
-                  Navigator.of(sheetContext).pop('gallery');
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.photo_camera_rounded),
-                title: const Text('פתיחת מצלמה'),
-                onTap: () {
-                  Navigator.of(sheetContext).pop('camera');
-                },
-              ),
-            ],
-          ),
-        );
-      },
-    );
-
-    if (!mounted || choice == null) {
+  Future<void> _closeAttachmentMenu({bool immediate = false}) async {
+    final overlayEntry = _attachmentMenuOverlay;
+    if (overlayEntry == null) {
+      return;
+    }
+    if (_isClosingAttachmentMenu) {
       return;
     }
 
-    switch (choice) {
-      case 'gallery':
-        await _openGalleryPicker();
-        break;
-      case 'camera':
-        await _openCameraPicker();
-        break;
+    _isClosingAttachmentMenu = true;
+    try {
+      if (!immediate &&
+          _attachmentMenuController.status != AnimationStatus.dismissed) {
+        await _attachmentMenuController.reverse();
+      }
+      if (_attachmentMenuOverlay == overlayEntry) {
+        overlayEntry.remove();
+        _attachmentMenuOverlay = null;
+      }
+    } finally {
+      _isClosingAttachmentMenu = false;
     }
   }
 
-  Future<void> _openGalleryPicker() async {
-    final isLight = _isLightMode(context);
-    final choice = await showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: isLight ? Colors.white : const Color(0xFF1E2632),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
-      ),
-      builder: (sheetContext) {
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: const Icon(Icons.photo_library_rounded),
-                title: const Text('תמונות (עד 10)'),
-                onTap: () => Navigator.of(sheetContext).pop('images'),
-              ),
-              ListTile(
-                leading: const Icon(Icons.videocam_rounded),
-                title: const Text('סרטון'),
-                onTap: () => Navigator.of(sheetContext).pop('video'),
+  Widget _buildAttachmentBubble({
+    required bool isLight,
+    required IconData icon,
+    required String label,
+    required Future<void> Function() onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: () async {
+          await onTap();
+          if (mounted) {
+            await _closeAttachmentMenu();
+          }
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+          decoration: BoxDecoration(
+            color: isLight
+                ? const Color(0xFFFFFFFF).withValues(alpha: 0.9)
+                : const Color(0xFF1E2632).withValues(alpha: 0.9),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: isLight
+                  ? const Color(0xFF8FD2F6)
+                  : const Color(0xFF53C1F9).withValues(alpha: 0.22),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.14),
+                blurRadius: 16,
+                offset: const Offset(0, 8),
               ),
             ],
           ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            textDirection: TextDirection.rtl,
+            children: [
+              Icon(
+                icon,
+                size: 18,
+                color:
+                    isLight ? const Color(0xFF4DBEEA) : const Color(0xFF9E7CFF),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                label,
+                textAlign: TextAlign.right,
+                style: TextStyle(
+                  color: isLight ? const Color(0xFF34425D) : Colors.white,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _openAttachmentActions() {
+    if (_attachmentMenuOverlay != null) {
+      unawaited(_closeAttachmentMenu());
+      return;
+    }
+
+    final buttonContext = _attachmentButtonKey.currentContext;
+    final overlayState = Overlay.of(context);
+    if (buttonContext == null || overlayState.mounted == false) {
+      return;
+    }
+
+    final buttonBox = buttonContext.findRenderObject() as RenderBox?;
+    final overlayBox = overlayState.context.findRenderObject() as RenderBox?;
+    if (buttonBox == null || overlayBox == null) {
+      return;
+    }
+
+    final isLight = _isLightMode(context);
+    final buttonTopLeft = buttonBox.localToGlobal(
+      Offset.zero,
+      ancestor: overlayBox,
+    );
+    final buttonRect = buttonTopLeft & buttonBox.size;
+    final overlaySize = overlayBox.size;
+    const menuWidth = 136.0;
+    const menuHeight = 116.0;
+    const right = 0.0;
+    final top = (buttonRect.top - menuHeight - 10).clamp(
+      12.0,
+      overlaySize.height - menuHeight - 12.0,
+    );
+
+    _attachmentMenuOverlay = OverlayEntry(
+      builder: (overlayContext) {
+        return Stack(
+          children: [
+            Positioned.fill(
+              child: GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onTap: () {
+                  unawaited(_closeAttachmentMenu());
+                },
+                child: const SizedBox.expand(),
+              ),
+            ),
+            Positioned(
+              right: right,
+              top: top,
+              width: menuWidth,
+              child: TextFieldTapRegion(
+                groupId: _composerTapRegionGroupId,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: FadeTransition(
+                        opacity: _topBubbleOpacity,
+                        child: ScaleTransition(
+                          alignment: Alignment.bottomRight,
+                          scale: _topBubbleScale,
+                          child: _buildAttachmentBubble(
+                            isLight: isLight,
+                            icon: Icons.photo_library_rounded,
+                            label: 'גלריה',
+                            onTap: _openGalleryPicker,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: FadeTransition(
+                        opacity: _bottomBubbleOpacity,
+                        child: ScaleTransition(
+                          alignment: Alignment.bottomRight,
+                          scale: _bottomBubbleScale,
+                          child: _buildAttachmentBubble(
+                            isLight: isLight,
+                            icon: Icons.photo_camera_rounded,
+                            label: 'מצלמה',
+                            onTap: _openCameraPicker,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         );
       },
     );
 
-    if (choice == null) return;
-    try {
-      if (choice == 'images') {
-        final images = await _imagePicker.pickMultiImage(imageQuality: 85);
-        if (images.isEmpty) return;
-        final limited = images.take(10).toList(growable: false);
-        final drafts = limited
-            .map((file) => _PendingChatMedia(file: file, isVideo: false))
-            .toList(growable: false);
-        await _openMediaCaptionSheet(drafts);
-        return;
-      }
+    overlayState.insert(_attachmentMenuOverlay!);
+    _attachmentMenuController
+      ..stop()
+      ..reset()
+      ..forward();
+  }
 
-      final video = await _imagePicker.pickVideo(source: ImageSource.gallery);
-      if (video == null) return;
-      await _openMediaCaptionSheet(
-        <_PendingChatMedia>[_PendingChatMedia(file: video, isVideo: true)],
-      );
+  Future<void> _openGalleryPicker() async {
+    try {
+      FocusManager.instance.primaryFocus?.unfocus();
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+
+      final images = await _imagePicker.pickMultiImage(imageQuality: 85);
+      if (images.isEmpty) return;
+      final limited = images.take(10).toList(growable: false);
+      final drafts = limited
+          .map((file) => _PendingChatMedia(file: file, isVideo: false))
+          .toList(growable: false);
+      await _openMediaCaptionSheet(drafts);
     } catch (error) {
       _showMediaPickerError(error);
     }
   }
 
   Future<void> _openCameraPicker() async {
-    final isLight = _isLightMode(context);
-    final choice = await showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: isLight ? Colors.white : const Color(0xFF1E2632),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
-      ),
-      builder: (sheetContext) {
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: const Icon(Icons.photo_camera_rounded),
-                title: const Text('צילום תמונה'),
-                onTap: () => Navigator.of(sheetContext).pop('image'),
-              ),
-              ListTile(
-                leading: const Icon(Icons.videocam_rounded),
-                title: const Text('צילום סרטון'),
-                onTap: () => Navigator.of(sheetContext).pop('video'),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-
-    if (choice == null) return;
     try {
-      if (choice == 'image') {
-        final image = await _imagePicker.pickImage(source: ImageSource.camera);
-        if (image == null) return;
-        await _openMediaCaptionSheet(
-          <_PendingChatMedia>[_PendingChatMedia(file: image, isVideo: false)],
-        );
-        return;
-      }
+      FocusManager.instance.primaryFocus?.unfocus();
+      await Future<void>.delayed(const Duration(milliseconds: 80));
 
-      final video = await _imagePicker.pickVideo(source: ImageSource.camera);
-      if (video == null) return;
+      final image = await _imagePicker.pickImage(source: ImageSource.camera);
+      if (image == null) return;
       await _openMediaCaptionSheet(
-        <_PendingChatMedia>[_PendingChatMedia(file: video, isVideo: true)],
+        <_PendingChatMedia>[_PendingChatMedia(file: image, isVideo: false)],
       );
     } catch (error) {
       _showMediaPickerError(error);
@@ -422,6 +542,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     final isLight = _isLightMode(context);
     final shouldSend = await showModalBottomSheet<bool>(
       context: context,
+      requestFocus: false,
       isScrollControlled: true,
       backgroundColor: isLight ? Colors.white : const Color(0xFF1E2632),
       shape: const RoundedRectangleBorder(
@@ -2682,6 +2803,9 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
   @override
   void dispose() {
+    unawaited(_closeAttachmentMenu(immediate: true));
+    _attachmentMenuController.dispose();
+    KeyboardDismissController.resume();
     _markChatAsReadFromServer();
     _scrollController.removeListener(_handleScrollActivity);
     _controller.dispose();
@@ -2890,9 +3014,14 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
               Column(
                 children: [
                   Expanded(
-                    child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                      stream: _chatService.streamChatMessages(widget.chatId),
-                      builder: (context, snapshot) {
+                    child: Listener(
+                      behavior: HitTestBehavior.translucent,
+                      onPointerDown: (_) {
+                        FocusManager.instance.primaryFocus?.unfocus();
+                      },
+                      child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                        stream: _chatService.streamChatMessages(widget.chatId),
+                        builder: (context, snapshot) {
                         if (snapshot.connectionState ==
                                 ConnectionState.waiting &&
                             !snapshot.hasData) {
@@ -3154,30 +3283,33 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                             );
                           },
                         );
-                      },
+                        },
+                      ),
                     ),
                   ),
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    color: isLight
-                        ? const Color(0xFFCFEFFF)
-                        : const Color(0xFF1E2632),
+                  TextFieldTapRegion(
+                    groupId: _composerTapRegionGroupId,
                     child: Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: isLight
-                            ? Colors.white.withValues(alpha: 0.72)
-                            : Colors.transparent,
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(
+                          horizontal: 12, vertical: 8),
+                      color: isLight
+                          ? const Color(0xFFCFEFFF)
+                          : const Color(0xFF1E2632),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
                           color: isLight
-                              ? const Color(0xFF8FD2F6)
+                              ? Colors.white.withValues(alpha: 0.72)
                               : Colors.transparent,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: isLight
+                                ? const Color(0xFF8FD2F6)
+                                : Colors.transparent,
+                          ),
                         ),
-                      ),
-                      child: Column(
+                        child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           if (_replyTarget != null)
@@ -3259,18 +3391,31 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                             textDirection: TextDirection.ltr,
                             children: [
                               IconButton(
-                                icon: Icon(
-                                  Icons.send,
-                                  color: isLight
-                                      ? const Color(0xFF4DBEEA)
-                                      : const Color(0xFF9E7CFF),
-                                ),
+                                icon: _isSendingText
+                                    ? SizedBox(
+                                        width: 22,
+                                        height: 22,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2.2,
+                                          color: isLight
+                                              ? const Color(0xFF4DBEEA)
+                                              : const Color(0xFF9E7CFF),
+                                        ),
+                                      )
+                                    : Icon(
+                                        Icons.send,
+                                        color: isLight
+                                            ? const Color(0xFF4DBEEA)
+                                            : const Color(0xFF9E7CFF),
+                                      ),
                                 onPressed: _isSendingText ? null : _sendMessage,
                               ),
                               Expanded(
                                 child: TextField(
+                                  groupId: _composerTapRegionGroupId,
                                   controller: _controller,
                                   focusNode: _inputFocusNode,
+                                  onTapOutside: (_) {},
                                   style: TextStyle(
                                     color:
                                         isLight ? Colors.black : Colors.white,
@@ -3288,6 +3433,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                                 ),
                               ),
                               IconButton(
+                                key: _attachmentButtonKey,
                                 icon: _isSendingMedia
                                     ? SizedBox(
                                         width: 22,
@@ -3314,6 +3460,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                         ],
                       ),
                     ),
+                  ),
                   ),
                 ],
               ),

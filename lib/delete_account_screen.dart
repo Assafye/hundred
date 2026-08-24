@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/gestures.dart';
+import 'package:flutter/rendering.dart';
 
 import 'login_screen.dart';
 import 'services/auth_service.dart';
+import 'services/keyboard_dismiss_controller.dart';
 import 'widgets/swipe_back_wrapper.dart';
 
 class DeleteAccountScreen extends StatefulWidget {
@@ -28,9 +31,34 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
   bool _isDeleting = false;
 
   @override
+  void initState() {
+    super.initState();
+    KeyboardDismissController.suspend();
+  }
+
+  @override
   void dispose() {
+    KeyboardDismissController.resume();
     _reasonController.dispose();
     super.dispose();
+  }
+
+  bool _tapHitsEditable(PointerDownEvent event) {
+    final hitTestResult = HitTestResult();
+    GestureBinding.instance.hitTest(hitTestResult, event.position);
+    for (final entry in hitTestResult.path) {
+      if (entry.target is RenderEditable) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  void _dismissKeyboardOnBackgroundTap(PointerDownEvent event) {
+    if (_tapHitsEditable(event)) {
+      return;
+    }
+    FocusManager.instance.primaryFocus?.unfocus();
   }
 
   Future<void> _submitDeletion() async {
@@ -221,6 +249,7 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
           ] else ...[
             TextField(
               controller: _reasonController,
+              onTapOutside: (_) {},
               textDirection: TextDirection.rtl,
               textAlign: TextAlign.right,
               minLines: 4,
@@ -387,13 +416,17 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
                     ),
                   ),
                 ),
-                SafeArea(
-                  child: Padding(
+                Listener(
+                  behavior: HitTestBehavior.translucent,
+                  onPointerDown: _dismissKeyboardOnBackgroundTap,
+                  child: SafeArea(
+                    child: Padding(
                     padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
                     child: SingleChildScrollView(
                       child: _buildCard(isLight: isLight),
                     ),
                   ),
+                ),
                 ),
               ],
             ),

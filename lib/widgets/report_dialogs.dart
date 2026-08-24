@@ -1,6 +1,26 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
+import 'package:flutter/rendering.dart';
 
 import '../services/report_service.dart';
+
+bool _tapHitsEditable(PointerDownEvent event) {
+  final hitTestResult = HitTestResult();
+  GestureBinding.instance.hitTest(hitTestResult, event.position);
+  for (final entry in hitTestResult.path) {
+    if (entry.target is RenderEditable) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void _dismissKeyboardOnBackgroundTap(PointerDownEvent event) {
+  if (_tapHitsEditable(event)) {
+    return;
+  }
+  FocusManager.instance.primaryFocus?.unfocus();
+}
 
 Future<bool> showReportConfirmationDialog(
   BuildContext context, {
@@ -41,9 +61,12 @@ Future<ReportReasonOption?> showReportReasonPicker(
     showDragHandle: true,
     builder: (sheetContext) {
       return SafeArea(
-        child: Directionality(
-          textDirection: TextDirection.rtl,
-          child: Padding(
+        child: Listener(
+          behavior: HitTestBehavior.translucent,
+          onPointerDown: _dismissKeyboardOnBackgroundTap,
+          child: Directionality(
+            textDirection: TextDirection.rtl,
+            child: Padding(
             padding: const EdgeInsets.fromLTRB(12, 6, 12, 14),
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -74,6 +97,7 @@ Future<ReportReasonOption?> showReportReasonPicker(
                 ),
               ],
             ),
+            ),
           ),
         ),
       );
@@ -95,9 +119,12 @@ Future<String?> showReportDetailsDialog(
     builder: (dialogContext) {
       return StatefulBuilder(
         builder: (context, setState) {
-          return Directionality(
-            textDirection: TextDirection.rtl,
-            child: AlertDialog(
+          return Listener(
+            behavior: HitTestBehavior.translucent,
+            onPointerDown: _dismissKeyboardOnBackgroundTap,
+            child: Directionality(
+              textDirection: TextDirection.rtl,
+              child: AlertDialog(
               title: Text('פירוט דיווח - $targetLabel'),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -112,6 +139,7 @@ Future<String?> showReportDetailsDialog(
                   const SizedBox(height: 8),
                   TextField(
                     controller: controller,
+                    onTapOutside: (_) {},
                     minLines: 4,
                     maxLines: 7,
                     textAlign: TextAlign.right,
@@ -143,6 +171,7 @@ Future<String?> showReportDetailsDialog(
                   child: const Text('שלח דיווח'),
                 ),
               ],
+            ),
             ),
           );
         },

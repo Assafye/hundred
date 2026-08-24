@@ -1,9 +1,12 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:hundred_version1/services/auth_service.dart';
+import 'services/keyboard_dismiss_controller.dart';
 import 'widgets/swipe_back_wrapper.dart';
 
 class EditProfileScreen extends StatefulWidget {
@@ -54,6 +57,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   @override
   void initState() {
     super.initState();
+    KeyboardDismissController.suspend();
     _nameController = TextEditingController(text: widget.currentName);
     _handleController = TextEditingController(
       text: widget.currentHandle.startsWith('@')
@@ -127,10 +131,29 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
   @override
   void dispose() {
+    KeyboardDismissController.resume();
     _nameController.dispose();
     _handleController.dispose();
     _bioController.dispose();
     super.dispose();
+  }
+
+  bool _tapHitsEditable(PointerDownEvent event) {
+    final hitTestResult = HitTestResult();
+    GestureBinding.instance.hitTest(hitTestResult, event.position);
+    for (final entry in hitTestResult.path) {
+      if (entry.target is RenderEditable) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  void _dismissKeyboardOnBackgroundTap(PointerDownEvent event) {
+    if (_tapHitsEditable(event)) {
+      return;
+    }
+    FocusManager.instance.primaryFocus?.unfocus();
   }
 
   int get _totalProfileImages =>
@@ -588,8 +611,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 ),
               ),
             ),
-            SafeArea(
-              child: SingleChildScrollView(
+            Listener(
+              behavior: HitTestBehavior.translucent,
+              onPointerDown: _dismissKeyboardOnBackgroundTap,
+              child: SafeArea(
+                child: SingleChildScrollView(
                 padding:
                     const EdgeInsets.fromLTRB(20, kToolbarHeight + 18, 20, 96),
                 child: Container(
@@ -630,6 +656,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                       const SizedBox(height: 18),
                       TextField(
                         controller: _nameController,
+                        onTapOutside: (_) {},
                         textDirection: TextDirection.rtl,
                         textAlign: TextAlign.right,
                         style: TextStyle(
@@ -644,6 +671,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                       const SizedBox(height: 14),
                       TextField(
                         controller: _handleController,
+                        onTapOutside: (_) {},
                         textDirection: TextDirection.rtl,
                         textAlign: TextAlign.right,
                         style: TextStyle(
@@ -660,6 +688,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                       const SizedBox(height: 14),
                       TextField(
                         controller: _bioController,
+                        onTapOutside: (_) {},
                         textDirection: TextDirection.rtl,
                         textAlign: TextAlign.right,
                         style: TextStyle(
@@ -677,6 +706,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                     ],
                   ),
                 ),
+              ),
               ),
             ),
           ],

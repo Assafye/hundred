@@ -2,12 +2,15 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 
 import 'app_categories.dart';
 import 'chat_room_screen.dart';
 import 'post_media_utils.dart';
 import 'post_detail_view.dart';
+import 'services/keyboard_dismiss_controller.dart';
 import 'widgets/post_media_viewer.dart';
 import 'widgets/swipe_back_wrapper.dart';
 
@@ -62,13 +65,33 @@ class _SettingsHistoryScreenState extends State<SettingsHistoryScreen>
   @override
   void initState() {
     super.initState();
+    KeyboardDismissController.suspend();
     _tabController = TabController(length: 3, vsync: this);
   }
 
   @override
   void dispose() {
+    KeyboardDismissController.resume();
     _tabController.dispose();
     super.dispose();
+  }
+
+  bool _tapHitsEditable(PointerDownEvent event) {
+    final hitTestResult = HitTestResult();
+    GestureBinding.instance.hitTest(hitTestResult, event.position);
+    for (final entry in hitTestResult.path) {
+      if (entry.target is RenderEditable) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  void _dismissKeyboardOnBackgroundTap(PointerDownEvent event) {
+    if (_tapHitsEditable(event)) {
+      return;
+    }
+    FocusManager.instance.primaryFocus?.unfocus();
   }
 
   Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>> _activityStream() {
@@ -473,12 +496,14 @@ class _SettingsHistoryScreenState extends State<SettingsHistoryScreen>
                     children: [
                       TextField(
                         controller: titleController,
+                        onTapOutside: (_) {},
                         textAlign: TextAlign.right,
                         decoration: const InputDecoration(hintText: 'כותרת'),
                       ),
                       const SizedBox(height: 10),
                       TextField(
                         controller: detailsController,
+                        onTapOutside: (_) {},
                         textAlign: TextAlign.right,
                         maxLines: 3,
                         decoration: const InputDecoration(hintText: 'תיאור'),
@@ -486,6 +511,7 @@ class _SettingsHistoryScreenState extends State<SettingsHistoryScreen>
                       const SizedBox(height: 10),
                       TextField(
                         controller: locationController,
+                        onTapOutside: (_) {},
                         textAlign: TextAlign.right,
                         decoration:
                             const InputDecoration(hintText: 'מיקום מפגש'),
@@ -493,6 +519,7 @@ class _SettingsHistoryScreenState extends State<SettingsHistoryScreen>
                       const SizedBox(height: 10),
                       TextField(
                         controller: participantsController,
+                        onTapOutside: (_) {},
                         keyboardType: TextInputType.number,
                         textAlign: TextAlign.right,
                         decoration: const InputDecoration(
@@ -1835,8 +1862,11 @@ class _SettingsHistoryScreenState extends State<SettingsHistoryScreen>
               ],
             ),
           ),
-          body: Container(
-            decoration: BoxDecoration(
+          body: Listener(
+            behavior: HitTestBehavior.translucent,
+            onPointerDown: _dismissKeyboardOnBackgroundTap,
+            child: Container(
+              decoration: BoxDecoration(
               gradient: LinearGradient(
                 colors: isLight
                     ? const [Color(0xFFF7FAFF), Color(0xFFEFF5FF)]
@@ -1845,7 +1875,7 @@ class _SettingsHistoryScreenState extends State<SettingsHistoryScreen>
                 end: Alignment.bottomCenter,
               ),
             ),
-            child: StreamBuilder<
+              child: StreamBuilder<
                 List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
               stream: _activityStream(),
               builder: (context, snapshot) {
@@ -1981,6 +2011,7 @@ class _SettingsHistoryScreenState extends State<SettingsHistoryScreen>
                   },
                 );
               },
+              ),
             ),
           ),
         ),

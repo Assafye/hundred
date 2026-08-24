@@ -2,7 +2,9 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 
 import 'age_restrictions.dart';
 import 'app_categories.dart';
@@ -13,6 +15,7 @@ import 'main_bottom_nav.dart';
 import 'services/chat_service.dart';
 import 'services/block_user_service.dart';
 import 'services/group_service.dart';
+import 'services/keyboard_dismiss_controller.dart';
 import 'user_profile_screen.dart';
 import 'widgets/group_avatar.dart';
 
@@ -124,6 +127,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
   @override
   void initState() {
     super.initState();
+    KeyboardDismissController.suspend();
     final now = DateTime.now();
     _usersTabAcknowledgedAt = now;
     _groupsTabAcknowledgedAt = now;
@@ -140,9 +144,28 @@ class _ChatsScreenState extends State<ChatsScreen> {
 
   @override
   void dispose() {
+    KeyboardDismissController.resume();
     _userChatsNotificationsSub?.cancel();
     _searchController.dispose();
     super.dispose();
+  }
+
+  bool _tapHitsEditable(PointerDownEvent event) {
+    final hitTestResult = HitTestResult();
+    GestureBinding.instance.hitTest(hitTestResult, event.position);
+    for (final entry in hitTestResult.path) {
+      if (entry.target is RenderEditable) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  void _dismissKeyboardOnBackgroundTap(PointerDownEvent event) {
+    if (_tapHitsEditable(event)) {
+      return;
+    }
+    FocusManager.instance.primaryFocus?.unfocus();
   }
 
   void _ensureStableChatStreams(String uid) {
@@ -1198,8 +1221,11 @@ class _ChatsScreenState extends State<ChatsScreen> {
                   ),
                 ),
               ),
-            SafeArea(
-              child: SingleChildScrollView(
+            Listener(
+              behavior: HitTestBehavior.translucent,
+              onPointerDown: _dismissKeyboardOnBackgroundTap,
+              child: SafeArea(
+                child: SingleChildScrollView(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -1218,6 +1244,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
                               ),
                               child: TextField(
                                 controller: _searchController,
+                                onTapOutside: (_) {},
                                 onChanged: (value) {
                                   setState(() {
                                     searchQuery = value;
@@ -1529,6 +1556,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
                     const SizedBox(height: 120),
                   ],
                 ),
+              ),
               ),
             ),
           ],

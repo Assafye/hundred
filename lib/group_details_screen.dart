@@ -1,6 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -10,6 +12,7 @@ import 'group_settings_screen.dart';
 import 'post_detail_view.dart';
 import 'post_media_utils.dart';
 import 'services/group_service.dart';
+import 'services/keyboard_dismiss_controller.dart';
 import 'services/public_user_profile_service.dart';
 import 'user_profile_screen.dart';
 import 'widgets/group_avatar.dart';
@@ -53,6 +56,36 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
   bool _isClosingGroup = false;
   bool _showAllMembers = false;
   String _optimisticGroupImageUrl = '';
+
+  @override
+  void initState() {
+    super.initState();
+    KeyboardDismissController.suspend();
+  }
+
+  @override
+  void dispose() {
+    KeyboardDismissController.resume();
+    super.dispose();
+  }
+
+  bool _tapHitsEditable(PointerDownEvent event) {
+    final hitTestResult = HitTestResult();
+    GestureBinding.instance.hitTest(hitTestResult, event.position);
+    for (final entry in hitTestResult.path) {
+      if (entry.target is RenderEditable) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  void _dismissKeyboardOnBackgroundTap(PointerDownEvent event) {
+    if (_tapHitsEditable(event)) {
+      return;
+    }
+    FocusManager.instance.primaryFocus?.unfocus();
+  }
 
   Future<ImageSource?> _selectImageSource() async {
     final isLight = Theme.of(context).brightness == Brightness.light;
@@ -332,6 +365,7 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
               children: [
                 TextField(
                   controller: nameController,
+                  onTapOutside: (_) {},
                   style:
                       TextStyle(color: isLight ? Colors.black : Colors.white),
                   decoration: InputDecoration(
@@ -344,6 +378,7 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
                 const SizedBox(height: 12),
                 TextField(
                   controller: descriptionController,
+                  onTapOutside: (_) {},
                   style:
                       TextStyle(color: isLight ? Colors.black : Colors.white),
                   maxLines: 3,
@@ -357,6 +392,7 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
                 const SizedBox(height: 12),
                 TextField(
                   controller: locationController,
+                  onTapOutside: (_) {},
                   style:
                       TextStyle(color: isLight ? Colors.black : Colors.white),
                   decoration: InputDecoration(
@@ -682,6 +718,7 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           TextField(
+                            onTapOutside: (_) {},
                             onChanged: (value) {
                               final query = value.trim();
                               setModalState(() {
@@ -1312,7 +1349,10 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
                   ],
                 ),
                 body: SafeArea(
-                  child: Padding(
+                  child: Listener(
+                    behavior: HitTestBehavior.translucent,
+                    onPointerDown: _dismissKeyboardOnBackgroundTap,
+                    child: Padding(
                     padding: const EdgeInsets.all(16),
                     child: ListView(
                       children: [
@@ -2373,6 +2413,7 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
                         ),
                       ],
                     ),
+                  ),
                   ),
                 ),
                 bottomNavigationBar: Container(

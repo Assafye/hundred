@@ -5,6 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'firebase_options.dart';
 import 'feed_screen.dart';
@@ -14,6 +15,7 @@ import 'services/share_flow_log_service.dart';
 import 'services/theme_mode_service.dart';
 import 'services/location_service.dart';
 import 'services/presence_service.dart';
+import 'services/keyboard_dismiss_controller.dart';
 import 'widgets/adaptive_viewport.dart';
 import 'widgets/animated_infinity_splash_screen.dart';
 
@@ -150,6 +152,36 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   late final ThemeModeService _themeModeService;
+
+  bool _isTapInsideFocusedInputZone(PointerDownEvent event) {
+    final focus = FocusManager.instance.primaryFocus;
+    if (focus == null) {
+      return false;
+    }
+
+    final focusedWidget = focus.context?.widget;
+    if (focusedWidget is! EditableText) {
+      return false;
+    }
+
+    final renderObject = focus.context?.findRenderObject();
+    if (renderObject is! RenderBox || !renderObject.hasSize) {
+      return false;
+    }
+
+    final inputTopLeft = renderObject.localToGlobal(Offset.zero);
+    final inputRect = inputTopLeft & renderObject.size;
+
+    // Expand around the active field to include typical composer controls
+    // such as send/media buttons next to the text input.
+    final safeZone = Rect.fromLTRB(
+      inputRect.left - 180,
+      inputRect.top - 24,
+      inputRect.right + 180,
+      inputRect.bottom + 28,
+    );
+    return safeZone.contains(event.position);
+  }
 
   @override
   void initState() {
@@ -506,11 +538,18 @@ class _MyAppState extends State<MyApp> {
             return AdaptiveViewport(
               child: Listener(
                 behavior: HitTestBehavior.translucent,
-                onPointerDown: (_) {
-                  final focus = FocusManager.instance.primaryFocus;
-                  if (focus != null) {
-                    focus.unfocus();
+                onPointerDown: (event) {
+                  if (KeyboardDismissController.suspendGlobalDismiss) {
+                    return;
                   }
+                  if (_isTapInsideFocusedInputZone(event)) {
+                    return;
+                  }
+                  final focus = FocusManager.instance.primaryFocus;
+                  if (focus == null) {
+                    return;
+                  }
+                  focus.unfocus();
                 },
                 child: Directionality(
                   textDirection: TextDirection.rtl,

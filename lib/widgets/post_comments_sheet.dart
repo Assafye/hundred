@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
+import 'package:flutter/rendering.dart';
 
 import '../models/public_user_profile.dart';
 import '../services/report_service.dart';
@@ -32,6 +34,7 @@ class PostCommentsSheet extends StatefulWidget {
 class _PostCommentsSheetState extends State<PostCommentsSheet> {
   final TextEditingController _commentController = TextEditingController();
   final FocusNode _commentFocusNode = FocusNode();
+  final GlobalKey _composerRegionKey = GlobalKey();
   final PostService _postService = PostService();
   final BlockUserService _blockUserService = BlockUserService();
   final PublicUserProfileService _profileService = PublicUserProfileService();
@@ -111,6 +114,42 @@ class _PostCommentsSheetState extends State<PostCommentsSheet> {
     _commentController.dispose();
     _commentFocusNode.dispose();
     super.dispose();
+  }
+
+  bool _tapHitsEditable(PointerDownEvent event) {
+    final hitTestResult = HitTestResult();
+    GestureBinding.instance.hitTest(hitTestResult, event.position);
+    for (final entry in hitTestResult.path) {
+      if (entry.target is RenderEditable) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  bool _tapHitsComposerRegion(PointerDownEvent event) {
+    final composerContext = _composerRegionKey.currentContext;
+    if (composerContext == null) {
+      return false;
+    }
+    final renderObject = composerContext.findRenderObject();
+    if (renderObject is! RenderBox || !renderObject.hasSize) {
+      return false;
+    }
+
+    final localPosition = renderObject.globalToLocal(event.position);
+    final size = renderObject.size;
+    return localPosition.dx >= 0 &&
+        localPosition.dy >= 0 &&
+        localPosition.dx <= size.width &&
+        localPosition.dy <= size.height;
+  }
+
+  void _dismissKeyboardOnBackgroundTap(PointerDownEvent event) {
+    if (_tapHitsEditable(event) || _tapHitsComposerRegion(event)) {
+      return;
+    }
+    FocusManager.instance.primaryFocus?.unfocus();
   }
 
   Future<void> _openUserProfile(String uid) async {
@@ -251,10 +290,7 @@ class _PostCommentsSheetState extends State<PostCommentsSheet> {
         _replyToCommentId = '';
         _replyToHandle = '';
       });
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        _commentFocusNode.requestFocus();
-      });
+      FocusManager.instance.primaryFocus?.unfocus();
     } catch (error, stackTrace) {
       if (kDebugMode) {
         debugPrint(
@@ -774,7 +810,10 @@ class _PostCommentsSheetState extends State<PostCommentsSheet> {
     return SafeArea(
       top: false,
       bottom: false,
-      child: Container(
+      child: Listener(
+        behavior: HitTestBehavior.translucent,
+        onPointerDown: _dismissKeyboardOnBackgroundTap,
+        child: Container(
         height: mediaQuery.size.height * sheetHeightFactor,
         decoration: BoxDecoration(
           gradient: LinearGradient(
@@ -910,6 +949,7 @@ class _PostCommentsSheetState extends State<PostCommentsSheet> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Container(
+                    key: _composerRegionKey,
                     padding: const EdgeInsets.fromLTRB(14, 10, 14, 8),
                     decoration: BoxDecoration(
                       color: composerContainerColor,
@@ -969,6 +1009,7 @@ class _PostCommentsSheetState extends State<PostCommentsSheet> {
                               child: TextField(
                                 controller: _commentController,
                                 focusNode: _commentFocusNode,
+                                onTapOutside: (_) {},
                                 textAlign: TextAlign.right,
                                 minLines: 1,
                                 maxLines: 3,
@@ -1063,6 +1104,7 @@ class _PostCommentsSheetState extends State<PostCommentsSheet> {
               ),
             ),
           ],
+        ),
         ),
       ),
     );

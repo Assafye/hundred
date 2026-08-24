@@ -1,9 +1,12 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 
 import 'age_restrictions.dart';
 import 'app_categories.dart';
 import 'services/group_service.dart';
+import 'services/keyboard_dismiss_controller.dart';
 import 'services/public_user_profile_service.dart';
 import 'widgets/swipe_back_wrapper.dart';
 
@@ -52,16 +55,36 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
   @override
   void initState() {
     super.initState();
+    KeyboardDismissController.suspend();
     _hydrateFromGroupData(widget.initialGroupData);
   }
 
   @override
   void dispose() {
+    KeyboardDismissController.resume();
     _groupNameController.dispose();
     _descriptionController.dispose();
     _meetingRegionController.dispose();
     _minScoreController.dispose();
     super.dispose();
+  }
+
+  bool _tapHitsEditable(PointerDownEvent event) {
+    final hitTestResult = HitTestResult();
+    GestureBinding.instance.hitTest(hitTestResult, event.position);
+    for (final entry in hitTestResult.path) {
+      if (entry.target is RenderEditable) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  void _dismissKeyboardOnBackgroundTap(PointerDownEvent event) {
+    if (_tapHitsEditable(event)) {
+      return;
+    }
+    FocusManager.instance.primaryFocus?.unfocus();
   }
 
   void _hydrateFromGroupData(Map<String, dynamic> groupData) {
@@ -934,7 +957,10 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
             ),
           ),
           child: SafeArea(
-            child: SingleChildScrollView(
+            child: Listener(
+              behavior: HitTestBehavior.translucent,
+              onPointerDown: _dismissKeyboardOnBackgroundTap,
+              child: SingleChildScrollView(
               padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -972,6 +998,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                   const SizedBox(height: 16),
                   TextField(
                     controller: _groupNameController,
+                    onTapOutside: (_) {},
                     enabled: widget.isAdmin,
                     style: TextStyle(
                       color: primaryTextColor,
@@ -1004,6 +1031,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                   const SizedBox(height: 12),
                   TextField(
                     controller: _descriptionController,
+                    onTapOutside: (_) {},
                     enabled: widget.isAdmin,
                     maxLines: 3,
                     style: TextStyle(color: secondaryTextColor),
@@ -1200,6 +1228,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                         const SizedBox(height: 8),
                         TextField(
                           controller: _minScoreController,
+                          onTapOutside: (_) {},
                           enabled: widget.isAdmin && _minScoreRequired,
                           keyboardType: TextInputType.number,
                           style: TextStyle(color: primaryTextColor),
@@ -1341,6 +1370,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                         const SizedBox(height: 12),
                         TextField(
                           controller: _meetingRegionController,
+                          onTapOutside: (_) {},
                           enabled: widget.isAdmin,
                           style: TextStyle(color: primaryTextColor),
                           decoration: InputDecoration(
@@ -1422,6 +1452,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                             style: TextStyle(fontWeight: FontWeight.bold)),
                   ),
                 ],
+              ),
               ),
             ),
           ),

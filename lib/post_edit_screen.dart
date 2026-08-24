@@ -5,7 +5,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:video_player/video_player.dart';
 
@@ -15,6 +17,7 @@ import 'models/post_media_item.dart';
 import 'post_media_utils.dart';
 import 'post_model.dart';
 import 'profile_screen.dart';
+import 'services/keyboard_dismiss_controller.dart';
 import 'services/post_service.dart';
 import 'services/public_user_profile_service.dart';
 import 'widgets/post_media_viewer.dart';
@@ -165,6 +168,7 @@ class _PostEditScreenState extends State<PostEditScreen> {
   @override
   void initState() {
     super.initState();
+    KeyboardDismissController.suspend();
     _loadFriends();
     _seedDraftMediaItems();
     _hydrateMissingVideoPreviews();
@@ -384,11 +388,30 @@ class _PostEditScreenState extends State<PostEditScreen> {
 
   @override
   void dispose() {
+    KeyboardDismissController.resume();
     _titleController.dispose();
     _descController.dispose();
     _locationController.dispose();
     _mediaPageController.dispose();
     super.dispose();
+  }
+
+  bool _tapHitsEditable(PointerDownEvent event) {
+    final hitTestResult = HitTestResult();
+    GestureBinding.instance.hitTest(hitTestResult, event.position);
+    for (final entry in hitTestResult.path) {
+      if (entry.target is RenderEditable) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  void _dismissKeyboardOnBackgroundTap(PointerDownEvent event) {
+    if (_tapHitsEditable(event)) {
+      return;
+    }
+    FocusManager.instance.primaryFocus?.unfocus();
   }
 
   void _openAddFriends() async {
@@ -418,6 +441,7 @@ class _PostEditScreenState extends State<PostEditScreen> {
                     ),
                     const SizedBox(height: 12),
                     TextField(
+                      onTapOutside: (_) {},
                       onChanged: (value) {
                         final query = value.trim();
                         setModalState(() {
@@ -3366,7 +3390,10 @@ class _PostEditScreenState extends State<PostEditScreen> {
           iconTheme: IconThemeData(color: _primaryTextColor(context)),
         ),
         body: SafeArea(
-          child: LayoutBuilder(
+          child: Listener(
+            behavior: HitTestBehavior.translucent,
+            onPointerDown: _dismissKeyboardOnBackgroundTap,
+            child: LayoutBuilder(
             builder: (context, constraints) {
               final screenHeight = MediaQuery.of(context).size.height;
               final mediaPreviewHeight =
@@ -3389,6 +3416,7 @@ class _PostEditScreenState extends State<PostEditScreen> {
                         const SizedBox(height: 12),
                         TextField(
                           controller: _titleController,
+                          onTapOutside: (_) {},
                           maxLength: 60,
                           style: TextStyle(
                             color: _primaryTextColor(context),
@@ -3416,6 +3444,7 @@ class _PostEditScreenState extends State<PostEditScreen> {
                         const SizedBox(height: 8),
                         TextField(
                           controller: _descController,
+                          onTapOutside: (_) {},
                           maxLength: 300,
                           maxLines: 4,
                           style: TextStyle(color: _primaryTextColor(context)),
@@ -3470,6 +3499,7 @@ class _PostEditScreenState extends State<PostEditScreen> {
                           ),
                           title: TextField(
                             controller: _locationController,
+                            onTapOutside: (_) {},
                             style: TextStyle(color: _primaryTextColor(context)),
                             decoration: InputDecoration(
                               border: InputBorder.none,
@@ -3513,6 +3543,7 @@ class _PostEditScreenState extends State<PostEditScreen> {
                 ),
               );
             },
+          ),
           ),
         ),
         bottomNavigationBar: Container(

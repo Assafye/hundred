@@ -4,13 +4,16 @@ import 'dart:async';
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 
 import 'age_restrictions.dart';
 import 'privacy_policy_dialog.dart';
 import 'services/auth_service.dart';
+import 'services/keyboard_dismiss_controller.dart';
 import 'usage_guide_screen.dart';
 import 'widgets/swipe_back_wrapper.dart';
 
@@ -83,6 +86,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   @override
   void initState() {
     super.initState();
+    KeyboardDismissController.suspend();
     _currentStep = widget.initialStep.clamp(0, 1);
     if (widget.prefilledEmail != null &&
         widget.prefilledEmail!.trim().isNotEmpty) {
@@ -267,6 +271,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   @override
   void dispose() {
+    KeyboardDismissController.resume();
     _usernameDebounce?.cancel();
     unawaited(_authService.endPendingRegistrationFlow(signOut: true));
     _firstNameController.dispose();
@@ -281,6 +286,24 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _lifeMottoController.dispose();
     _bioController.dispose();
     super.dispose();
+  }
+
+  bool _tapHitsEditable(PointerDownEvent event) {
+    final hitTestResult = HitTestResult();
+    GestureBinding.instance.hitTest(hitTestResult, event.position);
+    for (final entry in hitTestResult.path) {
+      if (entry.target is RenderEditable) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  void _dismissKeyboardOnBackgroundTap(PointerDownEvent event) {
+    if (_tapHitsEditable(event)) {
+      return;
+    }
+    FocusManager.instance.primaryFocus?.unfocus();
   }
 
   String _registrationErrorMessage(Object error) {
@@ -677,6 +700,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       padding: const EdgeInsets.only(bottom: 12),
       child: TextFormField(
         controller: controller,
+        onTapOutside: (_) {},
         keyboardType: keyboardType,
         obscureText: obscureText,
         textDirection: TextDirection.rtl,
@@ -1685,6 +1709,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             padding: const EdgeInsets.only(bottom: 12),
             child: TextFormField(
               controller: _birthDateController,
+              onTapOutside: (_) {},
               keyboardType: TextInputType.datetime,
               textDirection: TextDirection.rtl,
               textAlign: TextAlign.right,
@@ -1802,6 +1827,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             padding: const EdgeInsets.only(bottom: 6),
             child: TextFormField(
               controller: _handleController,
+              onTapOutside: (_) {},
               keyboardType: TextInputType.name,
               textDirection: TextDirection.rtl,
               textAlign: TextAlign.right,
@@ -1985,7 +2011,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
       child: Scaffold(
         backgroundColor: _bgBottom,
         body: SafeArea(
-          child: Stack(
+          child: Listener(
+            behavior: HitTestBehavior.translucent,
+            onPointerDown: _dismissKeyboardOnBackgroundTap,
+            child: Stack(
             children: [
               Positioned.fill(
                 child: AnimatedContainer(
@@ -2171,6 +2200,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ),
               ),
             ],
+          ),
           ),
         ),
       ),

@@ -1,6 +1,9 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:hundred_version1/services/group_service.dart';
+import 'services/keyboard_dismiss_controller.dart';
 import 'widgets/swipe_back_wrapper.dart';
 
 class GroupChatScreen extends StatefulWidget {
@@ -21,9 +24,34 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   bool _isSending = false;
 
   @override
+  void initState() {
+    super.initState();
+    KeyboardDismissController.suspend();
+  }
+
+  @override
   void dispose() {
+    KeyboardDismissController.resume();
     _controller.dispose();
     super.dispose();
+  }
+
+  bool _tapHitsEditable(PointerDownEvent event) {
+    final hitTestResult = HitTestResult();
+    GestureBinding.instance.hitTest(hitTestResult, event.position);
+    for (final entry in hitTestResult.path) {
+      if (entry.target is RenderEditable) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  void _dismissKeyboardOnBackgroundTap(PointerDownEvent event) {
+    if (_tapHitsEditable(event)) {
+      return;
+    }
+    FocusManager.instance.primaryFocus?.unfocus();
   }
 
   Future<void> _send() async {
@@ -60,10 +88,13 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         backgroundColor: const Color(0xFF1E2632),
         title: const Text('Group Chat', style: TextStyle(color: Colors.white)),
       ),
-      body: Column(
-        children: [
-          Expanded(
-            child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      body: Listener(
+        behavior: HitTestBehavior.translucent,
+        onPointerDown: _dismissKeyboardOnBackgroundTap,
+        child: Column(
+          children: [
+            Expanded(
+              child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
               stream: _groupService.messagesStream(widget.groupId),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
@@ -116,39 +147,41 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                   },
                 );
               },
+              ),
             ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            color: const Color(0xFF1E2632),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _controller,
-                    style: const TextStyle(color: Colors.white),
-                    decoration: const InputDecoration(
-                      hintText: 'Type a message...',
-                      hintStyle: TextStyle(color: Colors.white54),
-                      border: InputBorder.none,
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              color: const Color(0xFF1E2632),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _controller,
+                      onTapOutside: (_) {},
+                      style: const TextStyle(color: Colors.white),
+                      decoration: const InputDecoration(
+                        hintText: 'Type a message...',
+                        hintStyle: TextStyle(color: Colors.white54),
+                        border: InputBorder.none,
+                      ),
+                      onSubmitted: (_) => _send(),
                     ),
-                    onSubmitted: (_) => _send(),
                   ),
-                ),
-                IconButton(
-                  icon: _isSending
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.send, color: Color(0xFF9E7CFF)),
-                  onPressed: _isSending ? null : _send,
-                ),
-              ],
+                  IconButton(
+                    icon: _isSending
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.send, color: Color(0xFF9E7CFF)),
+                    onPressed: _isSending ? null : _send,
+                  ),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
       ),
     );

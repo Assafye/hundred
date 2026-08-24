@@ -3,8 +3,10 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/rendering.dart';
 
 import 'app_categories.dart';
 import 'chat_room_screen.dart';
@@ -17,6 +19,7 @@ import 'post_detail_view.dart';
 import 'services/chat_service.dart';
 import 'services/block_user_service.dart';
 import 'services/group_service.dart';
+import 'services/keyboard_dismiss_controller.dart';
 import 'services/post_interaction_overlay_service.dart';
 import 'services/public_user_profile_service.dart';
 import 'services/report_service.dart';
@@ -142,6 +145,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   @override
   void initState() {
     super.initState();
+    KeyboardDismissController.suspend();
     _profileStreamRef = _publicUserProfileService.streamProfile(widget.uid);
     _blockRelationshipStream = _blockUserService.streamRelationship(widget.uid);
     _followRelationshipStream =
@@ -174,11 +178,30 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
 
   @override
   void dispose() {
+    KeyboardDismissController.resume();
     _spontaneousCountdownTimer?.cancel();
     _quickMessageTypingDebounce?.cancel();
     _quickMessageFocusNode.dispose();
     _quickMessageController.dispose();
     super.dispose();
+  }
+
+  bool _tapHitsEditable(PointerDownEvent event) {
+    final hitTestResult = HitTestResult();
+    GestureBinding.instance.hitTest(hitTestResult, event.position);
+    for (final entry in hitTestResult.path) {
+      if (entry.target is RenderEditable) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  void _dismissKeyboardOnBackgroundTap(PointerDownEvent event) {
+    if (_tapHitsEditable(event)) {
+      return;
+    }
+    FocusManager.instance.primaryFocus?.unfocus();
   }
 
   void _logQuickMessage(String message) {
@@ -5452,6 +5475,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                       child: TextField(
                         controller: _quickMessageController,
                         focusNode: _quickMessageFocusNode,
+                        onTapOutside: (_) {},
                         enabled: !_isQuickMessageSending,
                         textDirection: TextDirection.rtl,
                         textAlign: TextAlign.right,
@@ -6615,9 +6639,12 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
           iconTheme:
               IconThemeData(color: isLight ? Colors.black : Colors.white),
         ),
-        body: StreamBuilder<PublicUserProfile?>(
-          stream: _profileStreamRef,
-          builder: (context, profileSnapshot) {
+        body: Listener(
+          behavior: HitTestBehavior.translucent,
+          onPointerDown: _dismissKeyboardOnBackgroundTap,
+          child: StreamBuilder<PublicUserProfile?>(
+            stream: _profileStreamRef,
+            builder: (context, profileSnapshot) {
             return StreamBuilder<BlockRelationship>(
               stream: _blockRelationshipStream,
               builder: (context, blockSnapshot) {
@@ -6761,7 +6788,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                 );
               },
             );
-          },
+            },
+          ),
         ),
         bottomNavigationBar: MainBottomNav(
           currentIndex: widget.currentBottomIndex,

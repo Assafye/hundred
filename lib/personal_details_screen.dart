@@ -1,9 +1,12 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 
 import 'age_restrictions.dart';
 import 'services/auth_service.dart';
+import 'services/keyboard_dismiss_controller.dart';
 import 'widgets/swipe_back_wrapper.dart';
 
 class PersonalDetailsScreen extends StatefulWidget {
@@ -33,15 +36,35 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
   @override
   void initState() {
     super.initState();
+    KeyboardDismissController.suspend();
     _loadCurrentDetails();
   }
 
   @override
   void dispose() {
+    KeyboardDismissController.resume();
     _phoneController.dispose();
     _emailController.dispose();
     _birthDateController.dispose();
     super.dispose();
+  }
+
+  bool _tapHitsEditable(PointerDownEvent event) {
+    final hitTestResult = HitTestResult();
+    GestureBinding.instance.hitTest(hitTestResult, event.position);
+    for (final entry in hitTestResult.path) {
+      if (entry.target is RenderEditable) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  void _dismissKeyboardOnBackgroundTap(PointerDownEvent event) {
+    if (_tapHitsEditable(event)) {
+      return;
+    }
+    FocusManager.instance.primaryFocus?.unfocus();
   }
 
   Future<void> _loadCurrentDetails() async {
@@ -322,9 +345,12 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
                 ),
               ),
               SafeArea(
-                child: _isLoading
-                    ? const Center(child: CircularProgressIndicator())
-                    : LayoutBuilder(
+                child: Listener(
+                  behavior: HitTestBehavior.translucent,
+                  onPointerDown: _dismissKeyboardOnBackgroundTap,
+                  child: _isLoading
+                      ? const Center(child: CircularProgressIndicator())
+                      : LayoutBuilder(
                         builder: (context, constraints) {
                           return SingleChildScrollView(
                             padding: EdgeInsets.zero,
@@ -360,6 +386,7 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
                                       const SizedBox(height: 18),
                                       TextFormField(
                                         controller: _phoneController,
+                                        onTapOutside: (_) {},
                                         keyboardType: TextInputType.phone,
                                         style: TextStyle(color: bodyColor),
                                         decoration: _fieldDecoration(
@@ -378,6 +405,7 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
                                       const SizedBox(height: 14),
                                       TextFormField(
                                         controller: _emailController,
+                                        onTapOutside: (_) {},
                                         keyboardType:
                                             TextInputType.emailAddress,
                                         style: TextStyle(color: bodyColor),
@@ -401,6 +429,7 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
                                       const SizedBox(height: 14),
                                       TextFormField(
                                         controller: _birthDateController,
+                                        onTapOutside: (_) {},
                                         readOnly: true,
                                         onTap: _pickBirthDate,
                                         style: TextStyle(color: bodyColor),
@@ -476,6 +505,7 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
                           );
                         },
                       ),
+                ),
               ),
             ],
           ),

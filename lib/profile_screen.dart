@@ -4,7 +4,9 @@ import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:share_plus/share_plus.dart';
 
 import 'app_categories.dart';
@@ -15,6 +17,7 @@ import 'post_media_utils.dart';
 import 'profile_post_grouping.dart';
 import 'post_detail_view.dart';
 import 'saved_posts_screen.dart';
+import 'services/keyboard_dismiss_controller.dart';
 import 'services/social_service.dart';
 import 'services/spontaneous_challenge_service.dart';
 import 'services/post_interaction_overlay_service.dart';
@@ -123,6 +126,7 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
   @override
   void initState() {
     super.initState();
+    KeyboardDismissController.suspend();
     _uid = FirebaseAuth.instance.currentUser!.uid;
     _selectedCategoryKey = _categoryItems
             .any((item) => item.key == widget.initialCategoryKey.trim())
@@ -134,9 +138,28 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
 
   @override
   void dispose() {
+    KeyboardDismissController.resume();
     _spontaneousCountdownTimer?.cancel();
     _sidebarScrollController.dispose();
     super.dispose();
+  }
+
+  bool _tapHitsEditable(PointerDownEvent event) {
+    final hitTestResult = HitTestResult();
+    GestureBinding.instance.hitTest(hitTestResult, event.position);
+    for (final entry in hitTestResult.path) {
+      if (entry.target is RenderEditable) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  void _dismissKeyboardOnBackgroundTap(PointerDownEvent event) {
+    if (_tapHitsEditable(event)) {
+      return;
+    }
+    FocusManager.instance.primaryFocus?.unfocus();
   }
 
   Future<void> _loadActiveSpontaneousTask() async {
@@ -2165,6 +2188,7 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                             ),
                             const SizedBox(height: 10),
                             TextField(
+                              onTapOutside: (_) {},
                               onChanged: (value) => setSheetState(() {
                                 query = value;
                               }),
@@ -4505,8 +4529,11 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
     final orbSizeB = (screenWidth * 0.9).clamp(260.0, 350.0);
     return Scaffold(
       backgroundColor: isLight ? Colors.white : const Color(0xFF0B1019),
-      body: Stack(
-        children: [
+      body: Listener(
+        behavior: HitTestBehavior.translucent,
+        onPointerDown: _dismissKeyboardOnBackgroundTap,
+        child: Stack(
+          children: [
           if (isLight)
             Positioned(
               top: -120,
@@ -4673,7 +4700,8 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
               },
             ),
           ),
-        ],
+          ],
+        ),
       ),
       bottomNavigationBar: const MainBottomNav(currentIndex: 4),
     );

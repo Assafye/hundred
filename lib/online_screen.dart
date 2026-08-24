@@ -4,7 +4,9 @@ import 'dart:ui';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 
 import 'age_restrictions.dart';
 import 'app_categories.dart';
@@ -15,6 +17,7 @@ import 'main_bottom_nav.dart';
 import 'services/app_home_service.dart';
 import 'services/chat_service.dart';
 import 'services/group_service.dart';
+import 'services/keyboard_dismiss_controller.dart';
 import 'services/weekly_challenge_service.dart';
 import 'stars_screen.dart' show StarsScreen;
 import 'user_profile_screen.dart';
@@ -82,6 +85,7 @@ class _OnlineScreenState extends State<OnlineScreen>
   @override
   void initState() {
     super.initState();
+    KeyboardDismissController.suspend();
     _sectionRefreshTick = ValueNotifier<int>(0);
     _spaceUsersController = AnimationController(
       vsync: this,
@@ -118,6 +122,7 @@ class _OnlineScreenState extends State<OnlineScreen>
 
   @override
   void dispose() {
+    KeyboardDismissController.resume();
     _meetNowRefreshTimer?.cancel();
     _joinedMeetPostsSub?.cancel();
     _friendsLoopController.dispose();
@@ -127,6 +132,24 @@ class _OnlineScreenState extends State<OnlineScreen>
     _meetTitleController.dispose();
     _meetDetailsController.dispose();
     super.dispose();
+  }
+
+  bool _tapHitsEditable(PointerDownEvent event) {
+    final hitTestResult = HitTestResult();
+    GestureBinding.instance.hitTest(hitTestResult, event.position);
+    for (final entry in hitTestResult.path) {
+      if (entry.target is RenderEditable) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  void _dismissKeyboardOnBackgroundTap(PointerDownEvent event) {
+    if (_tapHitsEditable(event)) {
+      return;
+    }
+    FocusManager.instance.primaryFocus?.unfocus();
   }
 
   Future<void> _scrollUpcomingGroupsForward() async {
@@ -670,6 +693,7 @@ class _OnlineScreenState extends State<OnlineScreen>
                       const SizedBox(height: 14),
                       TextField(
                         controller: scoreController,
+                        onTapOutside: (_) {},
                         keyboardType: TextInputType.number,
                         style: TextStyle(
                             color: isLight ? Colors.black : Colors.white),
@@ -1671,7 +1695,10 @@ class _OnlineScreenState extends State<OnlineScreen>
                 .toList(growable: false);
 
             return SafeArea(
-              child: Container(
+              child: Listener(
+                behavior: HitTestBehavior.translucent,
+                onPointerDown: _dismissKeyboardOnBackgroundTap,
+                child: Container(
                 constraints: BoxConstraints(
                   maxHeight: MediaQuery.of(sheetContext).size.height * 0.75,
                 ),
@@ -1718,6 +1745,7 @@ class _OnlineScreenState extends State<OnlineScreen>
                                 const SizedBox(height: 14),
                                 TextField(
                                   controller: _meetTitleController,
+                                  onTapOutside: (_) {},
                                   maxLength: 36,
                                   textAlign: TextAlign.right,
                                   style: TextStyle(
@@ -1767,6 +1795,7 @@ class _OnlineScreenState extends State<OnlineScreen>
                                 const SizedBox(height: 10),
                                 TextField(
                                   controller: _meetDetailsController,
+                                  onTapOutside: (_) {},
                                   maxLines: 3,
                                   textAlign: TextAlign.right,
                                   style: TextStyle(
@@ -1997,6 +2026,7 @@ class _OnlineScreenState extends State<OnlineScreen>
                     ),
                   ),
                 ),
+              ),
               ),
             );
           },
@@ -4981,7 +5011,10 @@ class _OnlineScreenState extends State<OnlineScreen>
             ),
           ),
           SafeArea(
-            child: SingleChildScrollView(
+            child: Listener(
+              behavior: HitTestBehavior.translucent,
+              onPointerDown: _dismissKeyboardOnBackgroundTap,
+              child: SingleChildScrollView(
               physics: const BouncingScrollPhysics(),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -5045,6 +5078,7 @@ class _OnlineScreenState extends State<OnlineScreen>
                   _buildDiscoverNowSection(),
                   _buildMeetNowGrid(),
                 ],
+              ),
               ),
             ),
           ),
