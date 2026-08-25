@@ -131,6 +131,7 @@ class _PostEditScreenState extends State<PostEditScreen> {
   String? _mainCategory;
   String? _subCategory;
   bool _linkToExistingEvent = false;
+  bool _eventSelectionError = false;
   String _selectedEventGroupId = '';
   String _selectedEventSourcePostId = '';
   String _selectedEventLabel = '';
@@ -1318,6 +1319,13 @@ class _PostEditScreenState extends State<PostEditScreen> {
     );
 
     if (!mounted || selected == null) {
+      setState(() {
+        _linkToExistingEvent = false;
+        _eventSelectionError = false;
+        _selectedEventGroupId = '';
+        _selectedEventSourcePostId = '';
+        _selectedEventLabel = '';
+      });
       return;
     }
 
@@ -1328,6 +1336,7 @@ class _PostEditScreenState extends State<PostEditScreen> {
       _selectedEventSourcePostId = postId;
       _selectedEventLabel = (selected['title'] as String? ?? '').trim();
       _linkToExistingEvent = _selectedEventGroupId.isNotEmpty;
+      _eventSelectionError = false;
       _applyEventSourceCategory(
         postCategory: (selected['category'] as String? ?? '').trim(),
         postSubCategory: (selected['subCategory'] as String? ?? '').trim(),
@@ -2355,6 +2364,13 @@ class _PostEditScreenState extends State<PostEditScreen> {
         return;
       }
 
+      if (_linkToExistingEvent && _selectedEventGroupId.isEmpty) {
+        setState(() {
+          _eventSelectionError = true;
+        });
+        return;
+      }
+
       if (_isPublishing) return;
       setState(() {
         _isPublishing = true;
@@ -2497,7 +2513,10 @@ class _PostEditScreenState extends State<PostEditScreen> {
       return;
     }
     if (_linkToExistingEvent && _selectedEventGroupId.isEmpty) {
-      showSnackBar('בחר אירוע קיים לפני פרסום');
+      setState(() {
+        _eventSelectionError = true;
+      });
+      showSnackBar('יש לבחור פוסט מהאירוע');
       return;
     }
 
@@ -3304,6 +3323,7 @@ class _PostEditScreenState extends State<PostEditScreen> {
                       onPressed: () {
                         setState(() {
                           _linkToExistingEvent = false;
+                          _eventSelectionError = false;
                           _selectedEventGroupId = '';
                           _selectedEventSourcePostId = '';
                           _selectedEventLabel = '';
@@ -3329,6 +3349,7 @@ class _PostEditScreenState extends State<PostEditScreen> {
                       onPressed: () {
                         setState(() {
                           _linkToExistingEvent = true;
+                          _eventSelectionError = false;
                         });
                         _pickExistingEvent();
                       },
@@ -3357,6 +3378,18 @@ class _PostEditScreenState extends State<PostEditScreen> {
                     _selectedEventLabel.isNotEmpty
                         ? 'אירוע נבחר: $_selectedEventLabel'
                         : 'בחר פוסט מאירוע קודם',
+                  ),
+                ),
+              ],
+              if (_eventSelectionError) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'יש לבחור פוסט מהאירוע',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.red.shade700,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
               ],

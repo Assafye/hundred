@@ -2941,504 +2941,510 @@ class _PostDetailViewState extends State<PostDetailView> {
                 ),
               Positioned(
                 left: 20,
-                bottom: 24,
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (_experimentalPostHeaderLayout) ...[
-                      SizedBox(
-                        width: 52,
-                        height: 52,
-                        child: Stack(
-                          clipBehavior: Clip.none,
-                          children: [
-                            Container(
-                              width: 52,
-                              height: 52,
+                bottom: 18,
+                child: Transform.translate(
+                  offset: const Offset(0, -30),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (_experimentalPostHeaderLayout) ...[
+                        SizedBox(
+                          width: 52,
+                          height: 52,
+                          child: Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              Container(
+                                width: 52,
+                                height: 52,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: isLight
+                                      ? Colors.white.withValues(alpha: 0.92)
+                                      : null,
+                                  gradient: isLight
+                                      ? null
+                                      : LinearGradient(
+                                          colors: [
+                                            const Color(0xFF15263F)
+                                                .withValues(alpha: 0.94),
+                                            const Color(0xFF2F1F54)
+                                                .withValues(alpha: 0.94),
+                                          ],
+                                        ),
+                                  border: Border.all(
+                                    color: isLight
+                                        ? const Color(0xFFA9C3FF)
+                                        : const Color(0xFF46D3FF)
+                                            .withValues(alpha: 0.34),
+                                    width: isLight ? 2.0 : 1,
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: const Color(0xFF46D3FF)
+                                          .withValues(alpha: 0.24),
+                                      blurRadius: 12,
+                                      spreadRadius: 0.5,
+                                    ),
+                                  ],
+                                ),
+                                child: Center(
+                                  child: Text(
+                                    '$contributionScore',
+                                    style: TextStyle(
+                                      color: isLight
+                                          ? const Color(0xFF6A5BFF)
+                                          : const Color(0xFF9EDBFF),
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              Positioned(
+                                bottom: 2,
+                                right: 9,
+                                child: Container(
+                                  width: 34,
+                                  height: 14,
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(999),
+                                    color: isLight
+                                        ? const Color(0xFF5A6CFF)
+                                        : const Color(0xFF9EDBFF),
+                                  ),
+                                  child: Center(
+                                    child: Text(
+                                      'ניקוד',
+                                      style: TextStyle(
+                                        color: isLight
+                                            ? Colors.white
+                                            : const Color(0xFF0F1D31),
+                                        fontWeight: FontWeight.w900,
+                                        fontSize: 8.5,
+                                        height: 1,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                      ],
+                      _buildActionIcon(
+                        icon: likedByMe
+                            ? Icons.favorite_rounded
+                            : Icons.favorite_border_rounded,
+                        iconColor: likedByMe
+                            ? const Color(0xFF8C62FF)
+                            : const Color(0xFF9EDBFF),
+                        label: _formatCount(likesCount),
+                        onTap: () => _toggleLikeForCurrentPost(post),
+                        isActive: likedByMe,
+                        isBusy: _likeInFlightPostIds.contains(postId),
+                        labelSpacing: 0,
+                        isLight: isLight,
+                      ),
+                      const SizedBox(height: 20),
+                      _buildActionIcon(
+                        icon: Icons.chat_bubble_outline_rounded,
+                        iconColor: const Color(0xFF9EDBFF),
+                        label: _formatCount(commentsCount),
+                        onTap: () => _openCommentsForCurrentPost(post),
+                        labelSpacing: 0,
+                        isLight: isLight,
+                      ),
+                      const SizedBox(height: 20),
+                      _buildActionIcon(
+                        icon: savedByMe
+                            ? Icons.bookmark_rounded
+                            : Icons.bookmark_border_rounded,
+                        iconColor: savedByMe
+                            ? const Color(0xFF8C62FF)
+                            : const Color(0xFF9EDBFF),
+                        label: _formatCount(savesCount),
+                        onTap: () => _toggleSaveForCurrentPost(post),
+                        isActive: savedByMe,
+                        isBusy: _saveInFlightPostIds.contains(postId),
+                        isLight: isLight,
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          GestureDetector(
+                            onTap: () async {
+                              await _pushWithDetailPlaybackPaused(
+                                MaterialPageRoute(
+                                  builder: (_) => CategoryScreen(
+                                    categoryName: category,
+                                    initialPost: Map<String, dynamic>.from(post),
+                                  ),
+                                ),
+                              );
+                            },
+                            child: Container(
+                              width: 50,
+                              height: 50,
                               decoration: BoxDecoration(
+                                gradient: const LinearGradient(
+                                  colors: [Color(0xFF8C62FF), Color(0xFF46D3FF)],
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                ),
                                 shape: BoxShape.circle,
-                                color: isLight
-                                    ? Colors.white.withValues(alpha: 0.92)
-                                    : null,
-                                gradient: isLight
-                                    ? null
-                                    : LinearGradient(
-                                        colors: [
-                                          const Color(0xFF15263F)
-                                              .withValues(alpha: 0.94),
-                                          const Color(0xFF2F1F54)
-                                              .withValues(alpha: 0.94),
+                                border:
+                                    Border.all(color: const Color(0xFFA9C3FF)),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: const Color(0xFF46D3FF)
+                                        .withValues(alpha: 0.35),
+                                    blurRadius: 16,
+                                    spreadRadius: 1,
+                                  ),
+                                ],
+                              ),
+                              child: Container(
+                                margin: const EdgeInsets.all(1.4),
+                                decoration: BoxDecoration(
+                                  color: isLight
+                                      ? Colors.white
+                                      : const Color(0xFF172235),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: Icon(
+                                  categoryIcon,
+                                  color: isLight
+                                      ? const Color(0xFF5A6CFF)
+                                      : const Color(0xFFEAF4FF),
+                                  size: 22,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          GestureDetector(
+                            onTap: () => _openParticipantsSheet(post),
+                            child: Container(
+                              width: hasLinkedGroup ? 56 : 50,
+                              height: hasLinkedGroup ? 56 : 50,
+                              decoration: BoxDecoration(
+                                gradient: const LinearGradient(
+                                  colors: [Color(0xFF8C62FF), Color(0xFF46D3FF)],
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                ),
+                                shape: BoxShape.circle,
+                                border:
+                                    Border.all(color: const Color(0xFFA9C3FF)),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: const Color(0xFF46D3FF)
+                                        .withValues(alpha: 0.35),
+                                    blurRadius: hasLinkedGroup ? 20 : 16,
+                                    spreadRadius: hasLinkedGroup ? 1.8 : 1,
+                                  ),
+                                ],
+                              ),
+                              child: Container(
+                                margin:
+                                    EdgeInsets.all(hasLinkedGroup ? 3.0 : 1.4),
+                                decoration: BoxDecoration(
+                                  color: isLight
+                                      ? Colors.white
+                                      : const Color(0xFF172235),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: hasLinkedGroup
+                                    ? Stack(
+                                        alignment: Alignment.center,
+                                        children: [
+                                          const Positioned(
+                                            top: 8,
+                                            left: 8,
+                                            child: Icon(
+                                              Icons.person_rounded,
+                                              size: 10,
+                                              color: Color(0xFF5A6CFF),
+                                            ),
+                                          ),
+                                          const Positioned(
+                                            top: 8,
+                                            right: 8,
+                                            child: Icon(
+                                              Icons.person_rounded,
+                                              size: 10,
+                                              color: Color(0xFF5A6CFF),
+                                            ),
+                                          ),
+                                          const Positioned(
+                                            bottom: 8,
+                                            left: 8,
+                                            child: Icon(
+                                              Icons.person_rounded,
+                                              size: 10,
+                                              color: Color(0xFF5A6CFF),
+                                            ),
+                                          ),
+                                          const Positioned(
+                                            bottom: 8,
+                                            right: 8,
+                                            child: Icon(
+                                              Icons.person_rounded,
+                                              size: 10,
+                                              color: Color(0xFF5A6CFF),
+                                            ),
+                                          ),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 4,
+                                              vertical: 2,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: const Color(0xFFEFF4FF),
+                                              borderRadius:
+                                                  BorderRadius.circular(999),
+                                              border: Border.all(
+                                                color: const Color(0xFFA9C3FF),
+                                              ),
+                                            ),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                if (participantsCount > 0)
+                                                  Text(
+                                                    participantsCount.toString(),
+                                                    style: const TextStyle(
+                                                      color: Color(0xFF5A6CFF),
+                                                      fontSize: 9,
+                                                      fontWeight: FontWeight.w800,
+                                                    ),
+                                                  )
+                                                else
+                                                  const Icon(
+                                                    Icons.link_rounded,
+                                                    size: 10,
+                                                    color: Color(0xFF5A6CFF),
+                                                  ),
+                                              ],
+                                            ),
+                                          ),
+                                        ],
+                                      )
+                                    : Column(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        children: [
+                                          Icon(
+                                            Icons.group_rounded,
+                                            color: isLight
+                                                ? const Color(0xFF5A6CFF)
+                                                : const Color(0xFFEAF4FF),
+                                            size: 16,
+                                          ),
+                                          Text(
+                                            participantsCount.toString(),
+                                            style: TextStyle(
+                                              color: isLight
+                                                  ? const Color(0xFF5A6CFF)
+                                                  : const Color(0xFFEAF4FF),
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          ),
                                         ],
                                       ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          GestureDetector(
+                            onTap: () => _openShareMenuForCurrentPost(post),
+                            child: Container(
+                              width: 50,
+                              height: 50,
+                              decoration: BoxDecoration(
+                                color: isLight ? Colors.white : null,
+                                gradient: isLight
+                                    ? const LinearGradient(
+                                        colors: [
+                                          Color(0xFF8C62FF),
+                                          Color(0xFF46D3FF),
+                                        ],
+                                        begin: Alignment.topLeft,
+                                        end: Alignment.bottomRight,
+                                      )
+                                    : const LinearGradient(
+                                        colors: [
+                                          Color(0xFF8C62FF),
+                                          Color(0xFF46D3FF),
+                                        ],
+                                        begin: Alignment.topLeft,
+                                        end: Alignment.bottomRight,
+                                      ),
+                                shape: BoxShape.circle,
                                 border: Border.all(
-                                  color: isLight
-                                      ? const Color(0xFFA9C3FF)
-                                      : const Color(0xFF46D3FF)
-                                          .withValues(alpha: 0.34),
-                                  width: isLight ? 2.0 : 1,
+                                  color: const Color(0xFFA9C3FF),
                                 ),
                                 boxShadow: [
                                   BoxShadow(
                                     color: const Color(0xFF46D3FF)
                                         .withValues(alpha: 0.24),
-                                    blurRadius: 12,
-                                    spreadRadius: 0.5,
+                                    blurRadius: 14,
+                                    spreadRadius: 0.4,
                                   ),
                                 ],
                               ),
-                              child: Center(
-                                child: Text(
-                                  '$contributionScore',
-                                  style: TextStyle(
-                                    color: isLight
-                                        ? const Color(0xFF6A5BFF)
-                                        : const Color(0xFF9EDBFF),
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            Positioned(
-                              bottom: -5,
-                              right: 9,
                               child: Container(
-                                width: 34,
-                                height: 14,
+                                margin: const EdgeInsets.all(1.4),
                                 decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(999),
                                   color: isLight
-                                      ? const Color(0xFF5A6CFF)
-                                      : const Color(0xFF9EDBFF),
+                                      ? Colors.white
+                                      : const Color(0xFF172235),
+                                  shape: BoxShape.circle,
                                 ),
-                                child: Center(
-                                  child: Text(
-                                    'ניקוד',
-                                    style: TextStyle(
-                                      color: isLight
-                                          ? Colors.white
-                                          : const Color(0xFF0F1D31),
-                                      fontWeight: FontWeight.w900,
-                                      fontSize: 8.5,
-                                      height: 1,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                    ],
-                    _buildActionIcon(
-                      icon: likedByMe
-                          ? Icons.favorite_rounded
-                          : Icons.favorite_border_rounded,
-                      iconColor: likedByMe
-                          ? const Color(0xFF8C62FF)
-                          : const Color(0xFF9EDBFF),
-                      label: _formatCount(likesCount),
-                      onTap: () => _toggleLikeForCurrentPost(post),
-                      isActive: likedByMe,
-                      isBusy: _likeInFlightPostIds.contains(postId),
-                      labelSpacing: 0,
-                      isLight: isLight,
-                    ),
-                    const SizedBox(height: 20),
-                    _buildActionIcon(
-                      icon: Icons.chat_bubble_outline_rounded,
-                      iconColor: const Color(0xFF9EDBFF),
-                      label: _formatCount(commentsCount),
-                      onTap: () => _openCommentsForCurrentPost(post),
-                      labelSpacing: 0,
-                      isLight: isLight,
-                    ),
-                    const SizedBox(height: 20),
-                    _buildActionIcon(
-                      icon: savedByMe
-                          ? Icons.bookmark_rounded
-                          : Icons.bookmark_border_rounded,
-                      iconColor: savedByMe
-                          ? const Color(0xFF8C62FF)
-                          : const Color(0xFF9EDBFF),
-                      label: _formatCount(savesCount),
-                      onTap: () => _toggleSaveForCurrentPost(post),
-                      isActive: savedByMe,
-                      isBusy: _saveInFlightPostIds.contains(postId),
-                      isLight: isLight,
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        GestureDetector(
-                          onTap: () async {
-                            await _pushWithDetailPlaybackPaused(
-                              MaterialPageRoute(
-                                builder: (_) => CategoryScreen(
-                                  categoryName: category,
-                                  initialPost: Map<String, dynamic>.from(post),
-                                ),
-                              ),
-                            );
-                          },
-                          child: Container(
-                            width: 50,
-                            height: 50,
-                            decoration: BoxDecoration(
-                              gradient: const LinearGradient(
-                                colors: [Color(0xFF8C62FF), Color(0xFF46D3FF)],
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                              ),
-                              shape: BoxShape.circle,
-                              border:
-                                  Border.all(color: const Color(0xFFA9C3FF)),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: const Color(0xFF46D3FF)
-                                      .withValues(alpha: 0.35),
-                                  blurRadius: 16,
-                                  spreadRadius: 1,
-                                ),
-                              ],
-                            ),
-                            child: Container(
-                              margin: const EdgeInsets.all(1.4),
-                              decoration: BoxDecoration(
-                                color: isLight
-                                    ? Colors.white
-                                    : const Color(0xFF172235),
-                                shape: BoxShape.circle,
-                              ),
-                              child: Icon(
-                                categoryIcon,
-                                color: isLight
-                                    ? const Color(0xFF5A6CFF)
-                                    : const Color(0xFFEAF4FF),
-                                size: 22,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        GestureDetector(
-                          onTap: () => _openParticipantsSheet(post),
-                          child: Container(
-                            width: hasLinkedGroup ? 56 : 50,
-                            height: hasLinkedGroup ? 56 : 50,
-                            decoration: BoxDecoration(
-                              gradient: const LinearGradient(
-                                colors: [Color(0xFF8C62FF), Color(0xFF46D3FF)],
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                              ),
-                              shape: BoxShape.circle,
-                              border:
-                                  Border.all(color: const Color(0xFFA9C3FF)),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: const Color(0xFF46D3FF)
-                                      .withValues(alpha: 0.35),
-                                  blurRadius: hasLinkedGroup ? 20 : 16,
-                                  spreadRadius: hasLinkedGroup ? 1.8 : 1,
-                                ),
-                              ],
-                            ),
-                            child: Container(
-                              margin:
-                                  EdgeInsets.all(hasLinkedGroup ? 3.0 : 1.4),
-                              decoration: BoxDecoration(
-                                color: isLight
-                                    ? Colors.white
-                                    : const Color(0xFF172235),
-                                shape: BoxShape.circle,
-                              ),
-                              child: hasLinkedGroup
-                                  ? Stack(
-                                      alignment: Alignment.center,
-                                      children: [
-                                        const Positioned(
-                                          top: 8,
-                                          left: 8,
-                                          child: Icon(
-                                            Icons.person_rounded,
-                                            size: 10,
-                                            color: Color(0xFF5A6CFF),
-                                          ),
+                                child: _shareInFlightPostIds.contains(postId)
+                                    ? const Padding(
+                                        padding: EdgeInsets.all(14),
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Color(0xFF46D3FF),
                                         ),
-                                        const Positioned(
-                                          top: 8,
-                                          right: 8,
-                                          child: Icon(
-                                            Icons.person_rounded,
-                                            size: 10,
-                                            color: Color(0xFF5A6CFF),
+                                      )
+                                    : Column(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        children: [
+                                          Icon(
+                                            Icons.send_rounded,
+                                            color: isLight
+                                                ? const Color(0xFF5A6CFF)
+                                                : const Color(0xFFEAF4FF),
+                                            size: 16,
                                           ),
-                                        ),
-                                        const Positioned(
-                                          bottom: 8,
-                                          left: 8,
-                                          child: Icon(
-                                            Icons.person_rounded,
-                                            size: 10,
-                                            color: Color(0xFF5A6CFF),
-                                          ),
-                                        ),
-                                        const Positioned(
-                                          bottom: 8,
-                                          right: 8,
-                                          child: Icon(
-                                            Icons.person_rounded,
-                                            size: 10,
-                                            color: Color(0xFF5A6CFF),
-                                          ),
-                                        ),
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 4,
-                                            vertical: 2,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: const Color(0xFFEFF4FF),
-                                            borderRadius:
-                                                BorderRadius.circular(999),
-                                            border: Border.all(
-                                              color: const Color(0xFFA9C3FF),
+                                          Text(
+                                            _formatCount(sharesCount),
+                                            style: TextStyle(
+                                              color: isLight
+                                                  ? const Color(0xFF5A6CFF)
+                                                  : const Color(0xFFEAF4FF),
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.w700,
                                             ),
                                           ),
-                                          child: Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              if (participantsCount > 0)
-                                                Text(
-                                                  participantsCount.toString(),
-                                                  style: const TextStyle(
-                                                    color: Color(0xFF5A6CFF),
-                                                    fontSize: 9,
-                                                    fontWeight: FontWeight.w800,
-                                                  ),
-                                                )
-                                              else
-                                                const Icon(
-                                                  Icons.link_rounded,
-                                                  size: 10,
-                                                  color: Color(0xFF5A6CFF),
-                                                ),
-                                            ],
-                                          ),
-                                        ),
-                                      ],
-                                    )
-                                  : Column(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.center,
-                                      children: [
-                                        Icon(
-                                          Icons.group_rounded,
-                                          color: isLight
-                                              ? const Color(0xFF5A6CFF)
-                                              : const Color(0xFFEAF4FF),
-                                          size: 16,
-                                        ),
-                                        Text(
-                                          participantsCount.toString(),
-                                          style: TextStyle(
-                                            color: isLight
-                                                ? const Color(0xFF5A6CFF)
-                                                : const Color(0xFFEAF4FF),
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.w700,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        GestureDetector(
-                          onTap: () => _openShareMenuForCurrentPost(post),
-                          child: Container(
-                            width: 50,
-                            height: 50,
-                            decoration: BoxDecoration(
-                              color: isLight ? Colors.white : null,
-                              gradient: isLight
-                                  ? const LinearGradient(
-                                      colors: [
-                                        Color(0xFF8C62FF),
-                                        Color(0xFF46D3FF),
-                                      ],
-                                      begin: Alignment.topLeft,
-                                      end: Alignment.bottomRight,
-                                    )
-                                  : const LinearGradient(
-                                      colors: [
-                                        Color(0xFF8C62FF),
-                                        Color(0xFF46D3FF),
-                                      ],
-                                      begin: Alignment.topLeft,
-                                      end: Alignment.bottomRight,
-                                    ),
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: const Color(0xFFA9C3FF),
-                              ),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: const Color(0xFF46D3FF)
-                                      .withValues(alpha: 0.24),
-                                  blurRadius: 14,
-                                  spreadRadius: 0.4,
-                                ),
-                              ],
-                            ),
-                            child: Container(
-                              margin: const EdgeInsets.all(1.4),
-                              decoration: BoxDecoration(
-                                color: isLight
-                                    ? Colors.white
-                                    : const Color(0xFF172235),
-                                shape: BoxShape.circle,
-                              ),
-                              child: _shareInFlightPostIds.contains(postId)
-                                  ? const Padding(
-                                      padding: EdgeInsets.all(14),
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        color: Color(0xFF46D3FF),
+                                        ],
                                       ),
-                                    )
-                                  : Column(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.center,
-                                      children: [
-                                        Icon(
-                                          Icons.send_rounded,
-                                          color: isLight
-                                              ? const Color(0xFF5A6CFF)
-                                              : const Color(0xFFEAF4FF),
-                                          size: 16,
-                                        ),
-                                        Text(
-                                          _formatCount(sharesCount),
-                                          style: TextStyle(
-                                            color: isLight
-                                                ? const Color(0xFF5A6CFF)
-                                                : const Color(0xFFEAF4FF),
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.w700,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
+                              ),
                             ),
                           ),
-                        ),
-                      ],
-                    ),
-                  ],
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
               ),
               Positioned(
                 right: 20,
-                bottom: 46,
+                bottom: 38,
                 left: 120,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    if (_experimentalPostHeaderLayout) ...[
-                      GestureDetector(
-                        onTap: openAuthorProfileTap,
-                        child: buildAuthorIdentity(compact: true),
-                      ),
-                      const SizedBox(height: 6),
-                    ],
-                    if (title.isNotEmpty)
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 6),
-                        child: Text(
-                          title,
-                          textDirection: TextDirection.rtl,
-                          textAlign: TextAlign.right,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 21,
-                            fontWeight: FontWeight.w800,
-                            fontFamily: 'Avenir Next',
-                            fontFamilyFallback: [
-                              'SF Pro Rounded',
-                              'Rubik',
-                              'Assistant',
-                              'Noto Sans Hebrew',
-                              'Segoe UI',
-                              'sans-serif',
-                            ],
-                            height: 1.12,
-                          ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
+                child: Transform.translate(
+                  offset: const Offset(0, -30),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      if (_experimentalPostHeaderLayout) ...[
+                        GestureDetector(
+                          onTap: openAuthorProfileTap,
+                          child: buildAuthorIdentity(compact: true),
                         ),
-                      ),
-                    if (effectiveDescription.isNotEmpty) ...[
-                      const SizedBox(height: 3),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 7),
-                        child: ExpandablePostDescription(
-                          text: effectiveDescription,
-                          maxLines: 2,
-                          textAlign: TextAlign.right,
-                          textDirection: TextDirection.rtl,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            fontFamily: 'Avenir Next',
-                            fontFamilyFallback: [
-                              'SF Pro Rounded',
-                              'Rubik',
-                              'Assistant',
-                              'Noto Sans Hebrew',
-                              'Segoe UI',
-                              'sans-serif',
-                            ],
-                            height: 1.28,
-                          ),
-                          toggleStyle: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                            height: 1.2,
+                        const SizedBox(height: 6),
+                      ],
+                      if (title.isNotEmpty)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 6),
+                          child: Text(
+                            title,
+                            textDirection: TextDirection.rtl,
+                            textAlign: TextAlign.right,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 21,
+                              fontWeight: FontWeight.w800,
+                              fontFamily: 'Avenir Next',
+                              fontFamilyFallback: [
+                                'SF Pro Rounded',
+                                'Rubik',
+                                'Assistant',
+                                'Noto Sans Hebrew',
+                                'Segoe UI',
+                                'sans-serif',
+                              ],
+                              height: 1.12,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
-                      ),
-                    ],
-                    if (postTimestamp.isNotEmpty ||
-                        locationText.isNotEmpty) ...[
-                      const SizedBox(height: 6),
-                      Wrap(
-                        alignment: WrapAlignment.end,
-                        spacing: 8,
-                        runSpacing: 6,
-                        children: [
-                          if (postTimestamp.isNotEmpty)
-                            _buildMetaChip(
-                              icon: Icons.schedule_rounded,
-                              text: postTimestamp,
+                      if (effectiveDescription.isNotEmpty) ...[
+                        const SizedBox(height: 3),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 7),
+                          child: ExpandablePostDescription(
+                            text: effectiveDescription,
+                            maxLines: 2,
+                            textAlign: TextAlign.right,
+                            textDirection: TextDirection.rtl,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              fontFamily: 'Avenir Next',
+                              fontFamilyFallback: [
+                                'SF Pro Rounded',
+                                'Rubik',
+                                'Assistant',
+                                'Noto Sans Hebrew',
+                                'Segoe UI',
+                                'sans-serif',
+                              ],
+                              height: 1.28,
                             ),
-                          if (locationText.isNotEmpty)
-                            _buildMetaChip(
-                              icon: Icons.location_on_rounded,
-                              text: locationText,
+                            toggleStyle: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              height: 1.2,
                             ),
-                        ],
-                      ),
+                          ),
+                        ),
+                      ],
+                      if (postTimestamp.isNotEmpty ||
+                          locationText.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Wrap(
+                          alignment: WrapAlignment.end,
+                          spacing: 8,
+                          runSpacing: 6,
+                          children: [
+                            if (postTimestamp.isNotEmpty)
+                              _buildMetaChip(
+                                icon: Icons.schedule_rounded,
+                                text: postTimestamp,
+                              ),
+                            if (locationText.isNotEmpty)
+                              _buildMetaChip(
+                                icon: Icons.location_on_rounded,
+                                text: locationText,
+                              ),
+                          ],
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ),
             ],

@@ -22,6 +22,27 @@ class _ResolvedDirectChatTarget {
 }
 
 class ChatService {
+  static String buildGroupJoinAnnouncementText(String displayName) {
+    final normalized = displayName.trim();
+    if (normalized.isEmpty) {
+      return 'תגידו שלום';
+    }
+    return 'תגידו שלום ל$normalized';
+  }
+
+  static bool isGroupJoinAnnouncement(Map<String, dynamic> messageData) {
+    final messageType =
+        (messageData['messageType'] as String? ?? '').trim().toLowerCase();
+    final eventType =
+        (messageData['eventType'] as String? ?? '').trim().toLowerCase();
+    if (messageType == 'system' && eventType == 'group_member_joined') {
+      return true;
+    }
+    final text = (messageData['text'] as String? ?? '').trim();
+    return messageType == 'system' &&
+        (eventType == 'group_member_joined' || text.startsWith('תגידו שלום ל'));
+  }
+
   ChatService({
     FirebaseFirestore? firestore,
     FirebaseAuth? auth,
@@ -1524,6 +1545,47 @@ class ChatService {
     }
 
     return summaries;
+  }
+
+  Future<void> sendGroupJoinAnnouncement({
+    required String chatId,
+    required String joiningUid,
+    String? joiningDisplayName,
+  }) async {
+    final normalizedChatId = chatId.trim();
+    final normalizedUid = joiningUid.trim();
+    if (normalizedChatId.isEmpty || normalizedUid.isEmpty) {
+      return;
+    }
+
+    final profile = await _bestEffortSenderProfile(normalizedUid);
+    final resolvedName = (joiningDisplayName ?? '').trim().isNotEmpty
+        ? joiningDisplayName!.trim()
+        : _displayNameForProfile(profile, fallback: 'משתמש');
+    final avatarUrl = _avatarUrlForProfile(profile);
+    final text = buildGroupJoinAnnouncementText(resolvedName);
+
+    final chatRef = _db.collection('chats').doc(normalizedChatId);
+    await chatRef.collection('messages').add({
+      'senderId': normalizedUid,
+      'senderName': 'מערכת',
+      'senderAvatarUrl': avatarUrl,
+      'text': text,
+      'messageType': 'system',
+      'eventType': 'group_member_joined',
+      'joinedUid': normalizedUid,
+      'joinedDisplayName': resolvedName,
+      'timestamp': FieldValue.serverTimestamp(),
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+
+    await chatRef.set({
+      'lastMessage': text,
+      'lastMessageSenderName': 'מערכת',
+      'lastMessageType': 'system',
+      'lastMessageAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
   }
 
   Future<Map<String, dynamic>> _loadCurrentUserProfile(String uid) async {

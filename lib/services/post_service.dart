@@ -383,6 +383,61 @@ class PostService {
     }
   }
 
+  Future<void> _refreshPostedSubCategoryKeysForUser(String uid) async {
+    final normalizedUid = uid.trim();
+    if (normalizedUid.isEmpty) {
+      return;
+    }
+
+    final snapshot = await _db
+        .collection('posts')
+        .where('authorId', isEqualTo: normalizedUid)
+        .where('status', isEqualTo: 'published')
+        .get();
+
+    final keys = <String>{};
+    for (final doc in snapshot.docs) {
+      final data = doc.data();
+      final key = _postedSubCategoryKey(
+        category: (data['category'] as String? ?? '').trim(),
+        subCategory: (data['subCategory'] as String? ?? '').trim(),
+      );
+      if (key != null) {
+        keys.add(key);
+      }
+    }
+
+    final userRef = _db.collection('users').doc(normalizedUid);
+    final publicRef = _db.collection('users_public').doc(normalizedUid);
+    final existingSnapshots = await Future.wait([userRef.get(), publicRef.get()]);
+
+    final batch = _db.batch();
+    var hasWrites = false;
+    final sortedKeys = keys.toList()..sort();
+
+    if (existingSnapshots[0].exists) {
+      batch.set(
+        userRef,
+        <String, dynamic>{'postedSubCategoryKeys': sortedKeys},
+        SetOptions(merge: true),
+      );
+      hasWrites = true;
+    }
+
+    if (existingSnapshots[1].exists) {
+      batch.set(
+        publicRef,
+        <String, dynamic>{'postedSubCategoryKeys': sortedKeys},
+        SetOptions(merge: true),
+      );
+      hasWrites = true;
+    }
+
+    if (hasWrites) {
+      await batch.commit();
+    }
+  }
+
   Future<void> _safeTrackPostedSubCategoryForUser({
     required String uid,
     required String category,
@@ -395,6 +450,7 @@ class PostService {
         category: category,
         subCategory: subCategory,
       );
+      await _refreshPostedSubCategoryKeysForUser(uid);
     } catch (error) {
       if (kDebugMode) {
         debugPrint('Posted sub-category sync skipped: $error');
@@ -1229,6 +1285,8 @@ class PostService {
       if (publishResult.consumedSpontaneousTask) {
         await SpontaneousChallengeService.clearTaskForUser(effectiveAuthorId);
       }
+    } else {
+      await _refreshPostedSubCategoryKeysForUser(effectiveAuthorId);
     }
 
     final commonTagged = oldTaggedUids.intersection(newTaggedUids);
@@ -1301,6 +1359,7 @@ class PostService {
     }
 
     await postRef.delete();
+    await _refreshPostedSubCategoryKeysForUser(uid);
 
     final scoreOwnerId = authorId.isNotEmpty ? authorId : uid;
     if (postScoreToRemove > 0) {
@@ -2150,10 +2209,20 @@ class PostService {
       );
 
       if (rewardUserIds.isNotEmpty) {
+        final rewardList = rewardUserIds.toList(growable: false);
+        final replyDelta = commentReplyScoreDelta(isAdding: true);
         await _safeIncrementScoreForExistingUsers(
-          userIds: rewardUserIds.toList(growable: false),
-          delta: 2,
+          userIds: rewardList,
+          delta: replyDelta,
         );
+        for (final rewardUid in rewardList) {
+          if (rewardUid != uid) {
+            PublicUserProfileService.addOptimisticScoreDelta(
+              uid: rewardUid,
+              delta: replyDelta,
+            );
+          }
+        }
       }
 
       _logCommentFlow(traceId, 'score sync done, sending notifications');
@@ -2282,11 +2351,34 @@ class PostService {
           dedupeKey: 'comment_sync:$uid:$normalizedPostId:${commentRef.id}',
         );
 
-        if (normalizedAuthorId.isNotEmpty) {
-          PublicUserProfileService.addOptimisticScoreDelta(
-            uid: normalizedAuthorId,
-            delta: 2,
+        final parentCommentAuthorId = normalizedParentId.isNotEmpty
+            ? ((await postRef
+                    .collection('comments')
+                    .doc(normalizedParentId)
+                    .get())
+                .data()?['authorId'] as String? ?? '')
+            : '';
+
+        final rewardUserIds = _commentRewardUserIds(
+          postAuthorId: normalizedAuthorId,
+          parentCommentAuthorId: parentCommentAuthorId,
+        );
+
+        if (rewardUserIds.isNotEmpty) {
+          final rewardList = rewardUserIds.toList(growable: false);
+          final replyDelta = commentReplyScoreDelta(isAdding: true);
+          await _safeIncrementScoreForExistingUsers(
+            userIds: rewardList,
+            delta: replyDelta,
           );
+          for (final rewardUid in rewardList) {
+            if (rewardUid != uid) {
+              PublicUserProfileService.addOptimisticScoreDelta(
+                uid: rewardUid,
+                delta: replyDelta,
+              );
+            }
+          }
         }
 
         return;
@@ -2299,6 +2391,21 @@ class PostService {
       );
       rethrow;
     }
+  }
+
+  static int commentLikeScoreDelta({required bool isAdding}) {
+    return isAdding ? 1 : -1;
+  }
+
+  static int commentReplyScoreDelta({required bool isAdding}) {
+    return isAdding ? 2 : -2;
+  }
+
+  static int commentDeletionScoreDelta({
+    required int likesCount,
+    required int replyCount,
+  }) {
+    return -(likesCount + (replyCount * 2));
   }
 
   Future<void> toggleCommentLike({
@@ -2318,6 +2425,9 @@ class PostService {
         .collection('comments')
         .doc(normalizedCommentId);
 
+    String commentAuthorId = '';
+    bool didAddLike = false;
+
     await _db.runTransaction((transaction) async {
       final commentSnap = await transaction.get(commentRef);
       if (!commentSnap.exists) {
@@ -2330,6 +2440,8 @@ class PostService {
           .map((item) => item.toString().trim())
           .where((item) => item.isNotEmpty)
           .toSet();
+      commentAuthorId = (data['authorId'] as String? ?? '').trim();
+      didAddLike = !likes.contains(uid);
 
       if (likes.contains(uid)) {
         likes.remove(uid);
@@ -2343,6 +2455,20 @@ class PostService {
         'updatedAt': FieldValue.serverTimestamp(),
       });
     });
+
+    if (commentAuthorId.isNotEmpty) {
+      final delta = commentLikeScoreDelta(isAdding: didAddLike);
+      if (delta != 0) {
+        await _safeIncrementScoreForExistingUsers(
+          userIds: <String>[commentAuthorId],
+          delta: delta,
+        );
+        PublicUserProfileService.addOptimisticScoreDelta(
+          uid: commentAuthorId,
+          delta: delta,
+        );
+      }
+    }
   }
 
   Future<void> deletePostComment({
@@ -2364,6 +2490,8 @@ class PostService {
     final targetCommentRef = commentsRef.doc(normalizedCommentId);
     final allCommentsSnap = await commentsRef.get();
     final allDocs = allCommentsSnap.docs;
+
+    final deletedScoreDeltasByAuthor = <String, int>{};
 
     await _db.runTransaction((transaction) async {
       final postSnap = await transaction.get(postRef);
@@ -2416,9 +2544,28 @@ class PostService {
 
       for (final id in toDelete) {
         final doc = byId[id];
-        if (doc != null) {
-          transaction.delete(doc.reference);
+        if (doc == null) continue;
+        final commentData = doc.data();
+        final commentAuthorId = (commentData['authorId'] as String? ?? '').trim();
+        if (commentAuthorId.isEmpty) {
+          continue;
         }
+        final likesCount = (commentData['likesCount'] as num?)?.toInt() ??
+            ((commentData['likes'] as List<dynamic>?) ?? const <dynamic>[]).length;
+        final replyCount = (commentData['replyCount'] as num?)?.toInt() ?? 0;
+        final delta = commentDeletionScoreDelta(
+          likesCount: likesCount,
+          replyCount: replyCount,
+        );
+        if (delta == 0) {
+          continue;
+        }
+        deletedScoreDeltasByAuthor.update(
+          commentAuthorId,
+          (value) => value + delta,
+          ifAbsent: () => delta,
+        );
+        transaction.delete(doc.reference);
       }
 
       final removedCount = toDelete.length;
@@ -2491,6 +2638,15 @@ class PostService {
         }
       }
     });
+
+    if (deletedScoreDeltasByAuthor.isNotEmpty) {
+      for (final entry in deletedScoreDeltasByAuthor.entries) {
+        await _safeIncrementScoreForExistingUsers(
+          userIds: <String>[entry.key],
+          delta: entry.value,
+        );
+      }
+    }
   }
 }
 

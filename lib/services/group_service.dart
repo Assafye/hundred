@@ -6,6 +6,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 
 import '../age_restrictions.dart';
+import 'chat_service.dart';
 import 'notification_service.dart';
 import 'secure_action_queue_service.dart';
 
@@ -30,6 +31,7 @@ class GroupService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _db = FirebaseFirestore.instance;
   final FirebaseStorage _storage = FirebaseStorage.instance;
+  final ChatService _chatService = ChatService();
   final NotificationService _notificationService = NotificationService();
   final SecureActionQueueService _secureQueue = SecureActionQueueService();
 
@@ -356,6 +358,13 @@ class GroupService {
       });
       debugPrint('[GroupService][joinGroup] success uid=$uid groupId=$groupId');
 
+      if (shouldNotifyAdminAboutJoin) {
+        await _chatService.sendGroupJoinAnnouncement(
+          chatId: groupId,
+          joiningUid: uid,
+        );
+      }
+
       if (shouldNotifyAdminAboutJoin &&
           groupAdminUid.isNotEmpty &&
           groupAdminUid != uid) {
@@ -517,6 +526,11 @@ class GroupService {
         'updatedAt': FieldValue.serverTimestamp(),
       });
     });
+
+    await _chatService.sendGroupJoinAnnouncement(
+      chatId: groupId,
+      joiningUid: uid,
+    );
 
     if (adminUid.isNotEmpty && uid.isNotEmpty && adminUid != uid) {
       if (originType.trim() == 'pop') {

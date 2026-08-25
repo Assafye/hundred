@@ -203,6 +203,7 @@ async function processFollowUser(actorUid, payload) {
     const targetFollowers = normalizeUidSet(targetData.followers);
     const targetRequests = normalizeUidSet(targetData.followRequests);
     const targetFollowing = normalizeUidSet(targetData.following);
+    const currentTargetScore = Number(targetData.score ?? 0) || 0;
 
     const isPrivate = Boolean(targetData.isPrivate ?? false);
     if (isPrivate) {
@@ -230,6 +231,7 @@ async function processFollowUser(actorUid, payload) {
       followers: Array.from(targetFollowers),
       followersCount: targetFollowers.size,
       followRequests: FieldValue.arrayRemove(actorUid),
+      score: currentTargetScore + 50,
     }, { merge: true });
 
     tx.set(myPublicRef, {
@@ -240,6 +242,7 @@ async function processFollowUser(actorUid, payload) {
     tx.set(targetPublicRef, {
       followersCount: targetFollowers.size,
       followingCount: targetFollowing.size,
+      score: currentTargetScore + 50,
     }, { merge: true });
   });
 }
@@ -553,7 +556,11 @@ async function processCommentSideEffects(actorUid, payload) {
   let postImageUrl = '';
 
   await db.runTransaction(async (tx) => {
-    const [postSnap, commentSnap] = await Promise.all([tx.get(postRef), tx.get(commentRef)]);
+    const [postSnap, commentSnap, parentSnap] = await Promise.all([
+      tx.get(postRef),
+      tx.get(commentRef),
+      parentRef ? tx.get(parentRef) : Promise.resolve(null),
+    ]);
     if (!postSnap.exists || !commentSnap.exists) return;
 
     const commentData = commentSnap.data() || {};
@@ -562,6 +569,11 @@ async function processCommentSideEffects(actorUid, payload) {
 
     postBefore = postSnap.data() || {};
     postImageUrl = String(postBefore.imageUrl ?? postBefore.mediaUrl ?? '').trim();
+
+    if (parentSnap && parentSnap.exists) {
+      const parentData = parentSnap.data() || {};
+      parentCommentAuthor = String(parentData.authorId ?? '').trim();
+    }
 
     const currentComments = Number(postBefore.commentsCount ?? 0) || 0;
     postAfter = {
@@ -580,17 +592,12 @@ async function processCommentSideEffects(actorUid, payload) {
       updatedAt: FieldValue.serverTimestamp(),
     }, { merge: true });
 
-    if (parentRef) {
-      const parentSnap = await tx.get(parentRef);
-      if (parentSnap.exists) {
-        const parentData = parentSnap.data() || {};
-        parentCommentAuthor = String(parentData.authorId ?? '').trim();
-        const replyCount = Number(parentData.replyCount ?? 0) || 0;
-        tx.set(parentRef, {
-          replyCount: replyCount + 1,
-          updatedAt: FieldValue.serverTimestamp(),
-        }, { merge: true });
-      }
+    if (parentSnap && parentSnap.exists) {
+      const replyCount = Number(parentSnap.data()?.replyCount ?? 0) || 0;
+      tx.set(parentRef, {
+        replyCount: replyCount + 1,
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
     }
   });
 
@@ -993,21 +1000,42 @@ async function processSingleAction(actionDoc) {
   }
 }
 
+async function getPendingActions(limit) {
+  const userRefs = await db.collection('users').listDocuments();
+  const actions = [];
+  let remaining = Math.max(0, Number(limit) || 0);
+
+  for (const userRef of userRefs) {
+    if (remaining <= 0) break;
+
+    const pendingSnap = await userRef
+      .collection('secure_actions')
+      .where('status', '==', ACTION_STATUS.pending)
+      .limit(remaining)
+      .get();
+
+    if (pendingSnap.empty) {
+      continue;
+    }
+
+    actions.push(...pendingSnap.docs);
+    remaining -= pendingSnap.docs.length;
+  }
+
+  return actions;
+}
+
 async function run() {
   console.log(`[secure-actions] start dryRun=${DRY_RUN} limit=${LIMIT}`);
 
-  const pendingSnap = await db
-    .collectionGroup('secure_actions')
-    .where('status', '==', ACTION_STATUS.pending)
-    .limit(LIMIT)
-    .get();
+  const pendingDocs = await getPendingActions(LIMIT);
 
-  console.log(`[secure-actions] pending=${pendingSnap.size}`);
+  console.log(`[secure-actions] pending=${pendingDocs.length}`);
 
   let done = 0;
   let failed = 0;
 
-  for (const actionDoc of pendingSnap.docs) {
+  for (const actionDoc of pendingDocs) {
     const ref = actionDoc.ref;
     const actionId = actionDoc.id;
 
@@ -1040,7 +1068,7 @@ async function run() {
   }
 
   console.log('[secure-actions] summary');
-  console.log(JSON.stringify({ dryRun: DRY_RUN, scanned: pendingSnap.size, done, failed }, null, 2));
+  console.log(JSON.stringify({ dryRun: DRY_RUN, scanned: pendingDocs.length, done, failed }, null, 2));
 }
 
 run().catch((error) => {

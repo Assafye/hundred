@@ -127,6 +127,14 @@ class SpontaneousChallengeService {
 
   static const String _fieldKey = 'weeklySpontaneousChallenge';
 
+  static final Set<String> _bannedTaskKeys = <String>{
+    _taskKey('אתגרים', 'לשתות שבוע רק מים'),
+    _taskKey('אתגרים', 'לאכול צמחוני שבוע'),
+    _taskKey('אתגרים', 'בלי מטוגן שבוע'),
+    _taskKey('אתגרים', 'לא לאכול שוקולד שבוע'),
+    _taskKey('אתגרים', 'שבוע בלי רשתות חברתיות'),
+  };
+
   static final Set<String> _sevenDayTaskKeys = <String>{
     _taskKey('אקסטרים', 'בנג\'י'),
     _taskKey('אקסטרים', 'צניחה חופשית'),
@@ -142,12 +150,7 @@ class SpontaneousChallengeService {
     _taskKey('חברים', 'לארגן לחבר יום הולדת'),
     _taskKey('חברים', 'להרכיב פאזל עם מעל 1000 חלקים'),
     _taskKey('אוכל', 'לגדל ירק/פרי'),
-    _taskKey('אתגרים', 'לשתות שבוע רק מים'),
-    _taskKey('אתגרים', 'לאכול צמחוני שבוע'),
-    _taskKey('אתגרים', 'בלי מטוגן שבוע'),
-    _taskKey('אתגרים', 'לא לאכול שוקולד שבוע'),
     _taskKey('אתגרים', 'להשתתף במרתון (לא חייב שלם)'),
-    _taskKey('אתגרים', 'שבוע בלי רשתות חברתיות'),
     _taskKey('אתגרים', 'יום בלי טלפון'),
     _taskKey('אתגרים', 'להתגבר על פחד'),
     _taskKey('מעשים טובים', 'לעזור לבן אדם אקראי ברחוב'),
@@ -206,17 +209,25 @@ class SpontaneousChallengeService {
       return pickRandomTask(now: current);
     }
 
-    final snapshot = await FirebaseFirestore.instance
-        .collection('users')
-        .doc(normalizedUid)
+    final postsSnapshot = await FirebaseFirestore.instance
+        .collection('posts')
+        .where('authorId', isEqualTo: normalizedUid)
+        .where('status', isEqualTo: 'published')
         .get();
 
-    final postedKeysRaw =
-        (snapshot.data()?['postedSubCategoryKeys'] as List<dynamic>? ?? const []);
-    final completedKeys = postedKeysRaw
-        .map((item) => item.toString().trim())
-        .where((item) => item.isNotEmpty)
-        .toSet();
+    final completedKeys = <String>{};
+    for (final postDoc in postsSnapshot.docs) {
+      final data = postDoc.data();
+      final category = (data['category'] as String? ?? '').trim();
+      final subCategory = (data['subCategory'] as String? ?? '').trim();
+      if (category.isEmpty || subCategory.isEmpty || subCategory == 'אחר') {
+        continue;
+      }
+      final key = _taskKey(category, subCategory);
+      if (key.isNotEmpty) {
+        completedKeys.add(key);
+      }
+    }
 
     final remainingOptions = options
         .where(
@@ -368,6 +379,9 @@ class SpontaneousChallengeService {
       for (final subCategory in subCategories) {
         final key = _taskKey(normalizedCategory, subCategory);
         if (!uniquePairs.add(key)) {
+          continue;
+        }
+        if (_bannedTaskKeys.contains(key)) {
           continue;
         }
 

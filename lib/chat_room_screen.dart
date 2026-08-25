@@ -1477,6 +1477,66 @@ class _ChatRoomScreenState extends State<ChatRoomScreen>
     );
   }
 
+  Widget _buildJoinAnnouncementBanner(Map<String, dynamic> messageData) {
+    final isLight = _isLightMode(context);
+    final displayName =
+        (messageData['joinedDisplayName'] as String? ?? '').trim();
+    final avatarUrl = ((messageData['senderAvatarUrl'] as String?) ?? '').trim();
+    final text = ChatService.buildGroupJoinAnnouncementText(displayName);
+    final avatar = CircleAvatar(
+      radius: 14,
+      backgroundColor: isLight ? const Color(0xFFDCE8FF) : const Color(0xFF2A3445),
+      backgroundImage: avatarUrl.isNotEmpty ? NetworkImage(avatarUrl) : null,
+      child: avatarUrl.isEmpty
+          ? Icon(
+              Icons.person_rounded,
+              size: 15,
+              color: isLight ? const Color(0xFF4C6FFF) : Colors.white70,
+            )
+          : null,
+    );
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Center(
+        child: Container(
+          constraints: BoxConstraints(
+            maxWidth: MediaQuery.of(context).size.width * 0.8,
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          decoration: BoxDecoration(
+            color: isLight ? const Color(0xFFF3F7FF) : const Color(0xFF1A2330),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+              color: isLight ? const Color(0xFFCFDBF1) : Colors.white12,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            textDirection: TextDirection.rtl,
+            children: [
+              avatar,
+              const SizedBox(width: 10),
+              Flexible(
+                child: Text(
+                  text,
+                  textAlign: TextAlign.right,
+                  textDirection: TextDirection.rtl,
+                  style: TextStyle(
+                    color: isLight ? const Color(0xFF2F3E5D) : Colors.white,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    height: 1.3,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildMessageBubble({
     required String messageId,
     required String text,
@@ -1494,6 +1554,11 @@ class _ChatRoomScreenState extends State<ChatRoomScreen>
     final isLight = _isLightMode(context);
     final messageType =
         (messageData['messageType'] as String? ?? 'text').trim().toLowerCase();
+    final eventType =
+        (messageData['eventType'] as String? ?? '').trim().toLowerCase();
+    if (messageType == 'system' && eventType == 'group_member_joined') {
+      return _buildJoinAnnouncementBanner(messageData);
+    }
     final isPostMessage = messageType == 'post';
     final isMediaMessage = messageType == 'media';
     final isAudioMessage = messageType == 'audio';

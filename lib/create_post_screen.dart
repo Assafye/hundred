@@ -14,7 +14,14 @@ import 'widgets/swipe_back_wrapper.dart';
 import 'video_preview_utils.dart';
 
 class CreatePostScreen extends StatefulWidget {
-  const CreatePostScreen({super.key});
+  final String? initialCategory;
+  final String? initialSubCategory;
+
+  const CreatePostScreen({
+    super.key,
+    this.initialCategory,
+    this.initialSubCategory,
+  });
 
   @override
   State<CreatePostScreen> createState() => _CreatePostScreenState();
@@ -525,6 +532,8 @@ class _CreatePostScreenState extends State<CreatePostScreen>
         builder: (context) => PostEditScreen(
           selectedMediaItems:
               List<PostUploadMediaItem>.from(_selectedMediaItems),
+          initialCategory: widget.initialCategory,
+          initialSubCategory: widget.initialSubCategory,
         ),
       ),
     );

@@ -4533,8 +4533,11 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
       required bool selected,
       IconData? icon,
       bool emphasize = false,
+      bool iconOnRight = false,
+      bool fullWidth = false,
     }) {
       return Container(
+        width: fullWidth ? double.infinity : null,
         padding: EdgeInsets.symmetric(
           horizontal: emphasize ? 18 : 14,
           vertical: emphasize ? 11 : 8,
@@ -4573,33 +4576,53 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
           builder: (context, constraints) {
             final isTight = constraints.maxWidth < 110;
             final showIcon = icon != null && (!isTight || emphasize);
-            return Row(
-              mainAxisSize: MainAxisSize.min,
-              textDirection: TextDirection.ltr,
-              children: [
-                if (showIcon) ...[
-                  Icon(
-                    icon,
-                    size: emphasize ? 18 : 16,
-                    color: selected ? timerTextColor : const Color(0xFF4A5B83),
-                  ),
-                  SizedBox(width: isTight ? 6 : 8),
-                ],
-                Flexible(
-                  child: Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color:
-                          selected ? timerTextColor : const Color(0xFF425070),
-                      fontSize: emphasize ? 14 : 12,
-                      fontWeight: selected ? FontWeight.w800 : FontWeight.w700,
-                      letterSpacing: selected ? 0.2 : 0,
-                    ),
+            final rowChildren = <Widget>[];
+
+            if (showIcon && !iconOnRight) {
+              rowChildren.addAll([
+                Icon(
+                  icon,
+                  size: emphasize ? 18 : 16,
+                  color: selected ? timerTextColor : const Color(0xFF4A5B83),
+                ),
+                SizedBox(width: isTight ? 6 : 8),
+              ]);
+            }
+
+            if (showIcon && iconOnRight) {
+              rowChildren.addAll([
+                Icon(
+                  icon,
+                  size: emphasize ? 18 : 16,
+                  color: selected ? timerTextColor : const Color(0xFF4A5B83),
+                ),
+                SizedBox(width: isTight ? 6 : 8),
+              ]);
+            }
+
+            rowChildren.add(
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.right,
+                  textDirection: TextDirection.rtl,
+                  style: TextStyle(
+                    color:
+                        selected ? timerTextColor : const Color(0xFF425070),
+                    fontSize: emphasize ? 14 : 12,
+                    fontWeight: selected ? FontWeight.w800 : FontWeight.w700,
+                    letterSpacing: selected ? 0.2 : 0,
                   ),
                 ),
-              ],
+              ),
+            );
+
+            return Row(
+              mainAxisSize: fullWidth ? MainAxisSize.max : MainAxisSize.min,
+              textDirection: TextDirection.rtl,
+              children: rowChildren,
             );
           },
         ),
@@ -5127,15 +5150,13 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                                 horizontal: 8,
                                 vertical: 6,
                               ),
-                              child: Align(
-                                alignment: Alignment.centerRight,
-                                child: futuristicCategoryChip(
+                              child: futuristicCategoryChip(
+                                category,
+                                selected: isSelected,
+                                icon: _getCategoryIcon(
                                   category,
-                                  selected: isSelected,
-                                  icon: _getCategoryIcon(
-                                    category,
-                                  ),
                                 ),
+                                fullWidth: true,
                               ),
                             ),
                           );
@@ -5180,13 +5201,12 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                                 horizontal: 8,
                                 vertical: 6,
                               ),
-                              child: Align(
-                                alignment: Alignment.centerRight,
-                                child: futuristicCategoryChip(
-                                  subCategory,
-                                  selected: isSelected,
-                                  icon: Icons.radio_button_checked_rounded,
-                                ),
+                              child: futuristicCategoryChip(
+                                subCategory,
+                                selected: isSelected,
+                                icon: Icons.radio_button_checked_rounded,
+                                iconOnRight: true,
+                                fullWidth: true,
                               ),
                             ),
                           );

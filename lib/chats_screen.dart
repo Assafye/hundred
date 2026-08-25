@@ -1348,7 +1348,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
                                 },
                                 style: baseTextStyle,
                                 decoration: InputDecoration(
-                                  hintText: 'lets be hundred',
+                                  hintText: 'חיפוש משתמשים וקבוצות',
                                   hintStyle: baseTextStyle.copyWith(
                                     color: isLight
                                         ? Colors.black54

@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 
 import 'block_user_service.dart';
 import 'notification_service.dart';
+import 'public_user_profile_service.dart';
 import 'secure_action_queue_service.dart';
 
 enum FollowActionResult {
@@ -85,6 +86,24 @@ class SocialService {
 
   int _uidCount(Set<String> values) => values.length;
 
+  static int followerScoreDelta({required bool isAdding}) {
+    return isAdding ? 50 : -50;
+  }
+
+  void _applyFollowerOptimisticScoreDelta({
+    required String targetUid,
+    required bool isAdding,
+  }) {
+    if (targetUid.trim().isEmpty) {
+      return;
+    }
+
+    PublicUserProfileService.addOptimisticScoreDelta(
+      uid: targetUid,
+      delta: followerScoreDelta(isAdding: isAdding),
+    );
+  }
+
   bool _isPermissionDenied(Object error) {
     return error is FirebaseException && error.code == 'permission-denied';
   }
@@ -95,8 +114,9 @@ class SocialService {
   }) async {
     final myUserRef = _db.collection('users').doc(myUid);
     final myPublicUserRef = _db.collection('users_public').doc(myUid);
-    final targetPublicSnap =
-        await _db.collection('users_public').doc(targetUid).get();
+    final targetUserRef = _db.collection('users').doc(targetUid);
+    final targetPublicUserRef = _db.collection('users_public').doc(targetUid);
+    final targetPublicSnap = await targetPublicUserRef.get();
 
     final targetPublicData = targetPublicSnap.data() ?? <String, dynamic>{};
     final isPrivateTarget = _isPrivateUser(null, targetPublicData);
@@ -125,6 +145,12 @@ class SocialService {
     }
 
     final nextFollowing = <String>{...myFollowing, targetUid};
+    final targetSnap = await targetUserRef.get();
+    final targetData = targetSnap.data() ?? <String, dynamic>{};
+    final nextTargetFollowers = _readUidSet(targetData, 'followers')..add(myUid);
+    final targetCurrentScore = (targetData['score'] as num?)?.toInt() ?? 0;
+    final nextTargetScore = targetCurrentScore + followerScoreDelta(isAdding: true);
+
     await myUserRef.set(
       {
         'following': FieldValue.arrayUnion(<String>[targetUid]),
@@ -141,6 +167,24 @@ class SocialService {
       ),
       SetOptions(merge: true),
     );
+
+    await targetUserRef.set(
+      {
+        'followers': FieldValue.arrayUnion(<String>[myUid]),
+        'followersCount': nextTargetFollowers.length,
+        'score': nextTargetScore,
+      },
+      SetOptions(merge: true),
+    );
+    await targetPublicUserRef.set(
+      {
+        'followers': nextTargetFollowers.toList(growable: false)..sort(),
+        'followersCount': nextTargetFollowers.length,
+        'score': nextTargetScore,
+      },
+      SetOptions(merge: true),
+    );
+
     return FollowActionResult.followed;
   }
 
@@ -172,6 +216,11 @@ class SocialService {
         following: myFollowing,
       ),
       SetOptions(merge: true),
+    );
+
+    _applyFollowerOptimisticScoreDelta(
+      targetUid: targetUid,
+      isAdding: false,
     );
   }
 
@@ -252,8 +301,6 @@ class SocialService {
 
         final myFollowing = _readUidSet(myData, 'following');
         final myPendingRequests = _readUidSet(myData, 'sentFollowRequests');
-        final targetFollowers = _readUidSet(targetData, 'followers');
-        final targetFollowing = _readUidSet(targetData, 'following');
         final targetRequests = _readUidSet(targetData, 'followRequests');
         final targetPublicData =
             targetPublicUserSnap.data() ?? <String, dynamic>{};
@@ -287,31 +334,18 @@ class SocialService {
             },
             SetOptions(merge: true),
           );
-
-          tx.set(
-            targetUserRef,
-            {
-              'followRequests': FieldValue.arrayUnion(<String>[myUid]),
-            },
-            SetOptions(merge: true),
-          );
           return;
         }
 
         didCreateFollow = true;
-        becameFriends = targetFollowing.contains(myUid);
+        becameFriends = _readUidSet(targetData, 'following').contains(myUid);
         result = FollowActionResult.followed;
 
         myFollowing.add(targetUid);
-        targetFollowers.add(myUid);
 
         final myUserUpdate = <String, dynamic>{
           'following': FieldValue.arrayUnion(<String>[targetUid]),
           'followingCount': myFollowing.length,
-        };
-        final targetUserUpdate = <String, dynamic>{
-          'followers': FieldValue.arrayUnion(<String>[myUid]),
-          'followersCount': targetFollowers.length,
         };
         final myPublicUpdate = _publicCountersPayload(
           followersCount: _readUidSet(myData, 'followers').length,
@@ -319,20 +353,10 @@ class SocialService {
           followers: _readUidSet(myData, 'followers'),
           following: myFollowing,
         );
-        final targetPublicUpdate = _publicCountersPayload(
-          followersCount: targetFollowers.length,
-          followingCount: _readUidSet(targetData, 'following').length,
-          followers: targetFollowers,
-          following: _readUidSet(targetData, 'following'),
-        );
 
         debugPrint('[Follow Debug] update ${myUserRef.path}: $myUserUpdate');
         debugPrint(
-            '[Follow Debug] update ${targetUserRef.path}: $targetUserUpdate');
-        debugPrint(
             '[Follow Debug] update ${myPublicUserRef.path}: $myPublicUpdate');
-        debugPrint(
-            '[Follow Debug] update ${targetPublicUserRef.path}: $targetPublicUpdate');
 
         tx.set(
           myUserRef,
@@ -340,45 +364,33 @@ class SocialService {
           SetOptions(merge: true),
         );
 
-        tx.update(
-          targetUserRef,
-          targetUserUpdate,
-        );
-
         tx.set(
           myPublicUserRef,
           myPublicUpdate,
           SetOptions(merge: true),
         );
-
-        if (targetPublicUserSnap.exists) {
-          tx.update(
-            targetPublicUserRef,
-            targetPublicUpdate,
-          );
-        } else {
-          debugPrint(
-            '[Follow Debug] skip update for missing doc: ${targetPublicUserRef.path}',
-          );
-        }
       });
     } catch (e) {
       if (_isPermissionDenied(e)) {
         debugPrint(
-            '[Follow Debug] permission-denied; applying self-only fallback');
-        final fallbackResult = await _followUserSelfOnlyFallback(
-            myUid: myUid, targetUid: targetUid);
-        await _secureQueue.enqueue(
-          type: SecureActionTypes.followUser,
-          payload: <String, dynamic>{
-            'targetUid': targetUid,
-          },
-          dedupeKey: 'follow:$myUid:$targetUid',
-        );
-        return fallbackResult;
+            '[Follow Debug] permission-denied while writing own follow state; queueing secure action');
       }
       debugPrint('[Follow Debug] Firestore follow failed: ${e.toString()}');
-      rethrow;
+    }
+
+    await _secureQueue.enqueue(
+      type: SecureActionTypes.followUser,
+      payload: <String, dynamic>{
+        'targetUid': targetUid,
+      },
+      dedupeKey: 'follow:$myUid:$targetUid',
+    );
+
+    if (didCreateFollow) {
+      _applyFollowerOptimisticScoreDelta(
+        targetUid: targetUid,
+        isAdding: true,
+      );
     }
 
     if (didCreateFollow) {
@@ -519,6 +531,30 @@ class SocialService {
         return;
       }
       rethrow;
+    }
+
+    try {
+      final penalty = followerScoreDelta(isAdding: false);
+      await _db.collection('users').doc(targetUid).set(
+        {'score': FieldValue.increment(penalty)},
+        SetOptions(merge: true),
+      );
+      await _db.collection('users_public').doc(targetUid).set(
+        {'score': FieldValue.increment(penalty)},
+        SetOptions(merge: true),
+      );
+      _applyFollowerOptimisticScoreDelta(
+        targetUid: targetUid,
+        isAdding: false,
+      );
+    } catch (error) {
+      debugPrint(
+        '[Follow Debug] score deduction for unfollow failed: ${error.toString()}',
+      );
+      _applyFollowerOptimisticScoreDelta(
+        targetUid: targetUid,
+        isAdding: false,
+      );
     }
   }
 

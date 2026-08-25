@@ -95,6 +95,7 @@ class WeeklyChallengeService {
     final subCategories = appSubCategories(mainCategory)
         .map((value) => value.trim())
         .where((value) => value.isNotEmpty)
+        .where((value) => value != 'אחר')
         .toList(growable: false);
 
     if (subCategories.isEmpty) {
@@ -103,9 +104,10 @@ class WeeklyChallengeService {
 
     final weekStart = DateTime.utc(2024, 1, 1).add(Duration(days: weekIndex * 7));
     final daysIntoWeek = nowUtc.difference(weekStart).inDays.clamp(0, 6);
-    final twoDaySlot = daysIntoWeek ~/ 2;
-    final random = Random((weekIndex + 1) * 3571 + (twoDaySlot + 1) * 101);
-    return subCategories[random.nextInt(subCategories.length)];
+    final seeded = Random(
+      (weekIndex + 1) * 3571 + (daysIntoWeek + 1) * 101 + mainCategory.hashCode,
+    );
+    return subCategories[seeded.nextInt(subCategories.length)];
   }
 
   static List<String> _eligibleMainCategories() {
@@ -113,7 +115,12 @@ class WeeklyChallengeService {
         .map((value) => value.trim())
         .where((value) => value.isNotEmpty)
         .where((value) => !isGeneralCategory(value))
-        .where((value) => appSubCategories(value).isNotEmpty)
+        .where((value) => value != 'אחר')
+        .where((value) => appSubCategories(value)
+            .map((subCategory) => subCategory.trim())
+            .where((subCategory) => subCategory.isNotEmpty)
+            .where((subCategory) => subCategory != 'אחר')
+            .isNotEmpty)
         .toList(growable: false);
 
     if (categories.isNotEmpty) {
@@ -123,6 +130,8 @@ class WeeklyChallengeService {
     return appMainCategories
         .map((value) => value.trim())
         .where((value) => value.isNotEmpty)
+        .where((value) => !isGeneralCategory(value))
+        .where((value) => value != 'אחר')
         .toList(growable: false);
   }
 }

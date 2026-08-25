@@ -246,13 +246,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                   canViewFriendsOnlyPosts: canViewFriendsOnlyPosts,
                 ))
             .length;
-        final livePostedSubCategoryCount = _livePostedSubCategoryCount(allDocs);
-        final storedPostedSubCategoryCount =
-            _storedPostedSubCategoryCount(profileData);
-        final postedSubCategoryCount =
-            livePostedSubCategoryCount > storedPostedSubCategoryCount
-                ? livePostedSubCategoryCount
-                : storedPostedSubCategoryCount;
+        final postedSubCategoryCount = _livePostedSubCategoryCount(allDocs);
         final visibleCategoryItems = _visibleCategoryItems(
           allDocs,
           canViewFriendsOnlyPosts: canViewFriendsOnlyPosts,
@@ -641,19 +635,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       }
     }
     return uniqueKeys.length;
-  }
-
-  int _storedPostedSubCategoryCount(Map<String, dynamic> profileData) {
-    final rawKeys = profileData['postedSubCategoryKeys'];
-    if (rawKeys is List<dynamic>) {
-      return rawKeys
-          .map((item) => item.toString().trim())
-          .where((item) => item.isNotEmpty)
-          .toSet()
-          .length;
-    }
-
-    return _intFromAny(profileData, const ['postedSubCategoriesCount']);
   }
 
   List<String> _validTaskSubCategories(String category) {

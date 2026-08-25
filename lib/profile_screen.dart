@@ -605,19 +605,6 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
     return uniqueKeys.length;
   }
 
-  int _storedPostedSubCategoryCount(Map<String, dynamic> profileData) {
-    final rawKeys = profileData['postedSubCategoryKeys'];
-    if (rawKeys is List<dynamic>) {
-      return rawKeys
-          .map((item) => item.toString().trim())
-          .where((item) => item.isNotEmpty)
-          .toSet()
-          .length;
-    }
-
-    return _intValue(profileData, const ['postedSubCategoriesCount']);
-  }
-
   List<String> _validTaskSubCategories(String category) {
     return appSubCategories(category)
         .map((item) => item.trim())
@@ -4639,15 +4626,8 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                           }
                         }
 
-                        final livePostedSubCategoryCount =
-                            _livePostedSubCategoryCount(allDocs);
-                        final storedPostedSubCategoryCount =
-                            _storedPostedSubCategoryCount(profileData);
                         final postedSubCategoryCount =
-                            livePostedSubCategoryCount >
-                                    storedPostedSubCategoryCount
-                                ? livePostedSubCategoryCount
-                                : storedPostedSubCategoryCount;
+                            _livePostedSubCategoryCount(allDocs);
 
                         final filteredDocs = _filteredPosts(allDocs);
 

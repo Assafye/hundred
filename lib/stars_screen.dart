@@ -1789,7 +1789,11 @@ class _ActiveSpontaneousTaskDialogState
                           navigator.pop();
                           navigator.push(
                             MaterialPageRoute(
-                                builder: (_) => const CreatePostScreen()),
+                              builder: (_) => CreatePostScreen(
+                                initialCategory: _task.category,
+                                initialSubCategory: _task.subCategory,
+                              ),
+                            ),
                           );
                         },
                         borderRadius: BorderRadius.circular(18),
