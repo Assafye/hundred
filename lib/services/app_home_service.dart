@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 
 import '../age_restrictions.dart';
 import '../models/public_user_profile.dart';
+import 'block_user_service.dart';
 import 'location_service.dart';
 import 'public_user_profile_service.dart';
 
@@ -149,6 +150,7 @@ class AppHomeService {
   final FirebaseAuth _auth;
   final PublicUserProfileService _publicUserProfileService;
   final LocationService _locationService;
+  final BlockUserService _blockUserService = BlockUserService();
 
   String? get currentUid => _auth.currentUser?.uid;
 
@@ -767,14 +769,16 @@ class AppHomeService {
       QuerySnapshot<Map<String, dynamic>>? postsSnapshot;
       StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? userSub;
       StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? postsSub;
+      StreamSubscription<Set<String>>? blockedUsersSub;
       final loggedPermissionDeniedPostIds = <String>{};
       final profileFutureByUid = <String, Future<PublicUserProfile?>>{};
-        final userImageUrlsFutureByUid = <String, Future<List<String>>>{};
-        final groupDocFutureById =
+      final userImageUrlsFutureByUid = <String, Future<List<String>>>{};
+      final groupDocFutureById =
           <String, Future<DocumentSnapshot<Map<String, dynamic>>?>>{};
       String? lastMeetUserSortKey;
       var emitInProgress = false;
       var emitQueued = false;
+      var blockedUserIds = <String>{};
 
       Future<PublicUserProfile?> resolveProfile(String rawUid) {
         final uid = rawUid.trim();
@@ -843,7 +847,7 @@ class AppHomeService {
             }
 
             final authorUid = _textValue(data, const ['authorUid', 'uid']);
-            if (authorUid.isEmpty) {
+            if (authorUid.isEmpty || blockedUserIds.contains(authorUid)) {
               return null;
             }
 
@@ -1052,9 +1056,21 @@ class AppHomeService {
         unawaited(scheduleEmit());
       }, onError: controller.addError);
 
+      blockedUsersSub = _blockUserService.streamBlockedConnections().listen(
+        (ids) {
+          blockedUserIds = ids;
+          unawaited(scheduleEmit());
+        },
+        onError: (_) {
+          blockedUserIds = const <String>{};
+          unawaited(scheduleEmit());
+        },
+      );
+
       controller.onCancel = () async {
         await userSub?.cancel();
         await postsSub?.cancel();
+        await blockedUsersSub?.cancel();
       };
     });
   }
@@ -1339,6 +1355,7 @@ class AppHomeService {
         'description': description,
         'groupImageUrl': '',
         'isPublic': true,
+        'isDirect': false,
         'originType': 'pop',
         'participants': initialChatParticipants,
         'sourceGroupId': groupId,

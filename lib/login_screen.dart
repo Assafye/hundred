@@ -87,6 +87,27 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
+  void _showLoginSnackBar(String message, {bool error = false}) {
+    if (!mounted) {
+      return;
+    }
+
+    final rootContext = Navigator.of(context, rootNavigator: true).context;
+    final messenger = ScaffoldMessenger.maybeOf(rootContext);
+    if (messenger == null) {
+      return;
+    }
+
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: error ? Colors.redAccent : null,
+        duration: const Duration(seconds: 4),
+      ),
+    );
+  }
+
   bool _tapHitsEditable(PointerDownEvent event) {
     final hitTestResult = HitTestResult();
     GestureBinding.instance.hitTest(hitTestResult, event.position);
@@ -386,7 +407,9 @@ class _LoginScreenState extends State<LoginScreen> {
       },
     );
 
-    controller.dispose();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      controller.dispose();
+    });
 
     final input = (value ?? '').trim();
     if (input.isEmpty || !mounted) {
@@ -396,12 +419,7 @@ class _LoginScreenState extends State<LoginScreen> {
     try {
       await _authService.sendPasswordResetForEmailOrUsername(input);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content:
-              Text('אם החשבון קיים, נשלח קישור לאיפוס סיסמה. בדוק גם בספאם.'),
-        ),
-      );
+      _showLoginSnackBar('אם החשבון קיים, נשלח קישור לאיפוס סיסמה. בדוק גם בספאם.');
     } on FirebaseAuthException catch (e, stackTrace) {
       debugPrint(
           '[LoginScreen][_onForgotPasswordPressed] FirebaseAuthException: $e');
@@ -409,27 +427,19 @@ class _LoginScreenState extends State<LoginScreen> {
           '[LoginScreen][_onForgotPasswordPressed] stackTrace: $stackTrace');
       if (!mounted) return;
       if (e.code == 'invalid-email') {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.message ?? 'לא הצלחנו לזהות כתובת מייל תקינה.'),
-          ),
+        _showLoginSnackBar(
+          e.message ?? 'לא הצלחנו לזהות כתובת מייל תקינה.',
+          error: true,
         );
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('לא הצלחנו לשלוח כרגע, נסה שוב בעוד רגע.'),
-        ),
-      );
+      _showLoginSnackBar('לא הצלחנו לשלוח כרגע, נסה שוב בעוד רגע.', error: true);
     } catch (e, stackTrace) {
       debugPrint('[LoginScreen][_onForgotPasswordPressed] error: $e');
       debugPrint(
           '[LoginScreen][_onForgotPasswordPressed] stackTrace: $stackTrace');
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('לא הצלחנו לשלוח כרגע, נסה שוב בעוד רגע.')),
-      );
+      _showLoginSnackBar('לא הצלחנו לשלוח כרגע, נסה שוב בעוד רגע.', error: true);
     }
   }
 

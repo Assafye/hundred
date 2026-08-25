@@ -905,12 +905,40 @@ class GroupService {
     String? imageUrl,
   }) async {
     final senderId = _requireUid();
-    await _db.collection('groups').doc(groupId).collection('messages').add({
+    final senderProfile = await _db.collection('users_public').doc(senderId).get();
+    final privateProfile = senderProfile.exists
+        ? senderProfile.data() ?? const <String, dynamic>{}
+        : (await _db.collection('users').doc(senderId).get()).data() ??
+            const <String, dynamic>{};
+    final senderName = ((privateProfile['displayName'] as String?) ??
+                (privateProfile['username'] as String?) ??
+                (privateProfile['name'] as String?) ??
+                '')
+            .toString()
+            .trim();
+    final senderAvatarUrl = ((privateProfile['profilePictureUrl'] as String?) ??
+                (privateProfile['profileImageUrl'] as String?) ??
+                (privateProfile['avatarUrl'] as String?) ??
+                '')
+            .toString()
+            .trim();
+
+    final messageRef =
+        _db.collection('groups').doc(groupId).collection('messages');
+    await messageRef.add({
       'senderId': senderId,
+      'senderName': senderName.isNotEmpty ? senderName : 'משתמש',
+      'senderAvatarUrl': senderAvatarUrl,
       'text': text.trim(),
+      'messageType': 'text',
       'timestamp': FieldValue.serverTimestamp(),
+      'createdAt': FieldValue.serverTimestamp(),
       'imageUrl': (imageUrl ?? '').trim(),
     });
+
+    await _db.collection('groups').doc(groupId).set({
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
   }
 
   Future<String> uploadGroupImage({
@@ -1181,8 +1209,10 @@ class GroupService {
         'senderId': '',
         'text': '$actorName עזב/ה את הקבוצה',
         'timestamp': FieldValue.serverTimestamp(),
+        'createdAt': FieldValue.serverTimestamp(),
         'messageType': 'text',
         'senderName': 'מערכת',
+        'senderAvatarUrl': '',
       });
     } catch (_) {
       // System leave message is best-effort only.

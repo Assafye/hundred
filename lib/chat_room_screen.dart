@@ -911,8 +911,9 @@ class _ChatRoomScreenState extends State<ChatRoomScreen>
           .map((value) => value.toString().trim()),
     ].where((value) => value.isNotEmpty).toList(growable: false);
     final previewUrl = initialPreviewUrl.isEmpty ? '' : initialPreviewUrl.first;
+    const sharedPostWidth = 168.0;
     final body = Container(
-      width: 168,
+      width: sharedPostWidth,
       decoration: BoxDecoration(
         color: isLight
             ? (isMe ? const Color(0xFFDCE9FF) : const Color(0xFFEFF5FF))
@@ -1068,7 +1069,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen>
         final isDeleted = snapshot.data ?? false;
         if (isDeleted) {
           return Container(
-            width: 168,
+            width: sharedPostWidth,
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             decoration: BoxDecoration(
               color: isLight
@@ -1562,6 +1563,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen>
     final isPostMessage = messageType == 'post';
     final isMediaMessage = messageType == 'media';
     final isAudioMessage = messageType == 'audio';
+    const sharedPostWidth = 168.0;
     final postPayload = isPostMessage && messageData['post'] is Map
         ? Map<String, dynamic>.from(messageData['post'] as Map)
         : const <String, dynamic>{};
@@ -1641,15 +1643,12 @@ class _ChatRoomScreenState extends State<ChatRoomScreen>
                   Padding(
                     padding: const EdgeInsets.only(bottom: 4),
                     child: Align(
-                      alignment:
-                          isMe ? Alignment.centerRight : Alignment.centerLeft,
+                      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
                       child: GestureDetector(
                         behavior: HitTestBehavior.opaque,
                         onTap: normalizedSenderId.isEmpty || isDeletedSender
                             ? null
-                            : () => _openUserProfileFromChat(
-                                  normalizedSenderId,
-                                ),
+                            : () => _openUserProfileFromChat(normalizedSenderId),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           textDirection: TextDirection.ltr,
@@ -1661,11 +1660,10 @@ class _ChatRoomScreenState extends State<ChatRoomScreen>
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                       style: TextStyle(
-                                          color: isLight
-                                              ? Colors.black
-                                              : Colors.white70,
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w400),
+                                        color: isLight ? Colors.black : Colors.white70,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w400,
+                                      ),
                                     ),
                                   ),
                                   const SizedBox(width: 8),
@@ -1680,11 +1678,10 @@ class _ChatRoomScreenState extends State<ChatRoomScreen>
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                       style: TextStyle(
-                                          color: isLight
-                                              ? Colors.black
-                                              : Colors.white70,
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w400),
+                                        color: isLight ? Colors.black : Colors.white70,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w400,
+                                      ),
                                     ),
                                   ),
                                 ],
@@ -1693,18 +1690,24 @@ class _ChatRoomScreenState extends State<ChatRoomScreen>
                     ),
                   ),
                 if (isPostMessage)
-                  _buildSharedPostPreview(
-                    postPayload: postPayload,
-                    isMe: isMe,
+                  Align(
+                    alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+                    child: _buildSharedPostPreview(
+                      postPayload: postPayload,
+                      isMe: isMe,
+                    ),
                   ),
                 if (showUnifiedPostFlow && hasPostCaption)
-                  SizedBox(
-                    width: 168,
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(6, 6, 6, 0),
+                  Align(
+                    alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+                    child: SizedBox(
+                      width: sharedPostWidth,
                       child: Container(
+                        margin: const EdgeInsets.only(top: 6),
                         padding: const EdgeInsets.symmetric(
-                            vertical: 7, horizontal: 12),
+                          vertical: 7,
+                          horizontal: 12,
+                        ),
                         decoration: BoxDecoration(
                           color: bg,
                           borderRadius: BorderRadius.circular(14),
@@ -1749,9 +1752,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen>
                         sentAt,
                         textDirection: bubbleTextDirection,
                         style: TextStyle(
-                          color: isLight
-                              ? const Color(0xFF5D6B85)
-                              : Colors.white70,
+                          color: isLight ? const Color(0xFF5D6B85) : Colors.white70,
                           fontSize: 11,
                           fontWeight: FontWeight.w400,
                         ),
@@ -1762,8 +1763,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen>
                 if (!showUnifiedPostFlow)
                   Container(
                     padding: showBubbleShell
-                        ? const EdgeInsets.symmetric(
-                            vertical: 7, horizontal: 12)
+                        ? const EdgeInsets.symmetric(vertical: 7, horizontal: 12)
                         : (isPostMessage
                             ? const EdgeInsets.only(top: 4)
                             : EdgeInsets.zero),
@@ -1841,11 +1841,12 @@ class _ChatRoomScreenState extends State<ChatRoomScreen>
                             sentAt,
                             textDirection: bubbleTextDirection,
                             style: TextStyle(
-                                color: isLight
-                                    ? fg.withValues(alpha: 0.72)
-                                    : Colors.white,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w400),
+                              color: isLight
+                                  ? fg.withValues(alpha: 0.72)
+                                  : Colors.white,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w400,
+                            ),
                           ),
                         ),
                       ],

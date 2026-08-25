@@ -13,6 +13,8 @@ import 'main_bottom_nav.dart';
 import 'post_media_utils.dart';
 import 'post_detail_view.dart';
 import 'app_categories.dart';
+import 'services/app_home_service.dart';
+import 'services/block_user_service.dart';
 import 'services/social_service.dart';
 import 'services/spontaneous_challenge_service.dart';
 import 'services/weekly_challenge_service.dart';
@@ -84,8 +86,39 @@ class _StarsSectionData {
   });
 }
 
+List<Map<String, dynamic>> filterBlockedUserPostsForViewer(
+  List<Map<String, dynamic>> posts, {
+  required Set<String> blockedUserIds,
+  required String currentUserId,
+}) {
+  return posts.where((post) {
+    final authorId = ((post['authorId'] as String?) ??
+            (post['uid'] as String?) ??
+            '')
+        .trim();
+    if (authorId.isEmpty) {
+      return true;
+    }
+    if (authorId == currentUserId) {
+      return true;
+    }
+    return !blockedUserIds.contains(authorId);
+  }).toList(growable: false);
+}
+
+List<MeetNowPostEntry> filterBlockedMeetNowEntries(
+  List<MeetNowPostEntry> entries, {
+  required Set<String> blockedUserIds,
+}) {
+  return entries
+      .where((entry) => !blockedUserIds.contains(entry.authorUid.trim()))
+      .toList(growable: false);
+}
+
 class _StarsScreenState extends State<StarsScreen> {
   late final WeeklyChallenge _challenge;
+  late final BlockUserService _blockUserService = BlockUserService();
+  late final StreamSubscription<Set<String>> _blockedUsersSub;
   late final Future<List<_StarsSectionData>> _hotSectionsFuture;
   final Set<String> _expandedSectionKeys = <String>{};
   bool _openedInitialPost = false;
@@ -138,12 +171,21 @@ class _StarsScreenState extends State<StarsScreen> {
     super.initState();
     _challenge = WeeklyChallengeService.currentChallenge();
     _hotSectionsFuture = _buildHotSections();
+    _blockedUsersSub = _blockUserService.streamBlockedConnections().listen((ids) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _hotSectionsFuture = _buildHotSections(blockedUserIds: ids);
+      });
+    });
     _loadActiveSpontaneousTask();
   }
 
   @override
   void dispose() {
     _spontaneousCountdownTimer?.cancel();
+    _blockedUsersSub.cancel();
     super.dispose();
   }
 
@@ -280,18 +322,38 @@ class _StarsScreenState extends State<StarsScreen> {
   }
 
   Future<List<Map<String, dynamic>>> _filterVisiblePostsForViewer(
-    List<Map<String, dynamic>> posts,
-  ) async {
+    List<Map<String, dynamic>> posts, {
+    Set<String> blockedUserIds = const <String>{},
+  }) async {
     final currentUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    final baseVisible = posts.where((post) {
+      final audience = _postAudience(post);
+      if (audience != 'friends') {
+        return true;
+      }
+
+      final authorId = ((post['authorId'] as String?) ??
+              (post['uid'] as String?) ??
+              '')
+          .trim();
+      if (authorId.isEmpty || authorId == currentUid) {
+        return true;
+      }
+
+      return !blockedUserIds.contains(authorId);
+    }).toList(growable: false);
+
     if (currentUid.isEmpty) {
-      return posts
-          .where((post) => _postAudience(post) != 'friends')
-          .toList(growable: false);
+      return filterBlockedUserPostsForViewer(
+        baseVisible,
+        blockedUserIds: blockedUserIds,
+        currentUserId: currentUid,
+      ).where((post) => _postAudience(post) != 'friends').toList(growable: false);
     }
 
     final socialService = SocialService();
     final visible = <Map<String, dynamic>>[];
-    for (final post in posts) {
+    for (final post in baseVisible) {
       final audience = _postAudience(post);
       if (audience != 'friends') {
         visible.add(post);
@@ -312,7 +374,11 @@ class _StarsScreenState extends State<StarsScreen> {
         visible.add(post);
       }
     }
-    return visible;
+    return filterBlockedUserPostsForViewer(
+      visible,
+      blockedUserIds: blockedUserIds,
+      currentUserId: currentUid,
+    );
   }
 
   List<Map<String, dynamic>> _topPosts(
@@ -332,7 +398,9 @@ class _StarsScreenState extends State<StarsScreen> {
     return sorted.take(limit).toList(growable: false);
   }
 
-  Future<List<_StarsSectionData>> _buildHotSections() async {
+  Future<List<_StarsSectionData>> _buildHotSections({
+    Set<String> blockedUserIds = const <String>{},
+  }) async {
     final now = DateTime.now().toUtc();
 
     final weeklyCategoryDocsFuture = FirebaseFirestore.instance
@@ -359,10 +427,14 @@ class _StarsScreenState extends State<StarsScreen> {
     final allRecentPosts =
         results[1].docs.map(_toPostMap).toList(growable: false);
 
-    final visibleWeeklyCategoryPosts =
-        await _filterVisiblePostsForViewer(weeklyCategoryPosts);
-    final visibleAllRecentPosts =
-        await _filterVisiblePostsForViewer(allRecentPosts);
+    final visibleWeeklyCategoryPosts = await _filterVisiblePostsForViewer(
+      weeklyCategoryPosts,
+      blockedUserIds: blockedUserIds,
+    );
+    final visibleAllRecentPosts = await _filterVisiblePostsForViewer(
+      allRecentPosts,
+      blockedUserIds: blockedUserIds,
+    );
 
     final weeklySubCategoryPosts = _topPosts(
       visibleWeeklyCategoryPosts.where((post) {
@@ -419,7 +491,10 @@ class _StarsScreenState extends State<StarsScreen> {
         .get();
 
     final posts = docs.docs.map(_toPostMap).toList(growable: false);
-    return _filterVisiblePostsForViewer(posts);
+    return _filterVisiblePostsForViewer(
+      posts,
+      blockedUserIds: await BlockUserService().fetchBlockedConnections(),
+    );
   }
 
   Future<void> _openPostInCategoryFeed(
@@ -2119,99 +2194,90 @@ class _SpontaneousChallengeDialogState
             child: Container(
               width: 360,
               margin: const EdgeInsets.symmetric(horizontal: 18),
-              padding: const EdgeInsets.all(18),
+              padding: const EdgeInsets.all(1.8),
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(30),
-                gradient: LinearGradient(
-                  colors: isLight
-                      ? const [Color(0xFFF8FBFF), Color(0xFFEAF1FF)]
-                      : const [Color(0xFF121A2E), Color(0xFF1B1632)],
+                borderRadius: BorderRadius.circular(32),
+                gradient: const LinearGradient(
+                  colors: [
+                    Color(0xFF70E0FF),
+                    Color(0xFFB8A5FF),
+                    Color(0xFF8AD7FF),
+                  ],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
-                border: Border.all(
-                  color: const Color(0xFF79D8FF).withValues(alpha:  0.35),
-                ),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withValues(alpha:  0.26),
-                    blurRadius: 30,
-                    offset: const Offset(0, 18),
+                    color: const Color(0xFF7ED7FF).withValues(alpha: 0.42),
+                    blurRadius: 24,
+                    spreadRadius: 1,
+                    offset: const Offset(0, 12),
                   ),
                 ],
               ),
-              child: Directionality(
-                textDirection: TextDirection.rtl,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: IconButton(
-                        onPressed: () => Navigator.of(context).maybePop(),
-                        icon: const Icon(Icons.close_rounded),
-                        color:
-                            isLight ? const Color(0xFF34405A) : Colors.white70,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      'חושבים שאתם ספונטניים?\nבואו נבדוק עד כמה',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w900,
-                        height: 1.15,
-                        color: isLight ? const Color(0xFF243355) : Colors.white,
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-                    if (_isLoading)
-                      const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 28),
-                        child: CircularProgressIndicator(),
-                      )
-                    else if (_errorText != null)
-                      Text(
-                        _errorText!,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
+              child: Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(30),
+                  gradient: LinearGradient(
+                    colors: isLight
+                        ? const [Color(0xFFF8FBFF), Color(0xFFEAF1FF)]
+                        : const [Color(0xFF121A2E), Color(0xFF1B1632)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  border: Border.all(
+                    color: const Color(0xFF79D8FF).withValues(alpha: 0.52),
+                    width: 1.5,
+                  ),
+                ),
+                child: Directionality(
+                  textDirection: TextDirection.rtl,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: IconButton(
+                          onPressed: () => Navigator.of(context).maybePop(),
+                          icon: const Icon(Icons.close_rounded),
                           color: isLight
-                              ? const Color(0xFF8A2C5B)
+                              ? const Color(0xFF34405A)
                               : Colors.white70,
                         ),
-                      )
-                    else ...[
-                      Text(
-                        'תעלו פוסט בזמן שיוגדר ותקבלו X5 נקודות.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: isLight
-                              ? const Color(0xFF36435E)
-                              : Colors.white70,
-                          fontSize: 13,
-                          height: 1.3,
-                        ),
                       ),
-                      const SizedBox(height: 4),
+                      const SizedBox(height: 2),
                       Text(
-                        'נשאר יותר מחצי מהזמן? קיבלתם X10!',
+                        'חושבים שאתם ספונטניים?\nבואו נבדוק עד כמה',
                         textAlign: TextAlign.center,
                         style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w900,
+                          height: 1.15,
                           color: isLight
-                              ? const Color(0xFF36435E)
-                              : Colors.white70,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w800,
-                          height: 1.3,
+                              ? const Color(0xFF243355)
+                              : Colors.white,
                         ),
                       ),
                       const SizedBox(height: 14),
-                      _buildCenterActionCard(revealedTask),
-                      const SizedBox(height: 8),
-                      if (revealedTask != null) ...[
+                      if (_isLoading)
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 28),
+                          child: CircularProgressIndicator(),
+                        )
+                      else if (_errorText != null)
                         Text(
-                          'המשימה שלכם חיה עכשיו. פרסמו בזמן כדי לקבל את ההכפלה המקסימלית.',
+                          _errorText!,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: isLight
+                                ? const Color(0xFF8A2C5B)
+                                : Colors.white70,
+                          ),
+                        )
+                      else ...[
+                        Text(
+                          'תעלו פוסט בזמן שיוגדר ותקבלו X5 נקודות.',
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             color: isLight
@@ -2221,22 +2287,51 @@ class _SpontaneousChallengeDialogState
                             height: 1.3,
                           ),
                         ),
-                        const SizedBox(height: 10),
-                        _buildTaskChip(
-                          label: revealedTask.category,
-                          isLight: isLight,
+                        const SizedBox(height: 4),
+                        Text(
+                          'נשאר יותר מחצי מהזמן? קיבלתם X10!',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: isLight
+                                ? const Color(0xFF36435E)
+                                : Colors.white70,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                            height: 1.3,
+                          ),
                         ),
+                        const SizedBox(height: 14),
+                        _buildCenterActionCard(revealedTask),
                         const SizedBox(height: 8),
-                        _buildTaskChip(
-                          label: revealedTask.subCategory,
-                          isLight: isLight,
-                          filled: true,
-                        ),
-                        const SizedBox(height: 10),
-                        _buildCooldownRow(isLight),
+                        if (revealedTask != null) ...[
+                          Text(
+                            'המשימה שלכם חיה עכשיו. פרסמו בזמן כדי לקבל את ההכפלה המקסימלית.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: isLight
+                                  ? const Color(0xFF36435E)
+                                  : Colors.white70,
+                              fontSize: 13,
+                              height: 1.3,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          _buildTaskChip(
+                            label: revealedTask.category,
+                            isLight: isLight,
+                          ),
+                          const SizedBox(height: 8),
+                          _buildTaskChip(
+                            label: revealedTask.subCategory,
+                            isLight: isLight,
+                            filled: true,
+                          ),
+                          const SizedBox(height: 10),
+                          _buildCooldownRow(isLight),
+                        ],
                       ],
                     ],
-                  ],
+                  ),
                 ),
               ),
             ),

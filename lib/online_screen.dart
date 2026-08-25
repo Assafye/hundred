@@ -15,6 +15,7 @@ import 'chats_screen.dart';
 import 'create_group_screen.dart';
 import 'main_bottom_nav.dart';
 import 'services/app_home_service.dart';
+import 'services/block_user_service.dart';
 import 'services/chat_service.dart';
 import 'services/group_service.dart';
 import 'services/keyboard_dismiss_controller.dart';
@@ -43,6 +44,7 @@ class _OnlineScreenState extends State<OnlineScreen>
   final AppHomeService _homeService = AppHomeService();
   final GroupService _groupService = GroupService();
   final ChatService _chatService = ChatService();
+  final BlockUserService _blockUserService = BlockUserService();
 
   late final AnimationController _spaceUsersController;
   late final ScrollController _friendsLoopController;
@@ -4002,200 +4004,210 @@ class _OnlineScreenState extends State<OnlineScreen>
           );
         }
 
-        return ValueListenableBuilder<int>(
-          valueListenable: _sectionRefreshTick,
-          builder: (context, _, __) {
-            final entries = _applyMeetFilters(allEntries);
-            return Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
-              child: Directionality(
-                textDirection: TextDirection.rtl,
-                child: GridView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: entries.length + 1,
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 3,
-                    crossAxisSpacing: 10,
-                    mainAxisSpacing: 10,
-                    childAspectRatio: 0.58,
-                  ),
-                  itemBuilder: (context, index) {
-                    if (index == 0) {
-                      return _buildStaticDiscoverPopCard();
-                    }
+        return StreamBuilder<Set<String>>(
+          stream: _blockUserService.streamBlockedConnections(),
+          builder: (context, blockedSnapshot) {
+            final blockedUserIds = blockedSnapshot.data ?? const <String>{};
+            final visibleEntries = allEntries
+                .where((entry) => !blockedUserIds.contains(entry.authorUid.trim()))
+                .toList(growable: false);
 
-                    final entry = entries[index - 1];
-                    final card = Container(
-                      decoration: BoxDecoration(
-                        color: isLight ? Colors.white : null,
-                        gradient: isLight
-                            ? null
-                            : LinearGradient(
-                                colors: [
-                                  const Color(0xFF14233A)
-                                      .withValues(alpha: 0.96),
-                                  const Color(0xFF312357)
-                                      .withValues(alpha: 0.96),
-                                ],
-                                begin: Alignment.topRight,
-                                end: Alignment.bottomLeft,
-                              ),
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(
-                          color: isLight
-                              ? const Color(0xFFA9C3FF)
-                              : _cyan.withValues(alpha: 0.18),
-                        ),
+            return ValueListenableBuilder<int>(
+              valueListenable: _sectionRefreshTick,
+              builder: (context, _, __) {
+                final entries = _applyMeetFilters(visibleEntries);
+                return Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
+                  child: Directionality(
+                    textDirection: TextDirection.rtl,
+                    child: GridView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: entries.length + 1,
+                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 3,
+                        crossAxisSpacing: 10,
+                        mainAxisSpacing: 10,
+                        childAspectRatio: 0.58,
                       ),
-                      padding: const EdgeInsets.all(10),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Expanded(
-                            child: Stack(
-                              children: [
-                                Positioned.fill(
-                                  child: ClipRRect(
-                                    borderRadius: BorderRadius.circular(16),
-                                    child: Container(
-                                      color: isLight
-                                          ? const Color(0xFFEFF5FF)
-                                          : const Color(0xFF0D1524),
-                                      child: entry.authorAvatarUrl.isNotEmpty
-                                          ? Image.network(
-                                              entry.authorAvatarUrl,
-                                              fit: BoxFit.cover,
-                                              errorBuilder: (_, __, ___) => Icon(
-                                                Icons.person_outline_rounded,
-                                                color: isLight
-                                                    ? Colors.black45
-                                                    : Colors.white54,
-                                                size: 30,
-                                              ),
-                                            )
-                                          : Icon(
-                                              Icons.person_outline_rounded,
-                                              color: isLight
-                                                  ? Colors.black45
-                                                  : Colors.white54,
-                                              size: 30,
-                                            ),
-                                    ),
+                      itemBuilder: (context, index) {
+                        if (index == 0) {
+                          return _buildStaticDiscoverPopCard();
+                        }
+
+                        final entry = entries[index - 1];
+                        final card = Container(
+                          decoration: BoxDecoration(
+                            color: isLight ? Colors.white : null,
+                            gradient: isLight
+                                ? null
+                                : LinearGradient(
+                                    colors: [
+                                      const Color(0xFF14233A)
+                                          .withValues(alpha: 0.96),
+                                      const Color(0xFF312357)
+                                          .withValues(alpha: 0.96),
+                                    ],
+                                    begin: Alignment.topRight,
+                                    end: Alignment.bottomLeft,
                                   ),
-                                ),
-                                Positioned(
-                                  top: 8,
-                                  right: 8,
-                                  child: () {
-                                    final count = math.max(
-                                      1,
-                                      entry.linkedGroupMembersCount,
-                                    );
-                                    final countLabel =
-                                        count == 1 ? '1 חבר' : '$count חברים';
-                                    return Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 8,
-                                        vertical: 5,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: isLight
-                                            ? Colors.white.withValues(alpha: 0.9)
-                                            : const Color(0xCC111A28),
-                                        borderRadius:
-                                            BorderRadius.circular(999),
-                                        border: Border.all(
-                                          color: _cyan.withValues(alpha: 0.45),
-                                        ),
-                                      ),
-                                      child: Text(
-                                        countLabel,
-                                        style: TextStyle(
-                                          color: isLight
-                                              ? Colors.black
-                                              : Colors.white,
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.w800,
-                                        ),
-                                      ),
-                                    );
-                                  }(),
-                                ),
-                                if (entry.linkedGroupId.trim().isNotEmpty)
-                                  StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                                    stream:
-                                        _groupPrivacyStream(entry.linkedGroupId),
-                                    builder: (context, groupSnapshot) {
-                                      final groupData =
-                                          groupSnapshot.data?.data() ??
-                                              <String, dynamic>{};
-                                      final isJoinClosed =
-                                          _isMeetJoinClosed(groupData);
-                                      if (!isJoinClosed) {
-                                        return const SizedBox.shrink();
-                                      }
-                                      return Positioned(
-                                        left: 8,
-                                        top: 8,
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: isLight
+                                  ? const Color(0xFFA9C3FF)
+                                  : _cyan.withValues(alpha: 0.18),
+                            ),
+                          ),
+                          padding: const EdgeInsets.all(10),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Expanded(
+                                child: Stack(
+                                  children: [
+                                    Positioned.fill(
+                                      child: ClipRRect(
+                                        borderRadius: BorderRadius.circular(16),
                                         child: Container(
-                                          width: 22,
-                                          height: 22,
-                                          decoration: const BoxDecoration(
-                                            color: Color(0xFFE93E4E),
-                                            shape: BoxShape.circle,
-                                          ),
-                                          child: const Icon(
-                                            Icons.lock_rounded,
-                                            size: 13,
-                                            color: Colors.white,
-                                          ),
+                                          color: isLight
+                                              ? const Color(0xFFEFF5FF)
+                                              : const Color(0xFF0D1524),
+                                          child: entry.authorAvatarUrl.isNotEmpty
+                                              ? Image.network(
+                                                  entry.authorAvatarUrl,
+                                                  fit: BoxFit.cover,
+                                                  errorBuilder: (_, __, ___) => Icon(
+                                                    Icons.person_outline_rounded,
+                                                    color: isLight
+                                                        ? Colors.black45
+                                                        : Colors.white54,
+                                                    size: 30,
+                                                  ),
+                                                )
+                                              : Icon(
+                                                  Icons.person_outline_rounded,
+                                                  color: isLight
+                                                      ? Colors.black45
+                                                      : Colors.white54,
+                                                  size: 30,
+                                                ),
                                         ),
-                                      );
-                                    },
-                                  ),
-                              ],
-                            ),
+                                      ),
+                                    ),
+                                    Positioned(
+                                      top: 8,
+                                      right: 8,
+                                      child: () {
+                                        final count = math.max(
+                                          1,
+                                          entry.linkedGroupMembersCount,
+                                        );
+                                        final countLabel =
+                                            count == 1 ? '1 חבר' : '$count חברים';
+                                        return Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                            vertical: 5,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: isLight
+                                                ? Colors.white.withValues(alpha: 0.9)
+                                                : const Color(0xCC111A28),
+                                            borderRadius:
+                                                BorderRadius.circular(999),
+                                            border: Border.all(
+                                              color: _cyan.withValues(alpha: 0.45),
+                                            ),
+                                          ),
+                                          child: Text(
+                                            countLabel,
+                                            style: TextStyle(
+                                              color: isLight
+                                                  ? Colors.black
+                                                  : Colors.white,
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.w800,
+                                            ),
+                                          ),
+                                        );
+                                      }(),
+                                    ),
+                                    if (entry.linkedGroupId.trim().isNotEmpty)
+                                      StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                                        stream: _groupPrivacyStream(
+                                          entry.linkedGroupId,
+                                        ),
+                                        builder: (context, groupSnapshot) {
+                                          final groupData =
+                                              groupSnapshot.data?.data() ??
+                                                  <String, dynamic>{};
+                                          final isJoinClosed =
+                                              _isMeetJoinClosed(groupData);
+                                          if (!isJoinClosed) {
+                                            return const SizedBox.shrink();
+                                          }
+                                          return Positioned(
+                                            left: 8,
+                                            top: 8,
+                                            child: Container(
+                                              width: 22,
+                                              height: 22,
+                                              decoration: const BoxDecoration(
+                                                color: Color(0xFFE93E4E),
+                                                shape: BoxShape.circle,
+                                              ),
+                                              child: const Icon(
+                                                Icons.lock_rounded,
+                                                size: 13,
+                                                color: Colors.white,
+                                              ),
+                                            ),
+                                          );
+                                        },
+                                      ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              Text(
+                                entry.title,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: isLight ? Colors.black : Colors.white,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w800,
+                                  height: 1.2,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                entry.authorName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: isLight ? Colors.black54 : Colors.grey[300],
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ],
                           ),
-                          const SizedBox(height: 10),
-                          Text(
-                            entry.title,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: isLight ? Colors.black : Colors.white,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w800,
-                              height: 1.2,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            entry.authorName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color:
-                                  isLight ? Colors.black54 : Colors.grey[300],
-                              fontSize: 11,
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
+                        );
 
-                    return GestureDetector(
-                      onTap: () => _openMeetPostsViewer(
-                        entries: entries,
-                        initialIndex: index - 1,
-                      ),
-                      child: card,
-                    );
-                  },
-                ),
-              ),
+                        return GestureDetector(
+                          onTap: () => _openMeetPostsViewer(
+                            entries: entries,
+                            initialIndex: index - 1,
+                          ),
+                          child: card,
+                        );
+                      },
+                    ),
+                  ),
+                );
+              },
             );
           },
         );

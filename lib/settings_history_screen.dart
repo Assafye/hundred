@@ -1358,8 +1358,8 @@ class _SettingsHistoryScreenState extends State<SettingsHistoryScreen>
                     title.isEmpty ? 'פופ' : title,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.white,
+                    style: TextStyle(
+                      color: isLight ? const Color(0xFF101826) : Colors.white,
                       fontSize: 12,
                       fontWeight: FontWeight.w800,
                     ),
@@ -1373,8 +1373,10 @@ class _SettingsHistoryScreenState extends State<SettingsHistoryScreen>
                         description,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white70,
+                        style: TextStyle(
+                          color: isLight
+                              ? const Color(0xFF5B6D85)
+                              : Colors.white70,
                           fontSize: 10.5,
                         ),
                       ),
@@ -1382,20 +1384,24 @@ class _SettingsHistoryScreenState extends State<SettingsHistoryScreen>
                       const SizedBox(height: 4),
                       Text(
                         time,
-                        style: const TextStyle(
-                          color: Color(0xFFEAF4FF),
+                        style: TextStyle(
+                          color: isLight
+                              ? const Color(0xFF4D607A)
+                              : const Color(0xFFEAF4FF),
                           fontSize: 10,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
                     ],
                     if (canEdit)
-                      const Padding(
-                        padding: EdgeInsets.only(top: 4),
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
                         child: Icon(
                           Icons.edit_rounded,
                           size: 12,
-                          color: Color(0xFFCCE8FF),
+                          color: isLight
+                              ? const Color(0xFF5B6D85)
+                              : const Color(0xFFCCE8FF),
                         ),
                       ),
                   ],

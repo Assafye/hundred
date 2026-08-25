@@ -131,6 +131,8 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
   final Set<String> _saveInFlightPostIds = <String>{};
   final Set<String> _shareInFlightPostIds = <String>{};
   final Map<String, Future<PublicUserProfile?>> _authorFutureCache = {};
+  final Map<String, Future<List<PostModel>>> _audienceFilteredPostsCache =
+      <String, Future<List<PostModel>>>{};
   final Map<String, DateTime> _feedSeenHistory = <String, DateTime>{};
   Set<String> _feedSeenIds = <String>{};
   Offset _heartTapPosition = Offset.zero;
@@ -3267,9 +3269,23 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
   }
 
   Future<List<PostModel>> _resolveAudienceFilteredPosts(List<PostModel> posts) {
-    // Privacy-sensitive filtering must always be recomputed because follow
-    // relationships can change without changing post payload signatures.
-    return _applyAudienceFilter(posts);
+    if (posts.isEmpty) {
+      return Future<List<PostModel>>.value(const <PostModel>[]);
+    }
+
+    final signature = posts
+        .map((post) => post.id.trim())
+        .where((id) => id.isNotEmpty)
+        .join('|');
+
+    if (signature.isEmpty) {
+      return Future<List<PostModel>>.value(const <PostModel>[]);
+    }
+
+    return _audienceFilteredPostsCache.putIfAbsent(
+      signature,
+      () => _applyAudienceFilter(posts),
+    );
   }
 
   List<PostModel> _excludeCurrentUserPosts(List<PostModel> posts) {
@@ -3556,6 +3572,18 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                   alreadyScopedByBackend: usingBackendFeed,
                 );
 
+                if (scopedPosts.isEmpty) {
+                  return Scaffold(
+                    extendBody: true,
+                    backgroundColor: _feedBackgroundColor(context),
+                    body: _buildFeedState(
+                      activePostSubCategory: null,
+                      child: _buildEmptyFeedState(isForYouFeed: isForYouFeed),
+                    ),
+                    bottomNavigationBar: const MainBottomNav(currentIndex: 0),
+                  );
+                }
+
                 return FutureBuilder<List<PostModel>>(
                   future: _resolveAudienceFilteredPosts(scopedPosts),
                   builder: (context, audienceSnapshot) {
@@ -3573,6 +3601,12 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                     final scrollControls =
                       _buildScrollControls(feedPosts.length);
 
+                    final isFeedStillLoading =
+                        audienceSnapshot.connectionState ==
+                            ConnectionState.waiting &&
+                        !audienceSnapshot.hasData &&
+                        !feedPosts.isEmpty;
+
                     return Scaffold(
                       extendBody: true,
                       backgroundColor: _feedBackgroundColor(context),
@@ -3580,9 +3614,11 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                         activePostSubCategory: feedPosts.isEmpty
                             ? null
                             : feedPosts[activeFeedIndex].subCategory,
-                        showLoader: false,
+                        showLoader: isFeedStillLoading,
                         child: feedPosts.isEmpty
-                            ? _buildEmptyFeedState(isForYouFeed: isForYouFeed)
+                            ? _buildEmptyFeedState(
+                                isForYouFeed: isForYouFeed,
+                              )
                             : PageView.builder(
                                 controller: _pageController,
                                 scrollDirection: Axis.vertical,
@@ -3594,8 +3630,10 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                                   final visiblePost = feedPosts[index];
                                   _recordSeenFeedPost(visiblePost);
 
-                                  final updatedSeenIds = Set<String>.from(_feedSeenIds);
-                                  final remainingAfterSeen = filterFeedPostsForFreshnessAndSeen(
+                                  final updatedSeenIds =
+                                      Set<String>.from(_feedSeenIds);
+                                  final remainingAfterSeen =
+                                      filterFeedPostsForFreshnessAndSeen(
                                     baseFeedPosts,
                                     seenPostIds: updatedSeenIds,
                                   );
@@ -3619,7 +3657,9 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                                 },
                               ),
                       ),
-                      floatingActionButton: scrollControls,
+                      floatingActionButton: isFeedStillLoading
+                          ? null
+                          : scrollControls,
                       floatingActionButtonLocation:
                           FloatingActionButtonLocation.startFloat,
                       bottomNavigationBar: const MainBottomNav(currentIndex: 0),

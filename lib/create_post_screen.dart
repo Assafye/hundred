@@ -38,6 +38,8 @@ class _CreatePostScreenState extends State<CreatePostScreen>
   bool _isRecordingVideo = false;
   bool _isProcessingCapture = false;
   bool _isFrontCamera = false;
+  bool _flashEnabled = false;
+  bool _isWhiteScreenFlashActive = false;
   String? _cameraError;
   Timer? _recordingLimitTimer;
 
@@ -78,28 +80,30 @@ class _CreatePostScreenState extends State<CreatePostScreen>
     }
   }
 
-  void _detachCameraState() {
+  void _detachCameraState({bool resetReadyState = true}) {
     _recordingLimitTimer?.cancel();
     _recordingLimitTimer = null;
     _cameraController = null;
     _initializeControllerFuture = null;
-    _isCameraReady = false;
+    if (resetReadyState) {
+      _isCameraReady = false;
+    }
     _isRecordingVideo = false;
   }
 
-  Future<void> _detachCameraStateAndRebuild() async {
+  Future<void> _detachCameraStateAndRebuild({bool resetReadyState = true}) async {
     if (!mounted) {
-      _detachCameraState();
+      _detachCameraState(resetReadyState: resetReadyState);
       return;
     }
 
-    setState(_detachCameraState);
+    setState(() => _detachCameraState(resetReadyState: resetReadyState));
     await WidgetsBinding.instance.endOfFrame;
   }
 
-  Future<void> _disposeCameraController() async {
+  Future<void> _disposeCameraController({bool resetReadyState = true}) async {
     final controller = _cameraController;
-    await _detachCameraStateAndRebuild();
+    await _detachCameraStateAndRebuild(resetReadyState: resetReadyState);
     if (controller == null) {
       return;
     }
@@ -144,13 +148,34 @@ class _CreatePostScreenState extends State<CreatePostScreen>
         imageFormatGroup: ImageFormatGroup.jpeg,
       );
 
-      _cameraController?.dispose();
-      _cameraController = controller;
+      final previousController = _cameraController;
+
+      if (mounted) {
+        setState(() {
+          _cameraError = null;
+          _isCameraReady = false;
+        });
+      }
+
       _initializeControllerFuture = controller.initialize();
       await _initializeControllerFuture;
       await _setFlashModeOff(controller);
 
-      if (!mounted) return;
+      if (!mounted) {
+        await controller.dispose();
+        return;
+      }
+
+      _cameraController = controller;
+
+      if (previousController != null && previousController != controller) {
+        try {
+          await previousController.dispose();
+        } catch (_) {
+          // Ignore race/dispose errors while swapping controllers.
+        }
+      }
+
       setState(() {
         _isCameraReady = true;
         _cameraError = null;
@@ -194,16 +219,60 @@ class _CreatePostScreenState extends State<CreatePostScreen>
       return;
     }
 
+    final currentController = _cameraController;
+    final nextFront = !_isFrontCamera;
+
     setState(() {
-      _isFrontCamera = !_isFrontCamera;
-      _isCameraReady = false;
+      _isFrontCamera = nextFront;
+      _isWhiteScreenFlashActive = false;
     });
 
-    await _disposeCameraController();
+    if (currentController == null || !currentController.value.isInitialized) {
+      await _initializeCamera();
+      return;
+    }
+
+    try {
+      await currentController.setFlashMode(FlashMode.off);
+    } catch (_) {
+      // No-op: only the actual capture path should trigger flash behavior.
+    }
+
+    final oldController = currentController;
+    await _disposeCameraController(resetReadyState: false);
     if (!mounted) {
       return;
     }
+
+    if (oldController == currentController) {
+      await _initializeCamera();
+      return;
+    }
+
     await _initializeCamera();
+  }
+
+  Future<void> _toggleFlash() async {
+    if (_isProcessingCapture) {
+      return;
+    }
+
+    final controller = _cameraController;
+    final nextFlashEnabled = !_flashEnabled;
+    setState(() {
+      _flashEnabled = nextFlashEnabled;
+      _isWhiteScreenFlashActive = false;
+    });
+
+    if (controller == null || !controller.value.isInitialized) {
+      return;
+    }
+
+    try {
+      await controller.setFlashMode(FlashMode.off);
+    } catch (_) {
+      // Some devices/plugins do not support explicit flash mode changes.
+    }
   }
 
   void _showLimitReachedSnackBar() {
@@ -230,10 +299,18 @@ class _CreatePostScreenState extends State<CreatePostScreen>
 
     setState(() {
       _isProcessingCapture = true;
+      _isWhiteScreenFlashActive = _flashEnabled && _isFrontCamera;
     });
 
     try {
-      await _setFlashModeOff(controller);
+      if (_flashEnabled && !_isFrontCamera) {
+        try {
+          await controller.setFlashMode(FlashMode.torch);
+        } catch (_) {
+          // Some devices/plugins may not support torch during capture.
+        }
+      }
+
       final file = await controller.takePicture();
       final bytes = await file.readAsBytes();
       if (!mounted) return;
@@ -261,8 +338,17 @@ class _CreatePostScreenState extends State<CreatePostScreen>
     } finally {
       if (mounted) {
         setState(() {
+          _isWhiteScreenFlashActive = false;
           _isProcessingCapture = false;
         });
+      }
+
+      if (!_isFrontCamera && _flashEnabled) {
+        try {
+          await controller.setFlashMode(FlashMode.off);
+        } catch (_) {
+          // Ignore unsupported flash reset.
+        }
       }
     }
   }
@@ -281,7 +367,20 @@ class _CreatePostScreenState extends State<CreatePostScreen>
     }
 
     try {
-      await _setFlashModeOff(controller);
+      if (_flashEnabled) {
+        if (!_isFrontCamera) {
+          await controller.setFlashMode(FlashMode.torch);
+        }
+        setState(() {
+          _isWhiteScreenFlashActive = _isFrontCamera;
+        });
+      } else {
+        setState(() {
+          _isWhiteScreenFlashActive = false;
+        });
+        await _setFlashModeOff(controller);
+      }
+
       await controller.startVideoRecording();
       if (!mounted) return;
       setState(() {
@@ -305,6 +404,12 @@ class _CreatePostScreenState extends State<CreatePostScreen>
     }
   }
 
+  void _handleVideoRelease() {
+    if (_isRecordingVideo) {
+      _stopVideoRecording();
+    }
+  }
+
   Future<void> _stopVideoRecording({bool reachedMaxDuration = false}) async {
     final controller = _cameraController;
     if (controller == null || !_isRecordingVideo) {
@@ -320,6 +425,7 @@ class _CreatePostScreenState extends State<CreatePostScreen>
       if (!mounted) return;
       setState(() {
         _isRecordingVideo = false;
+        _isWhiteScreenFlashActive = false;
         _selectedMediaItems.add(
           PostUploadMediaItem(
             file: file,
@@ -339,9 +445,23 @@ class _CreatePostScreenState extends State<CreatePostScreen>
       if (!mounted) return;
       setState(() {
         _isRecordingVideo = false;
+        _isWhiteScreenFlashActive = false;
       });
       if (kDebugMode) {
         debugPrint('Failed to stop video recording: $error');
+      }
+    } finally {
+      if (!_isFrontCamera && _flashEnabled) {
+        try {
+          await controller.setFlashMode(FlashMode.off);
+        } catch (_) {
+          // Ignore unsupported flash reset.
+        }
+      }
+      if (mounted) {
+        setState(() {
+          _isWhiteScreenFlashActive = false;
+        });
       }
     }
   }
@@ -521,6 +641,16 @@ class _CreatePostScreenState extends State<CreatePostScreen>
       return;
     }
 
+    _flashEnabled = false;
+    _isWhiteScreenFlashActive = false;
+    if (_cameraController != null && _cameraController!.value.isInitialized) {
+      try {
+        await _cameraController!.setFlashMode(FlashMode.off);
+      } catch (_) {
+        // Ignore unsupported reset.
+      }
+    }
+
     await _disposeCameraController();
     if (!mounted) {
       return;
@@ -544,6 +674,16 @@ class _CreatePostScreenState extends State<CreatePostScreen>
   }
 
   Future<void> _closeCameraScreen() async {
+    _flashEnabled = false;
+    _isWhiteScreenFlashActive = false;
+    if (_cameraController != null && _cameraController!.value.isInitialized) {
+      try {
+        await _cameraController!.setFlashMode(FlashMode.off);
+      } catch (_) {
+        // Ignore unsupported flash reset.
+      }
+    }
+
     if (_selectedMediaItems.isNotEmpty) {
       final isLight = Theme.of(context).brightness == Brightness.light;
       final shouldDiscard = await showDialog<bool>(
@@ -824,11 +964,16 @@ class _CreatePostScreenState extends State<CreatePostScreen>
         GestureDetector(
           onTap: _capturePhoto,
           onLongPressStart: (_) => _startVideoRecording(),
-          onLongPressEnd: (_) => _stopVideoRecording(),
-          child: Container(
-            width: 84,
-            height: 84,
-            decoration: BoxDecoration(
+          onLongPressEnd: (_) => _handleVideoRelease(),
+          onLongPressUp: _handleVideoRelease,
+          onLongPressCancel: _handleVideoRelease,
+          child: Listener(
+            onPointerUp: (_) => _handleVideoRelease(),
+            onPointerCancel: (_) => _handleVideoRelease(),
+            child: Container(
+              width: 84,
+              height: 84,
+              decoration: BoxDecoration(
               shape: BoxShape.circle,
               gradient: const LinearGradient(
                 colors: [Color(0xFF9E7CFF), Color(0xFF53C1F9)],
@@ -843,23 +988,24 @@ class _CreatePostScreenState extends State<CreatePostScreen>
                 ),
               ],
             ),
-            child: Center(
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 180),
-                width: _isRecordingVideo ? 30 : 56,
-                height: _isRecordingVideo ? 30 : 56,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(
-                    _isRecordingVideo ? 10 : 999,
-                  ),
-                  color: _isRecordingVideo
-                      ? Colors.redAccent
-                      : (isLight ? Colors.white : const Color(0xFF0B1019)),
-                  border: Border.all(
+              child: Center(
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  width: _isRecordingVideo ? 30 : 56,
+                  height: _isRecordingVideo ? 30 : 56,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(
+                      _isRecordingVideo ? 10 : 999,
+                    ),
                     color: _isRecordingVideo
-                        ? (isLight ? Colors.black : Colors.white)
-                        : const Color(0xFF9E7CFF),
-                    width: 3,
+                        ? Colors.redAccent
+                        : (isLight ? Colors.white : const Color(0xFF0B1019)),
+                    border: Border.all(
+                      color: _isRecordingVideo
+                          ? (isLight ? Colors.black : Colors.white)
+                          : const Color(0xFF9E7CFF),
+                      width: 3,
+                    ),
                   ),
                 ),
               ),
@@ -876,6 +1022,33 @@ class _CreatePostScreenState extends State<CreatePostScreen>
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildFlashButton(bool isLight) {
+    final active = _flashEnabled;
+    return InkWell(
+      onTap: _toggleFlash,
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        width: 52,
+        height: 52,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: isLight
+              ? Colors.white.withValues(alpha: 0.9)
+              : const Color(0xFF172235),
+          border: Border.all(
+            color: isLight ? const Color(0xFFA9C3FF) : Colors.white24,
+          ),
+        ),
+        child: Icon(
+          active ? Icons.flash_on_rounded : Icons.flash_off_rounded,
+          color: active
+              ? const Color(0xFFFFC857)
+              : (isLight ? const Color(0xFF4C63A3) : const Color(0xFF9EDBFF)),
+        ),
+      ),
     );
   }
 
@@ -929,6 +1102,12 @@ class _CreatePostScreenState extends State<CreatePostScreen>
               Padding(
                 padding: const EdgeInsetsDirectional.only(end: 10),
                 child: Center(
+                  child: _buildFlashButton(isLight),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsetsDirectional.only(end: 10),
+                child: Center(
                   child: _buildCameraFlipButton(isLight),
                 ),
               ),
@@ -966,6 +1145,17 @@ class _CreatePostScreenState extends State<CreatePostScreen>
                   ),
                 ),
               ),
+              if (_isWhiteScreenFlashActive)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 120),
+                      color: _isRecordingVideo
+                          ? Colors.white.withValues(alpha: 0.62)
+                          : Colors.white,
+                    ),
+                  ),
+                ),
               _buildMediaStrip(),
               _buildControls(),
             ],

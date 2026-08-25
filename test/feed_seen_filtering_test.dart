@@ -5,6 +5,7 @@ import 'package:hundred_version1/chats_screen.dart';
 import 'package:hundred_version1/feed_screen.dart';
 import 'package:hundred_version1/post_model.dart';
 import 'package:hundred_version1/services/app_home_service.dart';
+import 'package:hundred_version1/stars_screen.dart';
 
 void main() {
   test('filters out stale and already-seen feed posts only', () {
@@ -83,5 +84,87 @@ void main() {
       buildGlobalSearchText(groupData, isGroup: true),
       contains('שלום לכם'),
     );
+  });
+
+  test('stars viewer filters out posts from blocked users', () {
+    final posts = [
+      {'authorId': 'u1', 'id': 'keep', 'audience': 'public'},
+      {'authorId': 'u2', 'id': 'blocked', 'audience': 'public'},
+      {'authorId': 'u3', 'id': 'self', 'audience': 'public'},
+    ];
+
+    final filtered = filterBlockedUserPostsForViewer(
+      posts,
+      blockedUserIds: {'u2'},
+      currentUserId: 'u3',
+    );
+
+    expect(filtered.map((post) => post['id']), ['keep', 'self']);
+  });
+
+  test('meet-now viewer filters out posts from blocked users', () {
+    final entries = [
+      MeetNowPostEntry(
+        id: 'keep',
+        authorUid: 'u1',
+        authorName: 'Alice',
+        authorHandle: '@alice',
+        authorAvatarUrl: '',
+        authorProfileImageUrls: const [],
+        authorScore: 0,
+        authorLocation: '',
+        authorGeo: null,
+        title: 'Keep',
+        details: '',
+        category: 'general',
+        subCategory: 'general',
+        meetingLocation: '',
+        meetingGeo: null,
+        desiredParticipants: null,
+        timePreference: '',
+        minAge: null,
+        maxAge: null,
+        createdAt: DateTime.now(),
+        linkedGroupId: '',
+        linkedGroupMembersCount: 0,
+        linkedGroupIsPublic: true,
+        participantProfileImageUrls: const [],
+        distanceMetersFromCurrentUser: null,
+      ),
+      MeetNowPostEntry(
+        id: 'blocked',
+        authorUid: 'u2',
+        authorName: 'Bob',
+        authorHandle: '@bob',
+        authorAvatarUrl: '',
+        authorProfileImageUrls: const [],
+        authorScore: 0,
+        authorLocation: '',
+        authorGeo: null,
+        title: 'Blocked',
+        details: '',
+        category: 'general',
+        subCategory: 'general',
+        meetingLocation: '',
+        meetingGeo: null,
+        desiredParticipants: null,
+        timePreference: '',
+        minAge: null,
+        maxAge: null,
+        createdAt: DateTime.now(),
+        linkedGroupId: '',
+        linkedGroupMembersCount: 0,
+        linkedGroupIsPublic: true,
+        participantProfileImageUrls: const [],
+        distanceMetersFromCurrentUser: null,
+      ),
+    ];
+
+    final filtered = filterBlockedMeetNowEntries(
+      entries,
+      blockedUserIds: {'u2'},
+    );
+
+    expect(filtered.map((entry) => entry.id), ['keep']);
   });
 }
