@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:io';
-
+import 'dart:ui';
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -35,11 +35,15 @@ class _CreatePostScreenState extends State<CreatePostScreen>
   CameraController? _cameraController;
   Future<void>? _initializeControllerFuture;
   bool _isCameraReady = false;
+  bool _isSwitchingCamera = false;
+  bool _isCameraOperationInProgress = false;
+  bool _isTransitioning = false;
   bool _isRecordingVideo = false;
   bool _isProcessingCapture = false;
   bool _isFrontCamera = false;
   bool _flashEnabled = false;
   bool _isWhiteScreenFlashActive = false;
+  double _whiteScreenFlashAlpha = 0;
   String? _cameraError;
   Timer? _recordingLimitTimer;
 
@@ -48,16 +52,33 @@ class _CreatePostScreenState extends State<CreatePostScreen>
 
   bool get _canAddMoreMedia => _selectedMediaItems.length < _maxMediaItems;
 
+  void _logCamera(String event, [Object? details]) {
+    if (!kDebugMode) {
+      return;
+    }
+
+    final buffer = StringBuffer('[CameraFlow] $event');
+    if (details != null) {
+      buffer.write(' | $details');
+    }
+    debugPrint(buffer.toString());
+  }
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _initializeCamera();
+    _logCamera('initState -> adding lifecycle observer');
+    unawaited(_initializeCamera());
   }
 
   @override
   void dispose() {
+    _logCamera('dispose -> removing observer and tearing down camera');
     WidgetsBinding.instance.removeObserver(this);
+
+    // Block new lifecycle/init work while the state is being destroyed.
+    _isCameraOperationInProgress = true;
     final controller = _cameraController;
     _detachCameraState();
     controller?.dispose();
@@ -66,25 +87,41 @@ class _CreatePostScreenState extends State<CreatePostScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    final controller = _cameraController;
-    if (controller == null || !controller.value.isInitialized) {
+    _logCamera(
+      'lifecycle -> state=$state | isSwitchingCamera=$_isSwitchingCamera | operationInProgress=$_isCameraOperationInProgress | hasController=${_cameraController != null} | initialized=${_cameraController?.value.isInitialized ?? false} | ready=$_isCameraReady',
+    );
+
+    if (_isCameraOperationInProgress) {
+      _logCamera('lifecycle -> ignore event while camera operation is locked');
       return;
     }
 
+    final controller = _cameraController;
+    final hasActiveController =
+        controller != null && controller.value.isInitialized;
+
     if (state == AppLifecycleState.inactive ||
-        state == AppLifecycleState.hidden ||
         state == AppLifecycleState.paused) {
-      _disposeCameraController();
-    } else if (state == AppLifecycleState.resumed) {
-      _initializeCamera();
+      _logCamera('lifecycle -> pausing app, disposing camera controller');
+      unawaited(_disposeCameraController());
+      return;
+    }
+
+    if (state == AppLifecycleState.resumed && mounted && !hasActiveController) {
+      _logCamera('lifecycle -> app resumed, re-initializing camera');
+      unawaited(_initializeCamera());
     }
   }
 
   void _detachCameraState({bool resetReadyState = true}) {
+    _logCamera(
+      '_detachCameraState -> resetting camera state | resetReadyState=$resetReadyState | oldController=${_cameraController != null}',
+    );
     _recordingLimitTimer?.cancel();
     _recordingLimitTimer = null;
     _cameraController = null;
     _initializeControllerFuture = null;
+    _isSwitchingCamera = false;
     if (resetReadyState) {
       _isCameraReady = false;
     }
@@ -102,28 +139,87 @@ class _CreatePostScreenState extends State<CreatePostScreen>
   }
 
   Future<void> _disposeCameraController({bool resetReadyState = true}) async {
-    final controller = _cameraController;
-    await _detachCameraStateAndRebuild(resetReadyState: resetReadyState);
-    if (controller == null) {
+    if (_isCameraOperationInProgress) {
+      _logCamera('_disposeCameraController -> skipped because another camera operation is running');
       return;
     }
 
+    // Lock camera mutations until the active controller is fully torn down.
+    _isCameraOperationInProgress = true;
+    final controller = _cameraController;
+    _logCamera(
+      '_disposeCameraController -> start | controllerPresent=${controller != null} | resetReadyState=$resetReadyState',
+    );
+
     try {
+      await _detachCameraStateAndRebuild(resetReadyState: resetReadyState);
+      if (controller == null) {
+        _logCamera('_disposeCameraController -> nothing to dispose');
+        return;
+      }
+
       await controller.dispose();
+      _logCamera('_disposeCameraController -> disposed old controller');
     } catch (_) {
+      _logCamera('_disposeCameraController -> dispose threw, ignoring race');
       // Ignore disposal races when external pickers temporarily background the app.
+    } finally {
+      _isCameraOperationInProgress = false;
     }
   }
 
   Future<void> _initializeCamera() async {
+    if (_isCameraOperationInProgress) {
+      _logCamera('_initializeCamera -> skipped because another camera operation is running');
+      return;
+    }
+
+    // Lock camera initialization so lifecycle and manual actions cannot overlap.
+    _isCameraOperationInProgress = true;
+    _logCamera(
+      '_initializeCamera -> start | front=$_isFrontCamera | currentController=${_cameraController != null} | isSwitching=$_isSwitchingCamera',
+    );
+
+    final oldController = _cameraController;
+
     try {
+      if (oldController != null) {
+        if (mounted) {
+          setState(() {
+            _cameraController = null;
+            _initializeControllerFuture = null;
+            _isCameraReady = false;
+            _isSwitchingCamera = true;
+            _cameraError = null;
+          });
+        } else {
+          _cameraController = null;
+          _initializeControllerFuture = null;
+          _isCameraReady = false;
+          _isSwitchingCamera = true;
+          _cameraError = null;
+        }
+
+        await oldController.dispose();
+        _logCamera('_initializeCamera -> disposed existing controller before reinitializing');
+      } else if (mounted) {
+        setState(() {
+          _cameraError = null;
+          _isCameraReady = false;
+          _isSwitchingCamera = true;
+        });
+      }
+
       final cameras = await availableCameras();
+      _logCamera('_initializeCamera -> cameras discovered | count=${cameras.length}');
       if (cameras.isEmpty) {
         if (!mounted) return;
         setState(() {
           _cameraError = 'לא נמצאה מצלמה זמינה';
           _isCameraReady = false;
+          _isSwitchingCamera = false;
         });
+        _logCamera('_initializeCamera -> no cameras available');
         return;
       }
 
@@ -141,6 +237,10 @@ class _CreatePostScreenState extends State<CreatePostScreen>
         },
       );
 
+      _logCamera(
+        '_initializeCamera -> selected camera | lens=${cameraDescription.lensDirection} | facingFront=$_isFrontCamera',
+      );
+
       final controller = CameraController(
         cameraDescription,
         ResolutionPreset.high,
@@ -148,38 +248,39 @@ class _CreatePostScreenState extends State<CreatePostScreen>
         imageFormatGroup: ImageFormatGroup.jpeg,
       );
 
-      final previousController = _cameraController;
-
       if (mounted) {
         setState(() {
           _cameraError = null;
-          _isCameraReady = false;
+          _isCameraReady = oldController != null && oldController.value.isInitialized;
+          _isSwitchingCamera = true;
         });
       }
 
       _initializeControllerFuture = controller.initialize();
       await _initializeControllerFuture;
+      _logCamera('_initializeCamera -> controller initialized');
       await _setFlashModeOff(controller);
 
       if (!mounted) {
+        _logCamera('_initializeCamera -> mounted false, disposing new controller before return');
         await controller.dispose();
         return;
       }
 
-      _cameraController = controller;
-
-      if (previousController != null && previousController != controller) {
-        try {
-          await previousController.dispose();
-        } catch (_) {
-          // Ignore race/dispose errors while swapping controllers.
-        }
-      }
-
+      // Commit the new controller in one state update after initialization completes.
       setState(() {
+        _cameraController = controller;
+        _initializeControllerFuture = null;
         _isCameraReady = true;
         _cameraError = null;
+        _isSwitchingCamera = false;
       });
+
+      if (oldController != null && oldController != controller) {
+        _logCamera('_initializeCamera -> previous controller already disposed before creating new one');
+      }
+
+      _logCamera('_initializeCamera -> success | ready=true');
     } catch (error) {
       var message = 'שגיאה בהפעלת המצלמה';
       if (error is CameraException) {
@@ -195,13 +296,24 @@ class _CreatePostScreenState extends State<CreatePostScreen>
               'אין הרשאת מיקרופון באייפון. אפשר לאשר בהגדרות > פרטיות ואבטחה > מיקרופון.';
         }
       }
+      _logCamera('_initializeCamera -> failed | error=$error');
       if (!mounted) return;
       setState(() {
         _cameraError = message;
         _isCameraReady = false;
+        _isSwitchingCamera = false;
       });
-      if (kDebugMode) {
-        debugPrint('Camera initialization failed: $error');
+    } finally {
+      _isCameraOperationInProgress = false;
+      if (mounted && _cameraController != null && _cameraController!.value.isInitialized) {
+        setState(() {
+          _isCameraReady = true;
+          _isSwitchingCamera = false;
+        });
+      } else if (mounted) {
+        setState(() {
+          _isSwitchingCamera = false;
+        });
       }
     }
   }
@@ -215,41 +327,115 @@ class _CreatePostScreenState extends State<CreatePostScreen>
   }
 
   Future<void> _toggleCameraLens() async {
-    if (_isProcessingCapture || _isRecordingVideo) {
+    if (_isCameraOperationInProgress) {
       return;
     }
 
-    final currentController = _cameraController;
-    final nextFront = !_isFrontCamera;
+    if (_isProcessingCapture || _isRecordingVideo || _isSwitchingCamera) {
+      return;
+    }
 
+    // Lock the entire lens-switch sequence against re-entry.
+    _isCameraOperationInProgress = true;
     setState(() {
-      _isFrontCamera = nextFront;
-      _isWhiteScreenFlashActive = false;
+      _isSwitchingCamera = true;
+      _isTransitioning = true;
+      _cameraError = null;
     });
 
-    if (currentController == null || !currentController.value.isInitialized) {
-      await _initializeCamera();
-      return;
-    }
+    final currentController = _cameraController;
+    final camerasFuture = availableCameras();
 
     try {
-      await currentController.setFlashMode(FlashMode.off);
-    } catch (_) {
-      // No-op: only the actual capture path should trigger flash behavior.
-    }
+      final cameras = await camerasFuture;
+      if (cameras.isEmpty) {
+        return;
+      }
 
-    final oldController = currentController;
-    await _disposeCameraController(resetReadyState: false);
-    if (!mounted) {
-      return;
-    }
+      // Resolve the opposite lens before updating the active state.
+      final nextIsFront = !_isFrontCamera;
+      final preferredDirection =
+          nextIsFront ? CameraLensDirection.front : CameraLensDirection.back;
 
-    if (oldController == currentController) {
-      await _initializeCamera();
-      return;
-    }
+      final cameraDescription = cameras.firstWhere(
+        (camera) => camera.lensDirection == preferredDirection,
+        orElse: () => cameras.first,
+      );
 
-    await _initializeCamera();
+      final resolvedIsFront =
+          cameraDescription.lensDirection == CameraLensDirection.front;
+
+      // Remove the old preview from state before disposing the controller.
+      if (mounted) {
+        setState(() {
+          if (identical(_cameraController, currentController)) {
+            _cameraController = null;
+          }
+          _initializeControllerFuture = null;
+          _isCameraReady = false;
+          _cameraError = null;
+        });
+      } else if (identical(_cameraController, currentController)) {
+        _cameraController = null;
+        _initializeControllerFuture = null;
+        _isCameraReady = false;
+        _cameraError = null;
+      }
+
+      // Dispose the current controller before initializing the next one.
+      await currentController?.dispose();
+
+      final newController = CameraController(
+        cameraDescription,
+        ResolutionPreset.high,
+        enableAudio: true,
+        imageFormatGroup: ImageFormatGroup.jpeg,
+      );
+
+      try {
+        await newController.initialize();
+        await _setFlashModeOff(newController);
+
+        if (!mounted) {
+          await newController.dispose();
+          return;
+        }
+
+        // Commit the new controller only after it is fully ready for preview.
+        setState(() {
+          _isFrontCamera = resolvedIsFront;
+          _cameraController = newController;
+          _initializeControllerFuture = null;
+          _isCameraReady = true;
+          _cameraError = null;
+          _isSwitchingCamera = false;
+          _isTransitioning = false;
+        });
+      } catch (_) {
+        await newController.dispose();
+        rethrow;
+      }
+    } catch (error) {
+      if (kDebugMode) {
+        debugPrint('Toggle lens failed: $error');
+      }
+      if (mounted) {
+        setState(() {
+          _cameraError = 'שגיאה בהחלפת המצלמה';
+          _isSwitchingCamera = false;
+          _isTransitioning = false;
+          _isCameraReady = false;
+        });
+      }
+    } finally {
+      _isCameraOperationInProgress = false;
+      if (mounted && (_isSwitchingCamera || _isTransitioning)) {
+        setState(() {
+          _isSwitchingCamera = false;
+          _isTransitioning = false;
+        });
+      }
+    }
   }
 
   Future<void> _toggleFlash() async {
@@ -262,6 +448,7 @@ class _CreatePostScreenState extends State<CreatePostScreen>
     setState(() {
       _flashEnabled = nextFlashEnabled;
       _isWhiteScreenFlashActive = false;
+      _whiteScreenFlashAlpha = 0;
     });
 
     if (controller == null || !controller.value.isInitialized) {
@@ -300,6 +487,8 @@ class _CreatePostScreenState extends State<CreatePostScreen>
     setState(() {
       _isProcessingCapture = true;
       _isWhiteScreenFlashActive = _flashEnabled && _isFrontCamera;
+      _whiteScreenFlashAlpha =
+          (_flashEnabled && _isFrontCamera) ? 0.9 : 0;
     });
 
     try {
@@ -339,6 +528,7 @@ class _CreatePostScreenState extends State<CreatePostScreen>
       if (mounted) {
         setState(() {
           _isWhiteScreenFlashActive = false;
+          _whiteScreenFlashAlpha = 0;
           _isProcessingCapture = false;
         });
       }
@@ -373,10 +563,12 @@ class _CreatePostScreenState extends State<CreatePostScreen>
         }
         setState(() {
           _isWhiteScreenFlashActive = _isFrontCamera;
+          _whiteScreenFlashAlpha = _isFrontCamera ? 0.7 : 0;
         });
       } else {
         setState(() {
           _isWhiteScreenFlashActive = false;
+          _whiteScreenFlashAlpha = 0;
         });
         await _setFlashModeOff(controller);
       }
@@ -426,6 +618,7 @@ class _CreatePostScreenState extends State<CreatePostScreen>
       setState(() {
         _isRecordingVideo = false;
         _isWhiteScreenFlashActive = false;
+        _whiteScreenFlashAlpha = 0;
         _selectedMediaItems.add(
           PostUploadMediaItem(
             file: file,
@@ -446,6 +639,7 @@ class _CreatePostScreenState extends State<CreatePostScreen>
       setState(() {
         _isRecordingVideo = false;
         _isWhiteScreenFlashActive = false;
+        _whiteScreenFlashAlpha = 0;
       });
       if (kDebugMode) {
         debugPrint('Failed to stop video recording: $error');
@@ -461,6 +655,7 @@ class _CreatePostScreenState extends State<CreatePostScreen>
       if (mounted) {
         setState(() {
           _isWhiteScreenFlashActive = false;
+          _whiteScreenFlashAlpha = 0;
         });
       }
     }
@@ -643,6 +838,7 @@ class _CreatePostScreenState extends State<CreatePostScreen>
 
     _flashEnabled = false;
     _isWhiteScreenFlashActive = false;
+    _whiteScreenFlashAlpha = 0;
     if (_cameraController != null && _cameraController!.value.isInitialized) {
       try {
         await _cameraController!.setFlashMode(FlashMode.off);
@@ -676,6 +872,7 @@ class _CreatePostScreenState extends State<CreatePostScreen>
   Future<void> _closeCameraScreen() async {
     _flashEnabled = false;
     _isWhiteScreenFlashActive = false;
+    _whiteScreenFlashAlpha = 0;
     if (_cameraController != null && _cameraController!.value.isInitialized) {
       try {
         await _cameraController!.setFlashMode(FlashMode.off);
@@ -685,6 +882,10 @@ class _CreatePostScreenState extends State<CreatePostScreen>
     }
 
     if (_selectedMediaItems.isNotEmpty) {
+      if (!mounted) {
+        return;
+      }
+
       final isLight = Theme.of(context).brightness == Brightness.light;
       final shouldDiscard = await showDialog<bool>(
             context: context,
@@ -742,23 +943,35 @@ class _CreatePostScreenState extends State<CreatePostScreen>
   Widget _buildCameraPreview() {
     final isLight = Theme.of(context).brightness == Brightness.light;
     final controller = _cameraController;
-    if (!_isCameraReady || controller == null) {
-      return Center(
-        child: _cameraError == null
-            ? const CircularProgressIndicator(color: Color(0xFF9E7CFF))
-            : Text(
-                _cameraError!,
-                style: TextStyle(
-                  color: isLight ? Colors.black54 : Colors.white70,
-                  fontSize: 16,
-                ),
-                textAlign: TextAlign.center,
-              ),
+    final canRenderPreview =
+        controller != null &&
+        controller.value.isInitialized;
+
+    if (!canRenderPreview) {
+      if (_cameraError != null &&
+          !_isCameraOperationInProgress &&
+          !_isSwitchingCamera &&
+          !_isTransitioning) {
+        return Center(
+          child: Text(
+            _cameraError!,
+            style: TextStyle(
+              color: isLight ? Colors.black54 : Colors.white70,
+              fontSize: 16,
+            ),
+            textAlign: TextAlign.center,
+          ),
+        );
+      }
+
+      return const SizedBox.expand(
+        child: ColoredBox(color: Colors.black),
       );
     }
 
     final previewSize = controller.value.previewSize;
-    if (previewSize == null) {
+    if (previewSize == null || previewSize.width <= 0 || previewSize.height <= 0) {
+      // Avoid buildPreview on unstable preview dimensions.
       return CameraPreview(controller);
     }
 
@@ -771,6 +984,19 @@ class _CreatePostScreenState extends State<CreatePostScreen>
             height: previewSize.width,
             child: CameraPreview(controller),
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCameraTransitionOverlay() {
+    return AnimatedOpacity(
+      duration: const Duration(milliseconds: 90),
+      opacity: _isTransitioning ? 1 : 0,
+      child: ClipRect(
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 3, sigmaY: 3),
+          child: const SizedBox.expand(),
         ),
       ),
     );
@@ -1125,6 +1351,12 @@ class _CreatePostScreenState extends State<CreatePostScreen>
                   child: _buildCameraPreview(),
                 ),
               ),
+              if (_isTransitioning)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: _buildCameraTransitionOverlay(),
+                  ),
+                ),
               Positioned.fill(
                 child: IgnorePointer(
                   child: Container(
@@ -1145,14 +1377,12 @@ class _CreatePostScreenState extends State<CreatePostScreen>
                   ),
                 ),
               ),
-              if (_isWhiteScreenFlashActive)
+              if (_isWhiteScreenFlashActive && _isFrontCamera && _flashEnabled)
                 Positioned.fill(
                   child: IgnorePointer(
                     child: AnimatedContainer(
                       duration: const Duration(milliseconds: 120),
-                      color: _isRecordingVideo
-                          ? Colors.white.withValues(alpha: 0.62)
-                          : Colors.white,
+                      color: Colors.white.withValues(alpha: _whiteScreenFlashAlpha),
                     ),
                   ),
                 ),
