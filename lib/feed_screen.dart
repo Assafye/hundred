@@ -5,6 +5,7 @@ import 'dart:math';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -135,6 +136,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
       <String, Future<List<PostModel>>>{};
   final Map<String, DateTime> _feedSeenHistory = <String, DateTime>{};
   Set<String> _feedSeenIds = <String>{};
+  bool _hasLoadedSeenFeedHistory = false;
   Offset _heartTapPosition = Offset.zero;
   bool _showDoubleTapHeart = false;
   String _activeHeartPostId = '';
@@ -224,6 +226,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
       _feedSeenHistory.clear();
       _feedSeenHistory.addAll(limited);
       _feedSeenIds = _feedSeenHistory.keys.toSet();
+      _hasLoadedSeenFeedHistory = true;
     });
   }
 
@@ -272,6 +275,31 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
     unawaited(_persistSeenFeedHistory());
   }
 
+  void _recordActiveFeedPostIfNeeded({
+    required List<PostModel> feedPosts,
+    required int activeFeedIndex,
+    required List<PostModel> baseFeedPosts,
+  }) {
+    if (feedPosts.isEmpty) {
+      return;
+    }
+
+    final safeIndex = activeFeedIndex.clamp(0, feedPosts.length - 1);
+    final activePost = feedPosts[safeIndex];
+    final activePostId = activePost.id.trim();
+    if (activePostId.isEmpty || _feedSeenIds.contains(activePostId)) {
+      return;
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _feedSeenIds.contains(activePostId)) {
+        return;
+      }
+
+      _recordSeenFeedPost(activePost);
+    });
+  }
+
   void _syncForegroundStateWithComposer() {
     if (!mounted) {
       return;
@@ -294,12 +322,28 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
     }
 
     _hasShownExhaustedFeedSheet = true;
+    BuildContext? dialogRouteContext;
+    unawaited(
+      Future<void>.delayed(const Duration(seconds: 2), () async {
+        final contextToClose = dialogRouteContext;
+        if (!mounted || contextToClose == null) {
+          return;
+        }
+
+        final navigator = Navigator.of(contextToClose);
+        if (navigator.canPop()) {
+          navigator.pop();
+        }
+      }),
+    );
+
     await showGeneralDialog<void>(
       context: context,
       barrierDismissible: false,
       barrierColor: Colors.black54,
       transitionDuration: const Duration(milliseconds: 280),
       pageBuilder: (dialogContext, animation, secondaryAnimation) {
+        dialogRouteContext = dialogContext;
         final dialogWidth = MediaQuery.of(dialogContext).size.width;
         final bubbleWidth = (dialogWidth * 0.74).clamp(240.0, 360.0);
 
@@ -325,13 +369,25 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                       vertical: 18,
                     ),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF141B2A),
+                      gradient: const LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: <Color>[
+                          Color(0xFF4BA7FF),
+                          Color(0xFF2D84E6),
+                        ],
+                      ),
+                      border: Border.all(
+                        color: const Color(0xFFD7EEFF),
+                        width: 1.8,
+                      ),
                       borderRadius: BorderRadius.circular(28),
                       boxShadow: const [
                         BoxShadow(
-                          color: Color(0x66000000),
-                          blurRadius: 18,
-                          spreadRadius: 2,
+                          color: Color(0x55306FB8),
+                          blurRadius: 24,
+                          spreadRadius: 3,
+                          offset: Offset(0, 10),
                         ),
                       ],
                     ),
@@ -353,7 +409,8 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                           style: TextStyle(
                             color: Colors.white,
                             fontSize: 18,
-                            fontWeight: FontWeight.w700,
+                            fontWeight: FontWeight.w800,
+                            decoration: TextDecoration.none,
                           ),
                         ),
                         const SizedBox(height: 8),
@@ -361,9 +418,11 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                           'זה הזמן ליצור עוד פוסטים בעצמך!',
                           textAlign: TextAlign.center,
                           style: TextStyle(
-                            color: Colors.white70,
+                            color: Color(0xFFF2F9FF),
                             fontSize: 13,
+                            fontWeight: FontWeight.w700,
                             height: 1.5,
+                            decoration: TextDecoration.none,
                           ),
                         ),
                       ],
@@ -1594,7 +1653,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
         : int.tryParse(scoreAwardedRaw?.toString() ?? '') ?? 0;
 
     return PostModel(
-      id: (data['postId'] as String? ?? data['id'] as String? ?? '').trim(),
+      id: (data['id'] as String? ?? data['postId'] as String? ?? '').trim(),
       authorId: uid,
       createdAt: createdAtRaw is Timestamp ? createdAtRaw.toDate() : null,
       category: category,
@@ -3148,9 +3207,9 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
           final data = snapshot.data() ?? <String, dynamic>{};
           final following = data['following'];
           if (following is! List) {
-            if (lastGood != null) {
-              controller.add(lastGood!);
-            }
+            final fallback = lastGood ?? <String>{};
+            lastGood = fallback;
+            controller.add(fallback);
             return;
           }
           final value = following
@@ -3536,6 +3595,15 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
     );
   }
 
+  Widget _buildBlankFeedScaffold() {
+    return Scaffold(
+      extendBody: true,
+      backgroundColor: _feedBackgroundColor(context),
+      body: _buildFeedState(child: const SizedBox.expand()),
+      bottomNavigationBar: const MainBottomNav(currentIndex: 0),
+    );
+  }
+
   Stream<List<Map<String, dynamic>>> _resolveFeedStream({
     required bool usingBackendFeed,
     required String? categoryFilter,
@@ -3572,6 +3640,10 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
+    if (!_hasLoadedSeenFeedHistory) {
+      return _buildBlankFeedScaffold();
+    }
+
     final shouldFilterByCategory = !isGeneralCategory(selectedCategory);
     final shouldFilterBySubCategory = shouldFilterByCategory &&
         selectedSubCategory.isNotEmpty &&
@@ -3615,15 +3687,9 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
           );
         }
 
-        if (snapshot.connectionState == ConnectionState.waiting &&
-            !snapshot.hasData) {
-          return Scaffold(
-            extendBody: true,
-            backgroundColor: _feedBackgroundColor(context),
-            body: _buildFeedState(
-                child: const SizedBox.expand(), showLoader: true),
-            bottomNavigationBar: const MainBottomNav(currentIndex: 0),
-          );
+        if (!snapshot.hasData &&
+            snapshot.connectionState != ConnectionState.done) {
+          return _buildBlankFeedScaffold();
         }
 
         final rawPosts = snapshot.data ?? const <Map<String, dynamic>>[];
@@ -3685,6 +3751,12 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                     blockedUids: blockedUids,
                   ),
                   builder: (context, audienceSnapshot) {
+                    if (!audienceSnapshot.hasData &&
+                        audienceSnapshot.connectionState !=
+                            ConnectionState.done) {
+                      return _buildBlankFeedScaffold();
+                    }
+
                     final baseFeedPosts =
                         audienceSnapshot.data ?? const <PostModel>[];
                     final feedPosts = filterFeedPostsForFreshnessAndSeen(
@@ -3694,6 +3766,12 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                     final activeFeedIndex = feedPosts.isEmpty
                         ? 0
                         : _currentFeedPageIndex.clamp(0, feedPosts.length - 1);
+
+                    _recordActiveFeedPostIfNeeded(
+                      feedPosts: feedPosts,
+                      activeFeedIndex: activeFeedIndex,
+                      baseFeedPosts: baseFeedPosts,
+                    );
 
                     _scheduleFeedMediaPrecache(feedPosts, activeFeedIndex);
                     final scrollControls =
@@ -3740,7 +3818,8 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                                     _currentFeedPageIndex = index;
                                   });
 
-                                  if (remainingAfterSeen.isEmpty &&
+                                  if (index == feedPosts.length - 1 &&
+                                      remainingAfterSeen.isEmpty &&
                                       !_hasShownExhaustedFeedSheet) {
                                     unawaited(_showExhaustedFeedMessage());
                                   }

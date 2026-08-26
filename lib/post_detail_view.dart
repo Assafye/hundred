@@ -1742,6 +1742,7 @@ class _PostDetailViewState extends State<PostDetailView> {
                                                         UserProfileScreen(
                                                       uid: profile.userId,
                                                       currentBottomIndex: 0,
+                                                      openedFromPostFlow: true,
                                                     ),
                                                   ),
                                                 );
@@ -2761,6 +2762,7 @@ class _PostDetailViewState extends State<PostDetailView> {
                 builder: (_) => UserProfileScreen(
                   uid: authorProfile.userId,
                   currentBottomIndex: 0,
+                  openedFromPostFlow: true,
                 ),
               ),
             );

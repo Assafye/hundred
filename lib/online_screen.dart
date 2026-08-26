@@ -3643,6 +3643,7 @@ class _OnlineScreenState extends State<OnlineScreen>
 
         return _sectionShell(
           title: 'עושים משהו בקרוב',
+          trailingOnLeft: true,
           trailing: TextButton(
             onPressed: _openUpcomingGroupsPage,
             child: const Text('הצג עוד'),
@@ -4626,9 +4627,11 @@ class _OnlineScreenState extends State<OnlineScreen>
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(
+            textDirection: TextDirection.rtl,
             children: [
-              if (trailingOnLeft) ...[
-                Expanded(
+              Expanded(
+                child: Align(
+                  alignment: Alignment.centerRight,
                   child: Text(
                     title,
                     textAlign: TextAlign.right,
@@ -4639,20 +4642,10 @@ class _OnlineScreenState extends State<OnlineScreen>
                     ),
                   ),
                 ),
-                if (trailing != null) trailing,
-              ] else ...[
-                if (trailing != null) trailing,
-                Expanded(
-                  child: Text(
-                    title,
-                    textAlign: TextAlign.right,
-                    style: TextStyle(
-                      color: isLight ? Colors.black : Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ),
+              ),
+              if (trailing != null) ...[
+                const SizedBox(width: 8),
+                trailing,
               ],
             ],
           ),

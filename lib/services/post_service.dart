@@ -2079,6 +2079,7 @@ class PostService {
       String parentCommentAuthorId = '';
       String postImageUrl = '';
       var taggedScoreDelta = 0;
+      var latestCommentsCount = 0;
       var allowed = false;
 
       _logCommentFlow(traceId, 'running transaction');
@@ -2169,14 +2170,15 @@ class PostService {
         final postData = postSnap.data() ?? <String, dynamic>{};
         final currentComments =
             (postData['commentsCount'] as num?)?.toInt() ?? 0;
+        latestCommentsCount = currentComments + 1;
         final oldPostScore = _postScoreFromData(postData);
         transaction.update(postRef, <String, dynamic>{
-          'commentsCount': currentComments + 1,
+          'commentsCount': latestCommentsCount,
           'updatedAt': FieldValue.serverTimestamp(),
         });
 
         final nextPostData = Map<String, dynamic>.from(postData)
-          ..['commentsCount'] = currentComments + 1;
+          ..['commentsCount'] = latestCommentsCount;
         final newPostScore = _postScoreFromData(nextPostData);
         taggedScoreDelta = _taggedBonusForPostScore(newPostScore) -
             _taggedBonusForPostScore(oldPostScore);
@@ -2233,6 +2235,7 @@ class PostService {
             postId: normalizedPostId,
             commentText: normalizedText,
             commentId: newCommentRef.id,
+            commentCount: latestCommentsCount,
             postImageUrl: postImageUrl,
             senderUid: uid,
           );
@@ -2249,6 +2252,7 @@ class PostService {
             postId: normalizedPostId,
             commentId: normalizedParentId,
             replyText: normalizedText,
+            postOwnerUid: normalizedAuthorId,
             postImageUrl: postImageUrl,
             senderUid: uid,
           );

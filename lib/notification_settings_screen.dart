@@ -16,20 +16,77 @@ class NotificationSettingsScreen extends StatefulWidget {
 class _NotificationSettingsScreenState
     extends State<NotificationSettingsScreen> {
   final NotificationService _notificationService = NotificationService();
+  final Map<String, bool> _localOverrides = <String, bool>{};
+  final Set<String> _savingKeys = <String>{};
+  bool _isBulkSaving = false;
 
   String? get _uid => FirebaseAuth.instance.currentUser?.uid;
 
   Future<void> _setAll(bool value) async {
+    if (_isBulkSaving) return;
+    final keys = NotificationService.defaultSettings.keys.toList(growable: false);
+    setState(() {
+      _isBulkSaving = true;
+      for (final key in keys) {
+        _localOverrides[key] = value;
+        _savingKeys.add(key);
+      }
+    });
+
     final payload = <String, bool>{
       for (final key in NotificationService.defaultSettings.keys) key: value,
     };
-    await _notificationService.updateCurrentUserSettings(payload);
+    try {
+      await _notificationService.updateCurrentUserSettings(payload);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('עדכון הגדרות התראות נכשל: $error')),
+      );
+      setState(() {
+        for (final key in keys) {
+          _localOverrides.remove(key);
+        }
+      });
+    } finally {
+      if (!mounted) return;
+      setState(() {
+        _isBulkSaving = false;
+        _savingKeys.clear();
+      });
+    }
   }
 
   Future<void> _toggle(String key, bool value) async {
-    await _notificationService.updateCurrentUserSettings(<String, bool>{
-      key: value,
+    if (_isBulkSaving || _savingKeys.contains(key)) return;
+    final previous = _localOverrides[key];
+    setState(() {
+      _localOverrides[key] = value;
+      _savingKeys.add(key);
     });
+
+    try {
+      await _notificationService.updateCurrentUserSettings(<String, bool>{
+        key: value,
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        if (previous == null) {
+          _localOverrides.remove(key);
+        } else {
+          _localOverrides[key] = previous;
+        }
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('עדכון הגדרת התראה נכשל: $error')),
+      );
+    } finally {
+      if (!mounted) return;
+      setState(() {
+        _savingKeys.remove(key);
+      });
+    }
   }
 
   @override
@@ -89,6 +146,10 @@ class _NotificationSettingsScreenState
                       }
                     }
 
+                    for (final entry in _localOverrides.entries) {
+                      settings[entry.key] = entry.value;
+                    }
+
                     return ListView(
                       padding: const EdgeInsets.fromLTRB(14, 14, 14, 24),
                       children: [
@@ -123,14 +184,16 @@ class _NotificationSettingsScreenState
                                 children: [
                                   Expanded(
                                     child: OutlinedButton(
-                                      onPressed: () => _setAll(true),
+                                      onPressed:
+                                          _isBulkSaving ? null : () => _setAll(true),
                                       child: const Text('הפעל הכל'),
                                     ),
                                   ),
                                   const SizedBox(width: 10),
                                   Expanded(
                                     child: OutlinedButton(
-                                      onPressed: () => _setAll(false),
+                                      onPressed:
+                                          _isBulkSaving ? null : () => _setAll(false),
                                       child: const Text('כבה הכל'),
                                     ),
                                   ),
@@ -140,31 +203,40 @@ class _NotificationSettingsScreenState
                           ),
                         ),
                         const SizedBox(height: 12),
-                        ..._notificationOptions.map((option) {
+                        ...NotificationService.settingOptions.map((option) {
                           final value = settings[option.key] ?? true;
-                          return Container(
-                            margin: const EdgeInsets.only(bottom: 10),
-                            decoration: BoxDecoration(
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 10),
+                            child: Material(
                               color: optionCard,
                               borderRadius: BorderRadius.circular(16),
-                              border: Border.all(
-                                color: optionBorder,
-                              ),
-                            ),
-                            child: SwitchListTile.adaptive(
-                              value: value,
-                              onChanged: (next) => _toggle(option.key, next),
-                              activeThumbColor: const Color(0xFF53C1F9),
-                              title: Text(
-                                option.title,
-                                style: TextStyle(
-                                  color: titleColor,
-                                  fontWeight: FontWeight.w700,
+                              clipBehavior: Clip.antiAlias,
+                              child: Ink(
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(
+                                    color: optionBorder,
+                                  ),
                                 ),
-                              ),
-                              subtitle: Text(
-                                option.subtitle,
-                                style: TextStyle(color: mutedText),
+                                child: SwitchListTile.adaptive(
+                                  value: value,
+                                  onChanged: _isBulkSaving ||
+                                          _savingKeys.contains(option.key)
+                                      ? null
+                                      : (next) => _toggle(option.key, next),
+                                  activeThumbColor: const Color(0xFF53C1F9),
+                                  title: Text(
+                                    option.title,
+                                    style: TextStyle(
+                                      color: titleColor,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                  subtitle: Text(
+                                    option.subtitle,
+                                    style: TextStyle(color: mutedText),
+                                  ),
+                                ),
                               ),
                             ),
                           );
@@ -178,93 +250,3 @@ class _NotificationSettingsScreenState
     );
   }
 }
-
-class _NotificationOption {
-  final String key;
-  final String title;
-  final String subtitle;
-
-  const _NotificationOption({
-    required this.key,
-    required this.title,
-    required this.subtitle,
-  });
-}
-
-const List<_NotificationOption> _notificationOptions = <_NotificationOption>[
-  _NotificationOption(
-    key: NotificationSettingKeys.postLikes,
-    title: 'לייקים לפוסטים שלי',
-    subtitle: 'כשמישהו עושה לייק לפוסט שלך',
-  ),
-  _NotificationOption(
-    key: NotificationSettingKeys.postSaves,
-    title: 'שמירות לפוסטים שלי',
-    subtitle: 'כשמישהו שומר את הפוסט שלך',
-  ),
-  _NotificationOption(
-    key: NotificationSettingKeys.newMessages,
-    title: 'הודעות חדשות',
-    subtitle: 'הודעות מקבוצות או צאטים אישיים',
-  ),
-  _NotificationOption(
-    key: NotificationSettingKeys.postComments,
-    title: 'תגובות על הפוסט שלי',
-    subtitle: 'כשמגיבים לפוסט שלך',
-  ),
-  _NotificationOption(
-    key: NotificationSettingKeys.commentReplies,
-    title: 'תגובות לתגובה שלי',
-    subtitle: 'כשמגיבים לתגובה שכתבת',
-  ),
-  _NotificationOption(
-    key: NotificationSettingKeys.popJoins,
-    title: 'הצטרפות לפופ שיצרתי',
-    subtitle: 'כשמשתמש מצטרף לפופ שלך',
-  ),
-  _NotificationOption(
-    key: NotificationSettingKeys.groupJoins,
-    title: 'הצטרפות לקבוצה שלי',
-    subtitle: 'כשמשתמש מצטרף לקבוצה שיצרת',
-  ),
-  _NotificationOption(
-    key: NotificationSettingKeys.addedToGroups,
-    title: 'הוספה לקבוצה חדשה',
-    subtitle: 'כשמוסיפים אותך לקבוצה',
-  ),
-  _NotificationOption(
-    key: NotificationSettingKeys.weeklyChallengeUpdates,
-    title: 'עדכון אתגר שבועי',
-    subtitle: 'התראה כשהאתגר השבועי משתנה',
-  ),
-  _NotificationOption(
-    key: NotificationSettingKeys.dailyChallengeUpdates,
-    title: 'עדכון משימה יומית',
-    subtitle: 'התראה כשהמשימה היומית בכוכבי השבוע משתנה',
-  ),
-  _NotificationOption(
-    key: NotificationSettingKeys.spontaneousReminders,
-    title: 'תזכורות ספונטניות',
-    subtitle: 'התראות להגרלת משימה ספונטנית כשאין משימה פעילה',
-  ),
-  _NotificationOption(
-    key: NotificationSettingKeys.spontaneousTimeWarnings,
-    title: 'התראות זמן למשימה ספונטנית',
-    subtitle: 'התראות על זמן שנותר לביצוע המשימה הספונטנית',
-  ),
-  _NotificationOption(
-    key: NotificationSettingKeys.weeklyStars,
-    title: 'כוכבי השבוע',
-    subtitle: 'כשפוסט שלך נכנס לכוכבי השבוע',
-  ),
-  _NotificationOption(
-    key: NotificationSettingKeys.newFollowers,
-    title: 'עוקבים חדשים',
-    subtitle: 'כשמשתמש מתחיל לעקוב אחריך',
-  ),
-  _NotificationOption(
-    key: NotificationSettingKeys.newFriends,
-    title: 'חברים חדשים',
-    subtitle: 'כשמשתמש הופך לחבר שלך',
-  ),
-];

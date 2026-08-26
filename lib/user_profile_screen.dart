@@ -80,6 +80,7 @@ class UserProfileScreen extends StatefulWidget {
   final String? username;
   final int currentBottomIndex;
   final bool openedFromDirectChat;
+  final bool openedFromPostFlow;
 
   const UserProfileScreen({
     super.key,
@@ -87,6 +88,7 @@ class UserProfileScreen extends StatefulWidget {
     this.username,
     this.currentBottomIndex = 4,
     this.openedFromDirectChat = false,
+    this.openedFromPostFlow = false,
   });
 
   @override
@@ -4296,14 +4298,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       collectApprovedGroupIds(byUserIdField);
     } catch (_) {}
 
-    try {
-      final byDocId = await _db
-          .collectionGroup('members')
-          .where(FieldPath.documentId, isEqualTo: normalizedUid)
-          .get();
-      collectApprovedGroupIds(byDocId);
-    } catch (_) {}
-
     return groupIds;
   }
 
@@ -6758,8 +6752,12 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                           );
                           return;
                         }
-                        if (navigator.canPop()) {
+                        var popCount = widget.openedFromPostFlow ? 2 : 1;
+                        while (popCount > 0 && navigator.canPop()) {
                           navigator.pop();
+                          popCount -= 1;
+                        }
+                        if (popCount == 0) {
                           return;
                         }
 

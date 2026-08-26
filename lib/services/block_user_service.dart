@@ -167,6 +167,8 @@ class BlockUserService {
       return false;
     }
 
+    var hadRecoverableProbeError = false;
+
     try {
       final chatSnap = await _directChatRef(myUid, normalizedOtherUid)
           .get(const GetOptions(source: Source.serverAndCache))
@@ -181,7 +183,15 @@ class BlockUserService {
           return true;
         }
       }
+    } catch (error) {
+      if (_isRecoverableBlockReadError(error)) {
+        hadRecoverableProbeError = true;
+      } else {
+        rethrow;
+      }
+    }
 
+    try {
       final reverseBlockRef = _blockedUserRef(
         ownerUid: normalizedOtherUid,
         targetUid: myUid,
@@ -200,8 +210,16 @@ class BlockUserService {
         );
         return true;
       }
+    } catch (error) {
+      if (_isRecoverableBlockReadError(error)) {
+        hadRecoverableProbeError = true;
+      } else {
+        rethrow;
+      }
+    }
 
-      if (includeLegacyFallback) {
+    if (includeLegacyFallback) {
+      try {
         final targetUserSnap = await _db
             .collection('users')
             .doc(normalizedOtherUid)
@@ -219,21 +237,25 @@ class BlockUserService {
           );
           return true;
         }
+      } catch (error) {
+        if (_isRecoverableBlockReadError(error)) {
+          hadRecoverableProbeError = true;
+        } else {
+          rethrow;
+        }
       }
+    }
 
+    if (hadRecoverableProbeError) {
+      _trace(
+        'is_blocked_by_other_partial_probe_failure other=$normalizedOtherUid includeLegacyFallback=$includeLegacyFallback resolvedAs=false',
+      );
+    } else {
       _trace(
         'is_blocked_by_other_false other=$normalizedOtherUid includeLegacyFallback=$includeLegacyFallback',
       );
-      return false;
-    } catch (error) {
-      _trace(
-        'is_blocked_by_other_error other=$normalizedOtherUid includeLegacyFallback=$includeLegacyFallback errorType=${error.runtimeType} error=$error',
-      );
-      if (_isRecoverableBlockReadError(error)) {
-        return false;
-      }
-      rethrow;
     }
+    return false;
   }
 
   Future<bool> isEitherUserBlocked(String otherUid) async {
@@ -293,7 +315,10 @@ class BlockUserService {
         try {
           final reverseDocs = await _db
               .collectionGroup('blocked_users')
-              .where(FieldPath.documentId, isEqualTo: myUid)
+              // In collectionGroup queries, filtering by documentId can require
+              // a reference-form value on some platforms. Use explicit field
+              // matching to avoid invalid-argument crashes.
+              .where('blockedUid', isEqualTo: myUid)
               .get(const GetOptions(source: Source.serverAndCache))
               .timeout(const Duration(seconds: 5));
           final reverseUids = reverseDocs.docs
@@ -494,7 +519,10 @@ class BlockUserService {
     try {
       final reverseDocs = await _db
           .collectionGroup('blocked_users')
-          .where(FieldPath.documentId, isEqualTo: myUid)
+          // In collectionGroup queries, filtering by documentId can require
+          // a reference-form value on some platforms. Use explicit field
+          // matching to avoid invalid-argument crashes.
+          .where('blockedUid', isEqualTo: myUid)
           .get(const GetOptions(source: Source.serverAndCache))
           .timeout(const Duration(seconds: 5));
       blockedMe = reverseDocs.docs
@@ -689,6 +717,8 @@ class BlockUserService {
       return;
     }
 
+    _trace('block_user_start target=$normalizedTargetUid');
+
     final blockedRef = _blockedUserRef(
       ownerUid: myUid,
       targetUid: normalizedTargetUid,
@@ -698,36 +728,41 @@ class BlockUserService {
     final directChatRef = _directChatRef(myUid, normalizedTargetUid);
     final sortedParticipants = <String>[myUid, normalizedTargetUid]..sort();
 
-    await _db.runTransaction((tx) async {
-      tx.set(blockedRef, {
-        'blockedUid': normalizedTargetUid,
-        'blockedByUid': myUid,
-        'blockedAt': FieldValue.serverTimestamp(),
-      });
+    // Core block state must succeed even if direct-chat metadata write is denied
+    // for legacy/malformed chat documents.
+    final batch = _db.batch();
+    batch.set(blockedRef, {
+      'blockedUid': normalizedTargetUid,
+      'blockedByUid': myUid,
+      'blockedAt': FieldValue.serverTimestamp(),
+    });
 
-      final currentUserCleanup = {
-        'blockedUsers': FieldValue.arrayUnion(<String>[normalizedTargetUid]),
+    final currentUserCleanup = {
+      'blockedUsers': FieldValue.arrayUnion(<String>[normalizedTargetUid]),
+      'following': FieldValue.arrayRemove(<String>[normalizedTargetUid]),
+      'followers': FieldValue.arrayRemove(<String>[normalizedTargetUid]),
+      'followRequests': FieldValue.arrayRemove(<String>[normalizedTargetUid]),
+      'sentFollowRequests': FieldValue.arrayRemove(<String>[normalizedTargetUid]),
+      'friends': FieldValue.arrayRemove(<String>[normalizedTargetUid]),
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+
+    batch.set(myUserRef, currentUserCleanup, SetOptions(merge: true));
+
+    batch.set(
+      myPublicUserRef,
+      {
         'following': FieldValue.arrayRemove(<String>[normalizedTargetUid]),
         'followers': FieldValue.arrayRemove(<String>[normalizedTargetUid]),
-        'followRequests': FieldValue.arrayRemove(<String>[normalizedTargetUid]),
-        'sentFollowRequests':
-            FieldValue.arrayRemove(<String>[normalizedTargetUid]),
-        'friends': FieldValue.arrayRemove(<String>[normalizedTargetUid]),
-        'updatedAt': FieldValue.serverTimestamp(),
-      };
+      },
+      SetOptions(merge: true),
+    );
 
-      tx.set(myUserRef, currentUserCleanup, SetOptions(merge: true));
+    await batch.commit();
+    _trace('block_user_core_commit_ok target=$normalizedTargetUid');
 
-      tx.set(
-          myPublicUserRef,
-          {
-            'following': FieldValue.arrayRemove(<String>[normalizedTargetUid]),
-            'followers': FieldValue.arrayRemove(<String>[normalizedTargetUid]),
-          },
-          SetOptions(merge: true));
-
-      tx.set(
-        directChatRef,
+    try {
+      await directChatRef.set(
         {
           'id': directChatRef.id,
           'directChatKey': directChatRef.id,
@@ -741,7 +776,13 @@ class BlockUserService {
         },
         SetOptions(merge: true),
       );
-    });
+    } catch (error) {
+      _trace(
+        'block_chat_metadata_write_skipped target=$normalizedTargetUid errorType=${error.runtimeType} error=$error',
+      );
+    }
+
+    _trace('block_user_done target=$normalizedTargetUid');
   }
 
   Future<void> unblockUser(String targetUid) async {

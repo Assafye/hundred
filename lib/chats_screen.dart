@@ -1826,6 +1826,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
                             chatName,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.right,
                             style: TextStyle(
                               fontFamily: 'Segoe UI',
                               color: isLight ? Colors.black : Colors.white,
@@ -1836,6 +1837,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
                             subtitleText,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.right,
                             style: TextStyle(
                               color:
                                   isLight ? Colors.black87 : Colors.grey[400],
@@ -3576,6 +3578,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
                         chatName,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.right,
                         style: TextStyle(
                           fontFamily: 'Segoe UI',
                           color: isLight ? Colors.black : Colors.white,
@@ -3586,6 +3589,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
                         subtitleText,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.right,
                         style: TextStyle(
                           color: isLight ? Colors.black87 : Colors.grey[400],
                         ),
@@ -4234,6 +4238,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
                     result.name,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.right,
                     style: TextStyle(
                       color: isLight ? Colors.black : Colors.white,
                       fontWeight: FontWeight.w700,
@@ -4243,6 +4248,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
                     result.subtitle,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.right,
                     style: TextStyle(color: Colors.grey[400]),
                   ),
                   trailing: Text(
@@ -4404,7 +4410,7 @@ class _ChatLoadingTile extends StatelessWidget {
             backgroundColor: lineColor,
           ),
           title: Align(
-            alignment: Alignment.centerLeft,
+            alignment: Alignment.centerRight,
             child: Container(
               width: 132,
               height: 12,
@@ -4417,7 +4423,7 @@ class _ChatLoadingTile extends StatelessWidget {
           subtitle: Padding(
             padding: const EdgeInsets.only(top: 8),
             child: Align(
-              alignment: Alignment.centerLeft,
+              alignment: Alignment.centerRight,
               child: Container(
                 width: 188,
                 height: 10,

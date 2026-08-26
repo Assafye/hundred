@@ -200,10 +200,11 @@ class ChallengeNotificationsOrchestrator {
       await userRef.set(
         <String, dynamic>{
           'notificationMeta.spontaneous.activeTaskKey': taskKey,
-          'notificationMeta.spontaneous.sentTenXEnd': false,
+          'notificationMeta.spontaneous.sent72h': false,
           'notificationMeta.spontaneous.sent24h': false,
+          'notificationMeta.spontaneous.sent12h': false,
+          'notificationMeta.spontaneous.sent4h': false,
           'notificationMeta.spontaneous.sent1h': false,
-          'notificationMeta.spontaneous.lastCadenceReminderAt': null,
           'notificationMeta.spontaneous.lastAnyWarningAt': null,
         },
         SetOptions(merge: true),
@@ -211,38 +212,35 @@ class ChallengeNotificationsOrchestrator {
       userData['notificationMeta'] = <String, dynamic>{};
     }
 
-    final total = task.totalDuration;
     final remaining = task.remainingAt(now);
-    final elapsed = total - remaining;
-
-    final sentTenXEnd =
-        _boolValue(userData, 'notificationMeta.spontaneous.sentTenXEnd');
+    final sent72h = _boolValue(userData, 'notificationMeta.spontaneous.sent72h');
     final sent24h = _boolValue(userData, 'notificationMeta.spontaneous.sent24h');
+    final sent12h = _boolValue(userData, 'notificationMeta.spontaneous.sent12h');
+    final sent4h = _boolValue(userData, 'notificationMeta.spontaneous.sent4h');
     final sent1h = _boolValue(userData, 'notificationMeta.spontaneous.sent1h');
-    var lastCadenceReminderAt = _timestampValue(
-      userData,
-      'notificationMeta.spontaneous.lastCadenceReminderAt',
-    );
     var lastAnyWarningAt = _timestampValue(
       userData,
       'notificationMeta.spontaneous.lastAnyWarningAt',
     );
 
     Future<void> sendWarning({
+      required int warningHours,
       required String warningText,
       required Map<String, dynamic> meta,
-      bool cadence = false,
     }) async {
       final sinceLastAny = lastAnyWarningAt == null
           ? 9999
           : now.difference(lastAnyWarningAt!).inHours;
-      if (sinceLastAny < 2) {
+      if (sinceLastAny < 1) {
         return;
       }
 
       await _notificationService.sendSpontaneousTimeWarningNotification(
         recipientUid: uid,
         warningText: warningText,
+        warningHoursRemaining: warningHours,
+        spontaneousCategory: task.category,
+        spontaneousSubCategory: task.subCategory,
       );
 
       final payload = <String, dynamic>{
@@ -250,67 +248,82 @@ class ChallengeNotificationsOrchestrator {
         'notificationMeta.spontaneous.lastAnyWarningAt':
             FieldValue.serverTimestamp(),
       };
-      if (cadence) {
-        payload['notificationMeta.spontaneous.lastCadenceReminderAt'] =
-            FieldValue.serverTimestamp();
-      }
       await userRef.set(payload, SetOptions(merge: true));
       lastAnyWarningAt = now;
-      if (cadence) {
-        lastCadenceReminderAt = now;
+    }
+
+    final remainingHours = remaining.inHours;
+    final isWeekTask = task.totalDuration >= const Duration(days: 7);
+
+    Future<void> sendThresholdWarning({
+      required int thresholdHours,
+      required bool sentFlag,
+      required String text,
+      required List<String> flagsToMarkAsSent,
+    }) async {
+      if (sentFlag || remainingHours > thresholdHours) {
+        return;
       }
-    }
 
-    final halfway = Duration(milliseconds: total.inMilliseconds ~/ 2);
-    if (!sentTenXEnd && elapsed >= halfway) {
+      final meta = <String, dynamic>{
+        for (final flag in flagsToMarkAsSent)
+          'notificationMeta.spontaneous.$flag': true,
+      };
+
       await sendWarning(
-        warningText: 'הבונוס X10 נגמר. עדיין אפשר להשלים את המשימה בזמן.',
-        meta: <String, dynamic>{
-          'notificationMeta.spontaneous.sentTenXEnd': true,
-        },
+        warningHours: thresholdHours,
+        warningText: text,
+        meta: meta,
       );
     }
 
-    if (!sent24h && remaining <= const Duration(hours: 24)) {
-      await sendWarning(
-        warningText: 'נשארו לך 24 שעות לבצע את המשימה הספונטנית.',
-        meta: <String, dynamic>{
-          'notificationMeta.spontaneous.sent24h': true,
-        },
+    if (isWeekTask) {
+      await sendThresholdWarning(
+        thresholdHours: 72,
+        sentFlag: sent72h,
+        text: 'נשארו לך 72 שעות למשימה הספונטנית.',
+        flagsToMarkAsSent: const <String>['sent72h'],
       );
     }
 
-    if (!sent1h && remaining <= const Duration(hours: 1)) {
-      await sendWarning(
-        warningText: 'נשארה פחות משעה לסיום המשימה הספונטנית.',
-        meta: <String, dynamic>{
-          'notificationMeta.spontaneous.sent1h': true,
-        },
-      );
-    }
+    await sendThresholdWarning(
+      thresholdHours: 24,
+      sentFlag: sent24h,
+      text: 'נשארו לך 24 שעות למשימה הספונטנית.',
+      flagsToMarkAsSent: const <String>['sent72h', 'sent24h'],
+    );
 
-    final sinceCadence = lastCadenceReminderAt == null
-        ? 9999
-      : now.difference(lastCadenceReminderAt!).inHours;
-    if (sinceCadence >= 17 && remaining > const Duration(hours: 1)) {
-      await sendWarning(
-        warningText: 'עדיין יש לך זמן למשימה הספונטנית: ${_formatRemaining(remaining)}',
-        meta: const <String, dynamic>{},
-        cadence: true,
-      );
-    }
-  }
+    await sendThresholdWarning(
+      thresholdHours: 12,
+      sentFlag: sent12h,
+      text: 'נשארו לך 12 שעות למשימה הספונטנית.',
+      flagsToMarkAsSent: const <String>['sent72h', 'sent24h', 'sent12h'],
+    );
 
-  static String _formatRemaining(Duration duration) {
-    if (duration.inHours >= 24) {
-      final days = duration.inDays;
-      final hours = duration.inHours % 24;
-      return '$days ימים ו-$hours שעות';
-    }
-    if (duration.inHours >= 1) {
-      return '${duration.inHours} שעות';
-    }
-    return '${duration.inMinutes} דקות';
+    await sendThresholdWarning(
+      thresholdHours: 4,
+      sentFlag: sent4h,
+      text: 'נשארו לך 4 שעות למשימה הספונטנית.',
+      flagsToMarkAsSent: const <String>[
+        'sent72h',
+        'sent24h',
+        'sent12h',
+        'sent4h',
+      ],
+    );
+
+    await sendThresholdWarning(
+      thresholdHours: 1,
+      sentFlag: sent1h,
+      text: 'נשארה לך שעה אחת למשימה הספונטנית.',
+      flagsToMarkAsSent: const <String>[
+        'sent72h',
+        'sent24h',
+        'sent12h',
+        'sent4h',
+        'sent1h',
+      ],
+    );
   }
 
   static int _weekIndexFor(DateTime utcDate) {

@@ -2,11 +2,13 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import 'app_categories.dart';
 import 'chats_screen.dart';
 import 'chat_room_screen.dart';
 import 'group_details_screen.dart';
 import 'post_detail_view.dart';
 import 'services/notification_service.dart';
+import 'services/weekly_challenge_service.dart';
 import 'stars_screen.dart' show StarsScreen;
 import 'user_profile_screen.dart';
 import 'widgets/swipe_back_wrapper.dart';
@@ -585,6 +587,259 @@ class _NotificationsPreviewScreenState
     return (data['actorAvatarUrl'] as String? ?? '').trim();
   }
 
+  String _weeklyChallengeCategory(Map<String, dynamic> data) {
+    final explicit = (data['challengeCategory'] as String? ?? '').trim();
+    if (explicit.isNotEmpty) {
+      return explicit;
+    }
+
+    final body = (data['body'] as String? ?? '').trim();
+    final match = RegExp(r'אתגר חדש:\s*([^|]+)').firstMatch(body);
+    if (match != null) {
+      final parsed = (match.group(1) ?? '').trim();
+      if (parsed.isNotEmpty) {
+        return parsed;
+      }
+    }
+
+    return WeeklyChallengeService.currentChallenge().mainCategory;
+  }
+
+  String _dailyChallengeTaskLabel(Map<String, dynamic> data) {
+    final explicit = (data['challengeSubCategory'] as String? ?? '').trim();
+    if (explicit.isNotEmpty) {
+      return explicit;
+    }
+
+    final body = (data['body'] as String? ?? '').trim();
+    final match = RegExp(r'משימה יומית חדשה:\s*(.+)$').firstMatch(body);
+    if (match != null) {
+      final parsed = (match.group(1) ?? '').trim();
+      if (parsed.isNotEmpty) {
+        return parsed;
+      }
+    }
+
+    return WeeklyChallengeService.currentChallenge().subCategory;
+  }
+
+  String _spontaneousCategory(Map<String, dynamic> data) {
+    final explicit = (data['spontaneousCategory'] as String? ?? '').trim();
+    if (explicit.isNotEmpty) {
+      return explicit;
+    }
+    return kGeneralCategory;
+  }
+
+  String _spontaneousTaskLabel(Map<String, dynamic> data) {
+    final explicit = (data['spontaneousSubCategory'] as String? ?? '').trim();
+    if (explicit.isNotEmpty) {
+      return explicit;
+    }
+
+    final body = (data['body'] as String? ?? '').trim();
+    final quotesMatch = RegExp(r'"([^"]+)"').firstMatch(body);
+    if (quotesMatch != null) {
+      final parsed = (quotesMatch.group(1) ?? '').trim();
+      if (parsed.isNotEmpty) {
+        return parsed;
+      }
+    }
+
+    return 'המשימה';
+  }
+
+  int _spontaneousWarningHours(Map<String, dynamic> data) {
+    final raw = data['warningHoursRemaining'];
+    if (raw is num && raw.toInt() > 0) {
+      return raw.toInt();
+    }
+    if (raw is String) {
+      final parsed = int.tryParse(raw.trim());
+      if (parsed != null && parsed > 0) {
+        return parsed;
+      }
+    }
+
+    final body = (data['body'] as String? ?? '').trim();
+    final match = RegExp(r'(\d+)').firstMatch(body);
+    if (match != null) {
+      final parsed = int.tryParse((match.group(1) ?? '').trim());
+      if (parsed != null && parsed > 0) {
+        return parsed;
+      }
+    }
+
+    return 1;
+  }
+
+  String _spontaneousWarningHoursLabel(Map<String, dynamic> data) {
+    final hours = _spontaneousWarningHours(data);
+    if (hours == 1) {
+      return 'שעה';
+    }
+    return '$hours שעות';
+  }
+
+  List<String> _spontaneousRotationCategories() {
+    final categories = appMainCategories
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .where((value) => value != 'אחר')
+        .where((value) => !isGeneralCategory(value))
+        .toList(growable: false);
+
+    if (categories.isNotEmpty) {
+      return categories;
+    }
+
+    return const <String>[kGeneralCategory];
+  }
+
+  Widget _buildSpontaneousRotatingIconBadge({required bool isLight}) {
+    final categories = _spontaneousRotationCategories();
+    return StreamBuilder<int>(
+      stream: Stream<int>.periodic(const Duration(milliseconds: 1200),
+          (tick) => tick),
+      initialData: 0,
+      builder: (context, snapshot) {
+        final tick = snapshot.data ?? 0;
+        final category = categories[tick % categories.length];
+        final icon = categoryIconFor(category);
+
+        return Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: const LinearGradient(
+              colors: [Color(0xFF8DE8FF), Color(0xFFC9B5FF)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: isLight ? 0.75 : 0.30),
+              width: 1.1,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFF76CFFF).withValues(alpha: 0.25),
+                blurRadius: 10,
+                offset: const Offset(0, 5),
+              ),
+            ],
+          ),
+          child: Center(
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 260),
+              switchInCurve: Curves.easeOut,
+              switchOutCurve: Curves.easeIn,
+              transitionBuilder: (child, animation) => ScaleTransition(
+                scale: animation,
+                child: FadeTransition(opacity: animation, child: child),
+              ),
+              child: Icon(
+                icon,
+                key: ValueKey<String>('spontaneous_$category'),
+                color: const Color(0xFF2A2361),
+                size: 22,
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  int _addedUsersCount(Map<String, dynamic> data) {
+    final explicitCount = _intValue(
+      data,
+      const ['addedUsersCount', 'addedUserCount', 'addedCount'],
+    );
+    if (explicitCount > 0) {
+      return explicitCount;
+    }
+
+    final userUids = _stringList(data, 'addedUserUids').toSet().length;
+    if (userUids > 0) {
+      return userUids;
+    }
+
+    final userNames = _stringList(data, 'addedUserNames').toSet().length;
+    if (userNames > 0) {
+      return userNames;
+    }
+
+    return 1;
+  }
+
+  String _addedPrimaryUserName(Map<String, dynamic> data) {
+    final singleName = (data['addedUserName'] as String? ?? '').trim();
+    if (singleName.isNotEmpty) {
+      return singleName;
+    }
+
+    final names = _stringList(data, 'addedUserNames');
+    if (names.isNotEmpty) {
+      return names.first;
+    }
+
+    return 'משתמש';
+  }
+
+  List<String> _addedToGroupAvatarUrls(Map<String, dynamic> data) {
+    final actorAvatarUrl = _actorAvatarUrl(data);
+    final singleAddedAvatar =
+        (data['addedUserAvatarUrl'] as String? ?? '').trim();
+    final listAddedAvatars = _stringList(data, 'addedUserAvatarUrls');
+
+    final result = <String>[];
+    final seen = <String>{};
+
+    void addAvatar(String value) {
+      final normalized = value.trim();
+      if (normalized.isEmpty) {
+        return;
+      }
+      if (seen.add(normalized)) {
+        result.add(normalized);
+      }
+    }
+
+    addAvatar(actorAvatarUrl);
+    addAvatar(singleAddedAvatar);
+    for (final avatarUrl in listAddedAvatars) {
+      addAvatar(avatarUrl);
+    }
+
+    return result;
+  }
+
+  String _addedToGroupTitle(Map<String, dynamic> data) {
+    final actorName = _actorName(data);
+    final groupName = (data['groupName'] as String? ?? '').trim();
+    final normalizedGroup = groupName.isNotEmpty ? groupName : 'קבוצה';
+    final addedCount = _addedUsersCount(data);
+
+    if (addedCount > 1) {
+      return '$actorName הוסיף $addedCount אנשים לקבוצה "$normalizedGroup"';
+    }
+
+    final addedUserName = _addedPrimaryUserName(data);
+    return '$actorName הוסיף את $addedUserName לקבוצה "$normalizedGroup"';
+  }
+
+  List<String> _stringList(Map<String, dynamic> data, String key) {
+    final raw = data[key];
+    if (raw is! List) {
+      return const <String>[];
+    }
+    return raw
+        .map((item) => item.toString().trim())
+        .where((item) => item.isNotEmpty)
+        .toList(growable: false);
+  }
+
   Widget _buildAvatarBadge({
     required String avatarUrl,
     required double size,
@@ -634,17 +889,20 @@ class _NotificationsPreviewScreenState
     final likeCount = _intValue(data, const ['likeCount']);
     final postImageUrl = (data['postImageUrl'] as String? ?? '').trim();
     final actorAvatarUrl = _actorAvatarUrl(data);
+    final recentLikeAvatarUrls =
+        _stringList(data, 'recentLikeActorAvatarUrls').take(3).toList();
     final dynamicNewBorder = _dynamicNewBorderColor(
       isLight: isLight,
       docId: doc.id,
       accent: accent,
     );
 
-    final avatarStack = <Widget>[];
-    final avatarUrls = <String>[];
-    if (actorAvatarUrl.isNotEmpty) {
+    final avatarUrls = <String>[...recentLikeAvatarUrls];
+    if (avatarUrls.isEmpty && actorAvatarUrl.isNotEmpty) {
       avatarUrls.add(actorAvatarUrl);
     }
+
+    final avatarStack = <Widget>[];
     for (final avatar in avatarUrls) {
       avatarStack.add(
         Positioned(
@@ -659,6 +917,7 @@ class _NotificationsPreviewScreenState
     }
 
     final stackWidth = avatarUrls.isEmpty ? 0.0 : avatarUrls.length * 12.0 + 22.0;
+    final currentLikeCount = likeCount > 0 ? likeCount : 1;
 
     return InkWell(
       borderRadius: BorderRadius.circular(24),
@@ -708,6 +967,88 @@ class _NotificationsPreviewScreenState
           textDirection: TextDirection.rtl,
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    textDirection: TextDirection.rtl,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (stackWidth > 0)
+                        SizedBox(
+                          width: stackWidth,
+                          height: 22,
+                          child: Stack(children: avatarStack),
+                        ),
+                      if (stackWidth > 0) const SizedBox(width: 8),
+                      Expanded(
+                        child: Align(
+                          alignment: Alignment.centerRight,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              SizedBox(
+                                width: double.infinity,
+                                child: Text(
+                                  'יש לך $currentLikeCount לייקים על הפוסט',
+                                  textAlign: TextAlign.right,
+                                  textDirection: TextDirection.rtl,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: isLight ? Colors.black : Colors.white,
+                                    fontSize: 15,
+                                    fontWeight: isUnread
+                                        ? FontWeight.w800
+                                        : FontWeight.w700,
+                                    height: 1.2,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              SizedBox(
+                                width: double.infinity,
+                                child: Text(
+                                  'עשה עכשיו לייק: $actorName',
+                                  textAlign: TextAlign.right,
+                                  textDirection: TextDirection.rtl,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color:
+                                        isLight ? Colors.black87 : Colors.white70,
+                                    fontSize: 12.5,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    textDirection: TextDirection.rtl,
+                    children: [
+                      Text(
+                        _timeLabel(data['createdAt']),
+                        style: TextStyle(
+                          color: isLight
+                              ? Colors.black54
+                              : Colors.white.withValues(alpha: 0.45),
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w400,
+                        ),
+                      ),
+                      const Spacer(),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
             SizedBox(
               width: 64,
               height: 64,
@@ -728,65 +1069,1569 @@ class _NotificationsPreviewScreenState
                       ),
               ),
             ),
-            const SizedBox(width: 12),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNewFollowerNotificationCard(
+    BuildContext context,
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+    Map<String, dynamic> data,
+  ) {
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final isUnread = _isUnread(data);
+    final isNew = _shouldHighlightAsNew(data);
+    final accent = _accentForNotification(data);
+    final actorName = _actorName(data);
+    final actorAvatarUrl = _actorAvatarUrl(data);
+    final dynamicNewBorder = _dynamicNewBorderColor(
+      isLight: isLight,
+      docId: doc.id,
+      accent: accent,
+    );
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(24),
+      onTap: () => _openNotification(context, doc, data),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(24),
+          color: isLight ? Colors.white.withValues(alpha: 0.62) : null,
+          gradient: isLight
+              ? null
+              : LinearGradient(
+                  colors: isNew
+                      ? [
+                          const Color(0xFF18263D).withValues(alpha: 0.98),
+                          const Color(0xFF261D44).withValues(alpha: 0.98),
+                        ]
+                      : [
+                          const Color(0xFF111A2A).withValues(alpha: 0.92),
+                          const Color(0xFF161D2C).withValues(alpha: 0.92),
+                        ],
+                  begin: Alignment.topRight,
+                  end: Alignment.bottomLeft,
+                ),
+          border: Border.all(
+            color: isNew
+                ? dynamicNewBorder
+                : (isLight
+                    ? const Color(0xFFA9C3FF)
+                    : Colors.white.withValues(alpha: 0.06)),
+            width: isNew ? 1.45 : 0.9,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: isLight
+                  ? const Color(0xFF53C1F9).withValues(alpha: 0.08)
+                  : isNew
+                      ? dynamicNewBorder.withValues(alpha: 0.22)
+                      : Colors.black.withValues(alpha: 0.12),
+              blurRadius: 18,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Row(
+          textDirection: TextDirection.rtl,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            _buildAvatarBadge(
+              avatarUrl: actorAvatarUrl,
+              size: 46,
+              alignment: Alignment.centerRight,
+            ),
+            const SizedBox(width: 10),
             Expanded(
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Text(
-                    likeCount > 1 ? '$actorName +${likeCount - 1}' : actorName,
+                    '$actorName התחיל לעקוב אחריך',
+                    textDirection: TextDirection.rtl,
                     textAlign: TextAlign.right,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: isLight ? Colors.black : Colors.white,
-                      fontSize: 15,
+                      fontSize: 18,
                       fontWeight: isUnread ? FontWeight.w800 : FontWeight.w700,
-                      height: 1.2,
+                      height: 1.15,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    _timeLabel(data['createdAt']),
+                    textAlign: TextAlign.right,
+                    style: TextStyle(
+                      color: isLight
+                          ? Colors.black54
+                          : Colors.white.withValues(alpha: 0.45),
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNewFriendNotificationCard(
+    BuildContext context,
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+    Map<String, dynamic> data,
+  ) {
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final isUnread = _isUnread(data);
+    final isNew = _shouldHighlightAsNew(data);
+    final accent = _accentForNotification(data);
+    final actorName = _actorName(data);
+    final actorAvatarUrl = _actorAvatarUrl(data);
+    final dynamicNewBorder = _dynamicNewBorderColor(
+      isLight: isLight,
+      docId: doc.id,
+      accent: accent,
+    );
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(24),
+      onTap: () => _openNotification(context, doc, data),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(24),
+          color: isLight ? Colors.white.withValues(alpha: 0.62) : null,
+          gradient: isLight
+              ? null
+              : LinearGradient(
+                  colors: isNew
+                      ? [
+                          const Color(0xFF18263D).withValues(alpha: 0.98),
+                          const Color(0xFF261D44).withValues(alpha: 0.98),
+                        ]
+                      : [
+                          const Color(0xFF111A2A).withValues(alpha: 0.92),
+                          const Color(0xFF161D2C).withValues(alpha: 0.92),
+                        ],
+                  begin: Alignment.topRight,
+                  end: Alignment.bottomLeft,
+                ),
+          border: Border.all(
+            color: isNew
+                ? dynamicNewBorder
+                : (isLight
+                    ? const Color(0xFFA9C3FF)
+                    : Colors.white.withValues(alpha: 0.06)),
+            width: isNew ? 1.45 : 0.9,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: isLight
+                  ? const Color(0xFF53C1F9).withValues(alpha: 0.08)
+                  : isNew
+                      ? dynamicNewBorder.withValues(alpha: 0.22)
+                      : Colors.black.withValues(alpha: 0.12),
+              blurRadius: 18,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Row(
+          textDirection: TextDirection.rtl,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            _buildAvatarBadge(
+              avatarUrl: actorAvatarUrl,
+              size: 46,
+              alignment: Alignment.centerRight,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    'איזה כיף, $actorName נהיה חבר שלך!',
+                    textDirection: TextDirection.rtl,
+                    textAlign: TextAlign.right,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: isLight ? Colors.black : Colors.white,
+                      fontSize: 18,
+                      fontWeight: isUnread ? FontWeight.w800 : FontWeight.w700,
+                      height: 1.15,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    _timeLabel(data['createdAt']),
+                    textAlign: TextAlign.right,
+                    style: TextStyle(
+                      color: isLight
+                          ? Colors.black54
+                          : Colors.white.withValues(alpha: 0.45),
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPostSaveNotificationCard(
+    BuildContext context,
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+    Map<String, dynamic> data,
+  ) {
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final isUnread = _isUnread(data);
+    final isNew = _shouldHighlightAsNew(data);
+    final accent = _accentForNotification(data);
+    final actorName = _actorName(data);
+    final actorAvatarUrl = _actorAvatarUrl(data);
+    final postImageUrl = (data['postImageUrl'] as String? ?? '').trim();
+    final dynamicNewBorder = _dynamicNewBorderColor(
+      isLight: isLight,
+      docId: doc.id,
+      accent: accent,
+    );
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(24),
+      onTap: () => _openNotification(context, doc, data),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(24),
+          color: isLight ? Colors.white.withValues(alpha: 0.62) : null,
+          gradient: isLight
+              ? null
+              : LinearGradient(
+                  colors: isNew
+                      ? [
+                          const Color(0xFF18263D).withValues(alpha: 0.98),
+                          const Color(0xFF261D44).withValues(alpha: 0.98),
+                        ]
+                      : [
+                          const Color(0xFF111A2A).withValues(alpha: 0.92),
+                          const Color(0xFF161D2C).withValues(alpha: 0.92),
+                        ],
+                  begin: Alignment.topRight,
+                  end: Alignment.bottomLeft,
+                ),
+          border: Border.all(
+            color: isNew
+                ? dynamicNewBorder
+                : (isLight
+                    ? const Color(0xFFA9C3FF)
+                    : Colors.white.withValues(alpha: 0.06)),
+            width: isNew ? 1.45 : 0.9,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: isLight
+                  ? const Color(0xFF53C1F9).withValues(alpha: 0.08)
+                  : isNew
+                      ? dynamicNewBorder.withValues(alpha: 0.22)
+                      : Colors.black.withValues(alpha: 0.12),
+              blurRadius: 18,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Row(
+          textDirection: TextDirection.rtl,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            _buildAvatarBadge(
+              avatarUrl: actorAvatarUrl,
+              size: 46,
+              alignment: Alignment.centerRight,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    actorName.isNotEmpty
+                        ? '$actorName שמר את הפוסט שלך'
+                        : 'שמרו את הפוסט שלך',
+                    textDirection: TextDirection.rtl,
+                    textAlign: TextAlign.right,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: isLight ? Colors.black : Colors.white,
+                      fontSize: 18,
+                      fontWeight: isUnread ? FontWeight.w800 : FontWeight.w700,
+                      height: 1.15,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    _timeLabel(data['createdAt']),
+                    textAlign: TextAlign.right,
+                    style: TextStyle(
+                      color: isLight
+                          ? Colors.black54
+                          : Colors.white.withValues(alpha: 0.45),
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            SizedBox(
+              width: 64,
+              height: 64,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: postImageUrl.isNotEmpty
+                    ? Image.network(
+                        postImageUrl,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Container(
+                          color: const Color(0xFFBFD9FF),
+                          child: const Icon(Icons.image_rounded, color: Colors.white),
+                        ),
+                      )
+                    : Container(
+                        color: const Color(0xFFE9EBFF),
+                        child: const Icon(Icons.image_rounded, color: Color(0xFF7C7CEF)),
+                      ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPostCommentNotificationCard(
+    BuildContext context,
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+    Map<String, dynamic> data,
+  ) {
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final isUnread = _isUnread(data);
+    final isNew = _shouldHighlightAsNew(data);
+    final accent = _accentForNotification(data);
+    final actorName = _actorName(data);
+    final actorAvatarUrl = _actorAvatarUrl(data);
+    final postImageUrl = (data['postImageUrl'] as String? ?? '').trim();
+    final rawComment = (data['title'] as String? ?? '').trim();
+    final commentText = rawComment.replaceAll('"', '').trim();
+    final commentCount = _intValue(data, const ['commentCount', 'commentsCount'],
+        fallback: 1);
+    final title = actorName.isNotEmpty
+      ? '$actorName הגיב/ה: $commentText'
+      : 'הגיבו: $commentText';
+    final dynamicNewBorder = _dynamicNewBorderColor(
+      isLight: isLight,
+      docId: doc.id,
+      accent: accent,
+    );
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(24),
+      onTap: () => _openNotification(context, doc, data),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(24),
+          color: isLight ? Colors.white.withValues(alpha: 0.62) : null,
+          gradient: isLight
+              ? null
+              : LinearGradient(
+                  colors: isNew
+                      ? [
+                          const Color(0xFF18263D).withValues(alpha: 0.98),
+                          const Color(0xFF261D44).withValues(alpha: 0.98),
+                        ]
+                      : [
+                          const Color(0xFF111A2A).withValues(alpha: 0.92),
+                          const Color(0xFF161D2C).withValues(alpha: 0.92),
+                        ],
+                  begin: Alignment.topRight,
+                  end: Alignment.bottomLeft,
+                ),
+          border: Border.all(
+            color: isNew
+                ? dynamicNewBorder
+                : (isLight
+                    ? const Color(0xFFA9C3FF)
+                    : Colors.white.withValues(alpha: 0.06)),
+            width: isNew ? 1.45 : 0.9,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: isLight
+                  ? const Color(0xFF53C1F9).withValues(alpha: 0.08)
+                  : isNew
+                      ? dynamicNewBorder.withValues(alpha: 0.22)
+                      : Colors.black.withValues(alpha: 0.12),
+              blurRadius: 18,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Row(
+          textDirection: TextDirection.rtl,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            _buildAvatarBadge(
+              avatarUrl: actorAvatarUrl,
+              size: 46,
+              alignment: Alignment.centerRight,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    title,
+                    textDirection: TextDirection.rtl,
+                    textAlign: TextAlign.right,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: isLight ? Colors.black : Colors.white,
+                      fontSize: 17,
+                      fontWeight: isUnread ? FontWeight.w800 : FontWeight.w700,
+                      height: 1.15,
+                    ),
+                  ),
+                  const SizedBox(height: 7),
+                  Text(
+                    'יש עכשיו $commentCount תגובות על הפוסט',
+                    textDirection: TextDirection.rtl,
+                    textAlign: TextAlign.right,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: isLight
+                          ? Colors.black54
+                          : Colors.white.withValues(alpha: 0.45),
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            SizedBox(
+              width: 64,
+              height: 64,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: postImageUrl.isNotEmpty
+                    ? Image.network(
+                        postImageUrl,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Container(
+                          color: const Color(0xFFBFD9FF),
+                          child: const Icon(Icons.image_rounded, color: Colors.white),
+                        ),
+                      )
+                    : Container(
+                        color: const Color(0xFFE9EBFF),
+                        child: const Icon(Icons.image_rounded, color: Color(0xFF7C7CEF)),
+                      ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCommentReplyNotificationCard(
+    BuildContext context,
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+    Map<String, dynamic> data,
+  ) {
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final isUnread = _isUnread(data);
+    final isNew = _shouldHighlightAsNew(data);
+    final accent = _accentForNotification(data);
+    final actorName = _actorName(data);
+    final actorAvatarUrl = _actorAvatarUrl(data);
+    final postImageUrl = (data['postImageUrl'] as String? ?? '').trim();
+    final rawReply = (data['title'] as String? ?? '').trim();
+    final replyText = rawReply.replaceAll('"', '').trim();
+    final postOwnerName = (data['postOwnerName'] as String? ?? '').trim();
+    final normalizedPostOwnerName =
+        postOwnerName.isNotEmpty ? postOwnerName : 'בעל/ת הפוסט';
+    final title = actorName.isNotEmpty
+        ? '$actorName הגיב לך: $replyText'
+        : 'הגיבו לך: $replyText';
+    final subtitle = actorName.isNotEmpty
+        ? '$actorName הגיב לך על פוסט של $normalizedPostOwnerName'
+        : 'הגיבו לך על פוסט של $normalizedPostOwnerName';
+    final dynamicNewBorder = _dynamicNewBorderColor(
+      isLight: isLight,
+      docId: doc.id,
+      accent: accent,
+    );
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(24),
+      onTap: () => _openNotification(context, doc, data),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(24),
+          color: isLight ? Colors.white.withValues(alpha: 0.62) : null,
+          gradient: isLight
+              ? null
+              : LinearGradient(
+                  colors: isNew
+                      ? [
+                          const Color(0xFF18263D).withValues(alpha: 0.98),
+                          const Color(0xFF261D44).withValues(alpha: 0.98),
+                        ]
+                      : [
+                          const Color(0xFF111A2A).withValues(alpha: 0.92),
+                          const Color(0xFF161D2C).withValues(alpha: 0.92),
+                        ],
+                  begin: Alignment.topRight,
+                  end: Alignment.bottomLeft,
+                ),
+          border: Border.all(
+            color: isNew
+                ? dynamicNewBorder
+                : (isLight
+                    ? const Color(0xFFA9C3FF)
+                    : Colors.white.withValues(alpha: 0.06)),
+            width: isNew ? 1.45 : 0.9,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: isLight
+                  ? const Color(0xFF53C1F9).withValues(alpha: 0.08)
+                  : isNew
+                      ? dynamicNewBorder.withValues(alpha: 0.22)
+                      : Colors.black.withValues(alpha: 0.12),
+              blurRadius: 18,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Row(
+          textDirection: TextDirection.rtl,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            _buildAvatarBadge(
+              avatarUrl: actorAvatarUrl,
+              size: 46,
+              alignment: Alignment.centerRight,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    title,
+                    textDirection: TextDirection.rtl,
+                    textAlign: TextAlign.right,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: isLight ? Colors.black : Colors.white,
+                      fontSize: 17,
+                      fontWeight: isUnread ? FontWeight.w800 : FontWeight.w700,
+                      height: 1.15,
                     ),
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    likeCount > 1
-                        ? 'יש לך עכשיו $likeCount לייקים על הפוסט'
-                        : 'עשה לך לייק על הפוסט',
+                    subtitle,
+                    textDirection: TextDirection.rtl,
                     textAlign: TextAlign.right,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: isLight ? Colors.black87 : Colors.white70,
-                      fontSize: 12.5,
+                      fontSize: 12.8,
                     ),
                   ),
-                  const SizedBox(height: 6),
-                  Row(
-                    textDirection: TextDirection.rtl,
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      SizedBox(
-                        width: stackWidth,
-                        height: 22,
-                        child: Stack(
-                          children: avatarStack,
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            SizedBox(
+              width: 64,
+              height: 64,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: postImageUrl.isNotEmpty
+                    ? Image.network(
+                        postImageUrl,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Container(
+                          color: const Color(0xFFBFD9FF),
+                          child: const Icon(Icons.image_rounded, color: Colors.white),
                         ),
+                      )
+                    : Container(
+                        color: const Color(0xFFE9EBFF),
+                        child: const Icon(Icons.image_rounded, color: Color(0xFF7C7CEF)),
                       ),
-                      const SizedBox(width: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: accent.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(999),
-                        ),
-                        child: Text(
-                          likeCount > 9 ? '9+' : likeCount.toString(),
-                          style: TextStyle(
-                            color: accent,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                      ),
-                    ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildWeeklyChallengeNotificationCard(
+    BuildContext context,
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+    Map<String, dynamic> data,
+  ) {
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final isUnread = _isUnread(data);
+    final isNew = _shouldHighlightAsNew(data);
+    final accent = _accentForNotification(data);
+    final challengeCategory = _weeklyChallengeCategory(data);
+    final challengeIcon = categoryIconFor(
+      challengeCategory.isEmpty ? kGeneralCategory : challengeCategory,
+    );
+    final title = 'האתגר השבועי החדש הוא $challengeCategory';
+    const subtitle = 'יש לך שבוע לבצע אותו! בהצלחה.';
+    final dynamicNewBorder = _dynamicNewBorderColor(
+      isLight: isLight,
+      docId: doc.id,
+      accent: accent,
+    );
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(24),
+      onTap: () => _openNotification(context, doc, data),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(24),
+          color: isLight ? Colors.white.withValues(alpha: 0.62) : null,
+          gradient: isLight
+              ? null
+              : LinearGradient(
+                  colors: isNew
+                      ? [
+                          const Color(0xFF18263D).withValues(alpha: 0.98),
+                          const Color(0xFF261D44).withValues(alpha: 0.98),
+                        ]
+                      : [
+                          const Color(0xFF111A2A).withValues(alpha: 0.92),
+                          const Color(0xFF161D2C).withValues(alpha: 0.92),
+                        ],
+                  begin: Alignment.topRight,
+                  end: Alignment.bottomLeft,
+                ),
+          border: Border.all(
+            color: isNew
+                ? dynamicNewBorder
+                : (isLight
+                    ? const Color(0xFFA9C3FF)
+                    : Colors.white.withValues(alpha: 0.06)),
+            width: isNew ? 1.45 : 0.9,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: isLight
+                  ? const Color(0xFF53C1F9).withValues(alpha: 0.08)
+                  : isNew
+                      ? dynamicNewBorder.withValues(alpha: 0.22)
+                      : Colors.black.withValues(alpha: 0.12),
+              blurRadius: 18,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Row(
+          textDirection: TextDirection.rtl,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF53C1F9), Color(0xFF9E7CFF)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF8B78FF).withValues(alpha: 0.30),
+                    blurRadius: 12,
+                    offset: const Offset(0, 6),
                   ),
                 ],
+              ),
+              child: Icon(
+                challengeIcon,
+                color: Colors.white,
+                size: 22,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    title,
+                    textDirection: TextDirection.rtl,
+                    textAlign: TextAlign.right,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: isLight ? Colors.black : Colors.white,
+                      fontSize: 16,
+                      fontWeight: isUnread ? FontWeight.w800 : FontWeight.w700,
+                      height: 1.18,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    textDirection: TextDirection.rtl,
+                    textAlign: TextAlign.right,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: isLight
+                          ? Colors.black87
+                          : Colors.white.withValues(alpha: 0.72),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      height: 1.25,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDailyChallengeNotificationCard(
+    BuildContext context,
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+    Map<String, dynamic> data,
+  ) {
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final isUnread = _isUnread(data);
+    final isNew = _shouldHighlightAsNew(data);
+    final accent = _accentForNotification(data);
+    final challengeCategory = _weeklyChallengeCategory(data);
+    final dailyTaskLabel = _dailyChallengeTaskLabel(data);
+    final challengeIcon = categoryIconFor(
+      challengeCategory.isEmpty ? kGeneralCategory : challengeCategory,
+    );
+    final title = 'המשימה היומית התעדכנה! המשימה היומית החדשה היא $dailyTaskLabel';
+    final dynamicNewBorder = _dynamicNewBorderColor(
+      isLight: isLight,
+      docId: doc.id,
+      accent: accent,
+    );
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(24),
+      onTap: () => _openNotification(context, doc, data),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(24),
+          color: isLight ? Colors.white.withValues(alpha: 0.62) : null,
+          gradient: isLight
+              ? null
+              : LinearGradient(
+                  colors: isNew
+                      ? [
+                          const Color(0xFF18263D).withValues(alpha: 0.98),
+                          const Color(0xFF261D44).withValues(alpha: 0.98),
+                        ]
+                      : [
+                          const Color(0xFF111A2A).withValues(alpha: 0.92),
+                          const Color(0xFF161D2C).withValues(alpha: 0.92),
+                        ],
+                  begin: Alignment.topRight,
+                  end: Alignment.bottomLeft,
+                ),
+          border: Border.all(
+            color: isNew
+                ? dynamicNewBorder
+                : (isLight
+                    ? const Color(0xFFA9C3FF)
+                    : Colors.white.withValues(alpha: 0.06)),
+            width: isNew ? 1.45 : 0.9,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: isLight
+                  ? const Color(0xFF53C1F9).withValues(alpha: 0.08)
+                  : isNew
+                      ? dynamicNewBorder.withValues(alpha: 0.22)
+                      : Colors.black.withValues(alpha: 0.12),
+              blurRadius: 18,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Row(
+          textDirection: TextDirection.rtl,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF53C1F9), Color(0xFF9E7CFF)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF8B78FF).withValues(alpha: 0.30),
+                    blurRadius: 12,
+                    offset: const Offset(0, 6),
+                  ),
+                ],
+              ),
+              child: Icon(
+                challengeIcon,
+                color: Colors.white,
+                size: 22,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    title,
+                    textDirection: TextDirection.rtl,
+                    textAlign: TextAlign.right,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: isLight ? Colors.black : Colors.white,
+                      fontSize: 16,
+                      fontWeight: isUnread ? FontWeight.w800 : FontWeight.w700,
+                      height: 1.18,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildWeeklyStarsNotificationCard(
+    BuildContext context,
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+    Map<String, dynamic> data,
+  ) {
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final isUnread = _isUnread(data);
+    final isNew = _shouldHighlightAsNew(data);
+    final accent = _accentForNotification(data);
+    final postImageUrl = (data['postImageUrl'] as String? ?? '').trim();
+    const title = 'מסתבר שכוכבים יש לא רק בשמיים... הפוסט שלך במסך כוכבי השבוע!';
+    final dynamicNewBorder = _dynamicNewBorderColor(
+      isLight: isLight,
+      docId: doc.id,
+      accent: accent,
+    );
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(24),
+      onTap: () => _openNotification(context, doc, data),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(24),
+          color: isLight ? Colors.white.withValues(alpha: 0.62) : null,
+          gradient: isLight
+              ? null
+              : LinearGradient(
+                  colors: isNew
+                      ? [
+                          const Color(0xFF18263D).withValues(alpha: 0.98),
+                          const Color(0xFF261D44).withValues(alpha: 0.98),
+                        ]
+                      : [
+                          const Color(0xFF111A2A).withValues(alpha: 0.92),
+                          const Color(0xFF161D2C).withValues(alpha: 0.92),
+                        ],
+                  begin: Alignment.topRight,
+                  end: Alignment.bottomLeft,
+                ),
+          border: Border.all(
+            color: isNew
+                ? dynamicNewBorder
+                : (isLight
+                    ? const Color(0xFFA9C3FF)
+                    : Colors.white.withValues(alpha: 0.06)),
+            width: isNew ? 1.45 : 0.9,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: isLight
+                  ? const Color(0xFF53C1F9).withValues(alpha: 0.08)
+                  : isNew
+                      ? dynamicNewBorder.withValues(alpha: 0.22)
+                      : Colors.black.withValues(alpha: 0.12),
+              blurRadius: 18,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Row(
+          textDirection: TextDirection.rtl,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: const LinearGradient(
+                  colors: [Color(0xFFFFC857), Color(0xFFFF7A8A)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFFFFC857).withValues(alpha: 0.30),
+                    blurRadius: 12,
+                    offset: const Offset(0, 6),
+                  ),
+                ],
+              ),
+              child: const Icon(
+                Icons.celebration_rounded,
+                color: Colors.white,
+                size: 22,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                title,
+                textDirection: TextDirection.rtl,
+                textAlign: TextAlign.right,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: isLight ? Colors.black : Colors.white,
+                  fontSize: 16,
+                  fontWeight: isUnread ? FontWeight.w800 : FontWeight.w700,
+                  height: 1.18,
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            SizedBox(
+              width: 58,
+              height: 58,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(14),
+                child: postImageUrl.isNotEmpty
+                    ? Image.network(
+                        postImageUrl,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Container(
+                          color: const Color(0xFFBFD9FF),
+                          child: const Icon(
+                            Icons.image_rounded,
+                            color: Colors.white,
+                          ),
+                        ),
+                      )
+                    : Container(
+                        color: const Color(0xFFE9EBFF),
+                        child: const Icon(
+                          Icons.image_rounded,
+                          color: Color(0xFF7C7CEF),
+                        ),
+                      ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSpontaneousReminderNotificationCard(
+    BuildContext context,
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+    Map<String, dynamic> data,
+  ) {
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final isUnread = _isUnread(data);
+    final isNew = _shouldHighlightAsNew(data);
+    final accent = _accentForNotification(data);
+    const title = 'הגיע הזמן להגריל משימה!';
+    const subtitle = 'מגרילים משימה ויכולים לקבל ניקוד x10 על הפוסט.';
+    final dynamicNewBorder = _dynamicNewBorderColor(
+      isLight: isLight,
+      docId: doc.id,
+      accent: accent,
+    );
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(24),
+      onTap: () => _openNotification(context, doc, data),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(24),
+          color: isLight ? Colors.white.withValues(alpha: 0.62) : null,
+          gradient: isLight
+              ? null
+              : LinearGradient(
+                  colors: isNew
+                      ? [
+                          const Color(0xFF18263D).withValues(alpha: 0.98),
+                          const Color(0xFF261D44).withValues(alpha: 0.98),
+                        ]
+                      : [
+                          const Color(0xFF111A2A).withValues(alpha: 0.92),
+                          const Color(0xFF161D2C).withValues(alpha: 0.92),
+                        ],
+                  begin: Alignment.topRight,
+                  end: Alignment.bottomLeft,
+                ),
+          border: Border.all(
+            color: isNew
+                ? dynamicNewBorder
+                : (isLight
+                    ? const Color(0xFFA9C3FF)
+                    : Colors.white.withValues(alpha: 0.06)),
+            width: isNew ? 1.45 : 0.9,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: isLight
+                  ? const Color(0xFF53C1F9).withValues(alpha: 0.08)
+                  : isNew
+                      ? dynamicNewBorder.withValues(alpha: 0.22)
+                      : Colors.black.withValues(alpha: 0.12),
+              blurRadius: 18,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Row(
+          textDirection: TextDirection.rtl,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            _buildSpontaneousRotatingIconBadge(isLight: isLight),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    title,
+                    textDirection: TextDirection.rtl,
+                    textAlign: TextAlign.right,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: isLight ? Colors.black : Colors.white,
+                      fontSize: 16,
+                      fontWeight: isUnread ? FontWeight.w800 : FontWeight.w700,
+                      height: 1.18,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    textDirection: TextDirection.rtl,
+                    textAlign: TextAlign.right,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: isLight
+                          ? Colors.black87
+                          : Colors.white.withValues(alpha: 0.72),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      height: 1.25,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSpontaneousTimeWarningNotificationCard(
+    BuildContext context,
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+    Map<String, dynamic> data,
+  ) {
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final isUnread = _isUnread(data);
+    final isNew = _shouldHighlightAsNew(data);
+    final accent = _accentForNotification(data);
+    final category = _spontaneousCategory(data);
+    final icon = categoryIconFor(
+      category.isEmpty ? kGeneralCategory : category,
+    );
+    final taskLabel = _spontaneousTaskLabel(data);
+    final hoursLabel = _spontaneousWarningHoursLabel(data);
+    final title =
+        'נשאר לך עוד $hoursLabel להעלות פוסט שביצעת את המשימה "$taskLabel"!';
+    final dynamicNewBorder = _dynamicNewBorderColor(
+      isLight: isLight,
+      docId: doc.id,
+      accent: accent,
+    );
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(24),
+      onTap: () => _openNotification(context, doc, data),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(24),
+          color: isLight ? Colors.white.withValues(alpha: 0.62) : null,
+          gradient: isLight
+              ? null
+              : LinearGradient(
+                  colors: isNew
+                      ? [
+                          const Color(0xFF18263D).withValues(alpha: 0.98),
+                          const Color(0xFF261D44).withValues(alpha: 0.98),
+                        ]
+                      : [
+                          const Color(0xFF111A2A).withValues(alpha: 0.92),
+                          const Color(0xFF161D2C).withValues(alpha: 0.92),
+                        ],
+                  begin: Alignment.topRight,
+                  end: Alignment.bottomLeft,
+                ),
+          border: Border.all(
+            color: isNew
+                ? dynamicNewBorder
+                : (isLight
+                    ? const Color(0xFFA9C3FF)
+                    : Colors.white.withValues(alpha: 0.06)),
+            width: isNew ? 1.45 : 0.9,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: isLight
+                  ? const Color(0xFF53C1F9).withValues(alpha: 0.08)
+                  : isNew
+                      ? dynamicNewBorder.withValues(alpha: 0.22)
+                      : Colors.black.withValues(alpha: 0.12),
+              blurRadius: 18,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Row(
+          textDirection: TextDirection.rtl,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF8DE8FF), Color(0xFFC9B5FF)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: isLight ? 0.75 : 0.30),
+                  width: 1.1,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF76CFFF).withValues(alpha: 0.25),
+                    blurRadius: 10,
+                    offset: const Offset(0, 5),
+                  ),
+                ],
+              ),
+              child: Icon(
+                icon,
+                color: const Color(0xFF2A2361),
+                size: 22,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                title,
+                textDirection: TextDirection.rtl,
+                textAlign: TextAlign.right,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: isLight ? Colors.black : Colors.white,
+                  fontSize: 16,
+                  fontWeight: isUnread ? FontWeight.w800 : FontWeight.w700,
+                  height: 1.18,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGroupJoinNotificationCard(
+    BuildContext context,
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+    Map<String, dynamic> data,
+  ) {
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final isUnread = _isUnread(data);
+    final isNew = _shouldHighlightAsNew(data);
+    final accent = _accentForNotification(data);
+    final actorName = _actorName(data);
+    final actorAvatarUrl = _actorAvatarUrl(data);
+    final groupName = (data['groupName'] as String? ?? '').trim();
+    final normalizedGroupName = groupName.isNotEmpty ? groupName : 'קבוצה';
+    final title = '$actorName הצטרף לקבוצה "$normalizedGroupName"';
+    final dynamicNewBorder = _dynamicNewBorderColor(
+      isLight: isLight,
+      docId: doc.id,
+      accent: accent,
+    );
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(24),
+      onTap: () => _openNotification(context, doc, data),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(24),
+          color: isLight ? Colors.white.withValues(alpha: 0.62) : null,
+          gradient: isLight
+              ? null
+              : LinearGradient(
+                  colors: isNew
+                      ? [
+                          const Color(0xFF18263D).withValues(alpha: 0.98),
+                          const Color(0xFF261D44).withValues(alpha: 0.98),
+                        ]
+                      : [
+                          const Color(0xFF111A2A).withValues(alpha: 0.92),
+                          const Color(0xFF161D2C).withValues(alpha: 0.92),
+                        ],
+                  begin: Alignment.topRight,
+                  end: Alignment.bottomLeft,
+                ),
+          border: Border.all(
+            color: isNew
+                ? dynamicNewBorder
+                : (isLight
+                    ? const Color(0xFFA9C3FF)
+                    : Colors.white.withValues(alpha: 0.06)),
+            width: isNew ? 1.45 : 0.9,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: isLight
+                  ? const Color(0xFF53C1F9).withValues(alpha: 0.08)
+                  : isNew
+                      ? dynamicNewBorder.withValues(alpha: 0.22)
+                      : Colors.black.withValues(alpha: 0.12),
+              blurRadius: 18,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Row(
+          textDirection: TextDirection.rtl,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            _buildAvatarBadge(
+              avatarUrl: actorAvatarUrl,
+              size: 46,
+              alignment: Alignment.centerRight,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                title,
+                textDirection: TextDirection.rtl,
+                textAlign: TextAlign.right,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: isLight ? Colors.black : Colors.white,
+                  fontSize: 18,
+                  fontWeight: isUnread ? FontWeight.w800 : FontWeight.w700,
+                  height: 1.15,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPopJoinNotificationCard(
+    BuildContext context,
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+    Map<String, dynamic> data,
+  ) {
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final isUnread = _isUnread(data);
+    final isNew = _shouldHighlightAsNew(data);
+    final accent = _accentForNotification(data);
+    final actorName = _actorName(data);
+    final actorAvatarUrl = _actorAvatarUrl(data);
+    final groupName = (data['groupName'] as String? ?? '').trim();
+    final normalizedGroupName = groupName.isNotEmpty ? groupName : 'פופ';
+    final title = '$actorName הצטרף לפופ שלך "$normalizedGroupName"!';
+    final dynamicNewBorder = _dynamicNewBorderColor(
+      isLight: isLight,
+      docId: doc.id,
+      accent: accent,
+    );
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(24),
+      onTap: () => _openNotification(context, doc, data),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(24),
+          color: isLight ? Colors.white.withValues(alpha: 0.62) : null,
+          gradient: isLight
+              ? null
+              : LinearGradient(
+                  colors: isNew
+                      ? [
+                          const Color(0xFF18263D).withValues(alpha: 0.98),
+                          const Color(0xFF261D44).withValues(alpha: 0.98),
+                        ]
+                      : [
+                          const Color(0xFF111A2A).withValues(alpha: 0.92),
+                          const Color(0xFF161D2C).withValues(alpha: 0.92),
+                        ],
+                  begin: Alignment.topRight,
+                  end: Alignment.bottomLeft,
+                ),
+          border: Border.all(
+            color: isNew
+                ? dynamicNewBorder
+                : (isLight
+                    ? const Color(0xFFA9C3FF)
+                    : Colors.white.withValues(alpha: 0.06)),
+            width: isNew ? 1.45 : 0.9,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: isLight
+                  ? const Color(0xFF53C1F9).withValues(alpha: 0.08)
+                  : isNew
+                      ? dynamicNewBorder.withValues(alpha: 0.22)
+                      : Colors.black.withValues(alpha: 0.12),
+              blurRadius: 18,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Row(
+          textDirection: TextDirection.rtl,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            _buildAvatarBadge(
+              avatarUrl: actorAvatarUrl,
+              size: 46,
+              alignment: Alignment.centerRight,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                title,
+                textDirection: TextDirection.rtl,
+                textAlign: TextAlign.right,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: isLight ? Colors.black : Colors.white,
+                  fontSize: 18,
+                  fontWeight: isUnread ? FontWeight.w800 : FontWeight.w700,
+                  height: 1.15,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAddedToGroupNotificationCard(
+    BuildContext context,
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+    Map<String, dynamic> data,
+  ) {
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final isUnread = _isUnread(data);
+    final isNew = _shouldHighlightAsNew(data);
+    final accent = _accentForNotification(data);
+    final title = _addedToGroupTitle(data);
+    final avatarUrls = _addedToGroupAvatarUrls(data).take(4).toList();
+    final dynamicNewBorder = _dynamicNewBorderColor(
+      isLight: isLight,
+      docId: doc.id,
+      accent: accent,
+    );
+
+    final avatarStack = <Widget>[];
+    for (final avatarUrl in avatarUrls) {
+      avatarStack.add(
+        Positioned(
+          right: avatarStack.length * 14.0,
+          child: _buildAvatarBadge(
+            avatarUrl: avatarUrl,
+            size: 30,
+            alignment: Alignment.centerRight,
+          ),
+        ),
+      );
+    }
+
+    final stackWidth = avatarUrls.isEmpty ? 30.0 : avatarUrls.length * 14.0 + 30.0;
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(24),
+      onTap: () => _openNotification(context, doc, data),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(24),
+          color: isLight ? Colors.white.withValues(alpha: 0.62) : null,
+          gradient: isLight
+              ? null
+              : LinearGradient(
+                  colors: isNew
+                      ? [
+                          const Color(0xFF18263D).withValues(alpha: 0.98),
+                          const Color(0xFF261D44).withValues(alpha: 0.98),
+                        ]
+                      : [
+                          const Color(0xFF111A2A).withValues(alpha: 0.92),
+                          const Color(0xFF161D2C).withValues(alpha: 0.92),
+                        ],
+                  begin: Alignment.topRight,
+                  end: Alignment.bottomLeft,
+                ),
+          border: Border.all(
+            color: isNew
+                ? dynamicNewBorder
+                : (isLight
+                    ? const Color(0xFFA9C3FF)
+                    : Colors.white.withValues(alpha: 0.06)),
+            width: isNew ? 1.45 : 0.9,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: isLight
+                  ? const Color(0xFF53C1F9).withValues(alpha: 0.08)
+                  : isNew
+                      ? dynamicNewBorder.withValues(alpha: 0.22)
+                      : Colors.black.withValues(alpha: 0.12),
+              blurRadius: 18,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Row(
+          textDirection: TextDirection.rtl,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            SizedBox(
+              width: stackWidth,
+              height: 30,
+              child: avatarStack.isEmpty
+                  ? Align(
+                      alignment: Alignment.centerRight,
+                      child: _buildAvatarBadge(
+                        avatarUrl: '',
+                        size: 30,
+                        alignment: Alignment.centerRight,
+                      ),
+                    )
+                  : Stack(children: avatarStack),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                title,
+                textDirection: TextDirection.rtl,
+                textAlign: TextAlign.right,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: isLight ? Colors.black : Colors.white,
+                  fontSize: 16,
+                  fontWeight: isUnread ? FontWeight.w800 : FontWeight.w700,
+                  height: 1.2,
+                ),
               ),
             ),
           ],
@@ -803,6 +2648,45 @@ class _NotificationsPreviewScreenState
     final type = (data['type'] as String? ?? '').trim();
     if (type == NotificationTypes.postLike) {
       return _buildPostLikeNotificationCard(context, doc, data);
+    }
+    if (type == NotificationTypes.postSave) {
+      return _buildPostSaveNotificationCard(context, doc, data);
+    }
+    if (type == NotificationTypes.postComment) {
+      return _buildPostCommentNotificationCard(context, doc, data);
+    }
+    if (type == NotificationTypes.weeklyChallengeUpdated) {
+      return _buildWeeklyChallengeNotificationCard(context, doc, data);
+    }
+    if (type == NotificationTypes.dailyChallengeUpdated) {
+      return _buildDailyChallengeNotificationCard(context, doc, data);
+    }
+    if (type == NotificationTypes.weeklyStars) {
+      return _buildWeeklyStarsNotificationCard(context, doc, data);
+    }
+    if (type == NotificationTypes.spontaneousReminder) {
+      return _buildSpontaneousReminderNotificationCard(context, doc, data);
+    }
+    if (type == NotificationTypes.spontaneousTimeWarning) {
+      return _buildSpontaneousTimeWarningNotificationCard(context, doc, data);
+    }
+    if (type == NotificationTypes.commentReply) {
+      return _buildCommentReplyNotificationCard(context, doc, data);
+    }
+    if (type == NotificationTypes.groupJoin) {
+      return _buildGroupJoinNotificationCard(context, doc, data);
+    }
+    if (type == NotificationTypes.popJoin) {
+      return _buildPopJoinNotificationCard(context, doc, data);
+    }
+    if (type == NotificationTypes.addedToGroup) {
+      return _buildAddedToGroupNotificationCard(context, doc, data);
+    }
+    if (type == NotificationTypes.newFollower) {
+      return _buildNewFollowerNotificationCard(context, doc, data);
+    }
+    if (type == NotificationTypes.newFriend) {
+      return _buildNewFriendNotificationCard(context, doc, data);
     }
 
     final isLight = Theme.of(context).brightness == Brightness.light;

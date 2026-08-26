@@ -172,6 +172,7 @@ class _PostCommentsSheetState extends State<PostCommentsSheet> {
         builder: (_) => UserProfileScreen(
           uid: normalizedUid,
           currentBottomIndex: 0,
+          openedFromPostFlow: true,
         ),
       ),
     );

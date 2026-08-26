@@ -129,7 +129,8 @@ class _StarsScreenState extends State<StarsScreen> {
   late final WeeklyChallenge _challenge;
   late final BlockUserService _blockUserService = BlockUserService();
   late final StreamSubscription<Set<String>> _blockedUsersSub;
-  late final Future<List<_StarsSectionData>> _hotSectionsFuture;
+  Future<List<_StarsSectionData>> _hotSectionsFuture =
+      Future<List<_StarsSectionData>>.value(const <_StarsSectionData>[]);
   final Set<String> _expandedSectionKeys = <String>{};
   bool _openedInitialPost = false;
   SpontaneousChallengeTask? _activeSpontaneousTask;
@@ -567,50 +568,15 @@ class _StarsScreenState extends State<StarsScreen> {
     ];
   }
 
-  Future<List<Map<String, dynamic>>> _loadCategoryFeed(String category) async {
-    final docs = await FirebaseFirestore.instance
-        .collection('posts')
-        .where('status', isEqualTo: 'published')
-        .where('category', isEqualTo: category)
-        .orderBy('createdAt', descending: true)
-        .limit(600)
-        .get();
-
-    final posts = docs.docs.map(_toPostMap).toList(growable: false);
-    return _filterVisiblePostsForViewer(
-      posts,
-      blockedUserIds: await BlockUserService().fetchBlockedConnections(),
-    );
-  }
-
-  Future<void> _openPostInCategoryFeed(
-      Map<String, dynamic> selectedPost) async {
-    final category = (selectedPost['category'] as String? ?? '').trim();
-    if (category.isEmpty) return;
-
-    final posts = await _loadCategoryFeed(category);
-    if (!mounted || posts.isEmpty) return;
-
-    final selectedPostId = (selectedPost['postId'] as String? ??
-            selectedPost['id'] as String? ??
-            '')
-        .trim();
-
-    int initialIndex = posts.indexWhere((post) {
-      final id =
-          (post['postId'] as String? ?? post['id'] as String? ?? '').trim();
-      return id == selectedPostId;
-    });
-
-    if (initialIndex < 0) {
-      posts.insert(0, selectedPost);
-      initialIndex = 0;
-    }
-
+  void _openPostInSectionFeed(
+    List<Map<String, dynamic>> sectionPosts,
+    int initialIndex,
+  ) {
+    if (!mounted || sectionPosts.isEmpty) return;
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => PostDetailView(
-          posts: posts,
+          posts: sectionPosts,
           initialIndex: initialIndex,
           disableOwnAuthorProfileTap: true,
           showOwnPostWeeklyStarsCelebration: true,
@@ -625,24 +591,21 @@ class _StarsScreenState extends State<StarsScreen> {
       return;
     }
 
-    final allPosts =
-        sections.expand((section) => section.posts).toList(growable: false);
-
-    final targetPost = allPosts.firstWhere(
-      (post) {
+    for (final section in sections) {
+      final idx = section.posts.indexWhere((post) {
         final id =
             (post['postId'] as String? ?? post['id'] as String? ?? '').trim();
         return id == initialPostId;
-      },
-      orElse: () => <String, dynamic>{},
-    );
-
-    if (targetPost.isEmpty) return;
-    _openedInitialPost = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      _openPostInCategoryFeed(targetPost);
-    });
+      });
+      if (idx >= 0) {
+        _openedInitialPost = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          _openPostInSectionFeed(section.posts, idx);
+        });
+        return;
+      }
+    }
   }
 
   Widget _buildChallengeCard() {
@@ -785,7 +748,12 @@ class _StarsScreenState extends State<StarsScreen> {
     );
   }
 
-  Widget _buildHotRow(Map<String, dynamic> post, int rank) {
+  Widget _buildHotRow(
+    Map<String, dynamic> post,
+    int rank, {
+    required List<Map<String, dynamic>> sectionPosts,
+    required int postIndexInSection,
+  }) {
     final isLight = Theme.of(context).brightness == Brightness.light;
     final title = (post['title'] as String? ?? '').trim().isNotEmpty
         ? (post['title'] as String).trim()
@@ -808,7 +776,7 @@ class _StarsScreenState extends State<StarsScreen> {
         : isVideoMediaUrl(primaryMediaRawUrl);
 
     return InkWell(
-      onTap: () => _openPostInCategoryFeed(post),
+      onTap: () => _openPostInSectionFeed(sectionPosts, postIndexInSection),
       borderRadius: BorderRadius.circular(18),
       child: Container(
         margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
@@ -1070,7 +1038,8 @@ class _StarsScreenState extends State<StarsScreen> {
               )
             else ...[
               for (int index = 0; index < topThree.length; index++)
-                _buildHotRow(topThree[index], index),
+                _buildHotRow(topThree[index], index,
+                    sectionPosts: section.posts, postIndexInSection: index),
               if (section.posts.length > 3)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(18, 0, 18, 4),
@@ -1109,7 +1078,9 @@ class _StarsScreenState extends State<StarsScreen> {
                 ),
               if (isExpanded)
                 for (int index = 0; index < expandedPosts.length; index++)
-                  _buildHotRow(expandedPosts[index], index + 3),
+                  _buildHotRow(expandedPosts[index], index + 3,
+                      sectionPosts: section.posts,
+                      postIndexInSection: index + 3),
             ],
           ],
         ),

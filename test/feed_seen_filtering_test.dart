@@ -56,6 +56,32 @@ void main() {
     expect(isPublicGroupStillActive(expired, now: now), isFalse);
   });
 
+  test('upcoming public groups exclude same-day events that already started', () {
+    final now = DateTime(2026, 8, 24, 18, 0, 0);
+    final start = DateTime(2026, 8, 24, 0, 0, 0);
+    final endExclusive = start.add(const Duration(days: 7));
+
+    expect(
+      isUpcomingPublicGroupDateWithinWindow(
+        groupDate: DateTime(2026, 8, 24, 17, 30, 0),
+        now: now,
+        windowStart: start,
+        windowEndExclusive: endExclusive,
+      ),
+      isFalse,
+    );
+
+    expect(
+      isUpcomingPublicGroupDateWithinWindow(
+        groupDate: DateTime(2026, 8, 24, 19, 0, 0),
+        now: now,
+        windowStart: start,
+        windowEndExclusive: endExclusive,
+      ),
+      isTrue,
+    );
+  });
+
   test('meet-now groups default to a 24h execution window', () {
     final now = DateTime(2026, 8, 24, 12, 0, 0);
 

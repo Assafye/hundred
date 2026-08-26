@@ -318,6 +318,14 @@ service cloud.firestore {
         );
     }
 
+    function directChatBlockedByRelation(chatData) {
+      return isDirectChatData(chatData) &&
+        ('participants' in chatData) &&
+        chatData.participants is list &&
+        chatData.participants.size() == 2 &&
+        hasBlockBetween(chatData.participants[0], chatData.participants[1]);
+    }
+
     function canCreateChatWithBlockPolicy(chatId) {
       return !isDirectChatData(request.resource.data) ||
         (
@@ -332,7 +340,10 @@ service cloud.firestore {
 
     function canInteractWithChatByBlockPolicy(chatId) {
       return !isDirectChatDoc(chatId) ||
-        !directChatBlockedInData(get(chatDoc(chatId)).data);
+        (
+          !directChatBlockedInData(get(chatDoc(chatId)).data) &&
+          !directChatBlockedByRelation(get(chatDoc(chatId)).data)
+        );
     }
 
     function isPostOwner() {
@@ -658,7 +669,12 @@ service cloud.firestore {
       allow create, update, delete: if isSelf(document);
 
       match /blocked_users/{blockedUid} {
-        allow read: if isSelf(document) || (isSignedIn() && blockedUid == request.auth.uid);
+        allow read: if isSelf(document) || (
+          isSignedIn() && (
+            blockedUid == request.auth.uid ||
+            resource.data.blockedUid == request.auth.uid
+          )
+        );
         allow create: if isSignedIn() && request.auth.uid == document;
         allow update, delete: if isSignedIn() && request.auth.uid == document;
       }
@@ -740,8 +756,12 @@ service cloud.firestore {
         canCreateChatWithBlockPolicy(chatId);
 
       allow update: if (
-        isChatParticipant(chatId) &&
-        isDirectChatDoc(chatId) &&
+        isSignedIn() &&
+        request.auth.uid in request.resource.data.participants &&
+        (
+          isDirectChatDoc(chatId) ||
+          isDirectChatData(request.resource.data)
+        ) &&
         request.resource.data.id == chatId &&
         ('participants' in request.resource.data) &&
         directChatIdMatchesParticipants(chatId, request.resource.data.participants) &&

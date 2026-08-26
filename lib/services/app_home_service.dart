@@ -61,6 +61,18 @@ class HomePublicGroupEntry {
   });
 }
 
+bool isUpcomingPublicGroupDateWithinWindow({
+  required DateTime groupDate,
+  required DateTime now,
+  required DateTime windowStart,
+  required DateTime windowEndExclusive,
+}) {
+  if (groupDate.isBefore(windowStart) || !groupDate.isBefore(windowEndExclusive)) {
+    return false;
+  }
+  return !groupDate.isBefore(now);
+}
+
 class MeetNowPostEntry {
   final String id;
   final String authorUid;
@@ -633,7 +645,12 @@ class AppHomeService {
         if (date == null) {
           return false;
         }
-        return !date.isBefore(start) && date.isBefore(endExclusive);
+        return isUpcomingPublicGroupDateWithinWindow(
+          groupDate: date,
+          now: now,
+          windowStart: start,
+          windowEndExclusive: endExclusive,
+        );
       }
 
       void emitMerged() {
