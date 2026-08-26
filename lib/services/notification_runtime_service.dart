@@ -3,11 +3,21 @@ import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 import 'notification_navigation_service.dart';
+
+@pragma('vm:entry-point')
+Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  if (!Firebase.apps.isNotEmpty) {
+    await Firebase.initializeApp();
+  }
+
+  await NotificationRuntimeService.handleBackgroundMessage(message);
+}
 
 class InAppNotificationEvent {
   final String id;
@@ -40,6 +50,95 @@ class NotificationRuntimeService with WidgetsBindingObserver {
 
   Stream<InAppNotificationEvent> get inAppEvents =>
       _inAppEventsController.stream;
+
+  static Future<void> handleBackgroundMessage(RemoteMessage message) async {
+    final title = (message.notification?.title ?? '').trim();
+    final body = (message.notification?.body ?? '').trim();
+    final payload = Map<String, dynamic>.from(message.data);
+
+    if (title.isEmpty && body.isEmpty) {
+      return;
+    }
+
+    final localPlugin = FlutterLocalNotificationsPlugin();
+    const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const darwinSettings = DarwinInitializationSettings(
+      requestAlertPermission: true,
+      requestBadgePermission: true,
+      requestSoundPermission: true,
+      defaultPresentAlert: true,
+      defaultPresentBadge: true,
+      defaultPresentSound: true,
+    );
+
+    const initSettings = InitializationSettings(
+      android: androidSettings,
+      iOS: darwinSettings,
+      macOS: darwinSettings,
+    );
+
+    await localPlugin.initialize(
+      initSettings,
+      onDidReceiveNotificationResponse: (response) async {
+        final payloadStr = response.payload;
+        if (payloadStr == null || payloadStr.trim().isEmpty) {
+          return;
+        }
+        try {
+          final decoded = jsonDecode(payloadStr) as Map<String, dynamic>;
+          await NotificationNavigationService.openFromData(decoded);
+        } catch (_) {
+          // Swallow malformed payloads.
+        }
+      },
+    );
+
+    await localPlugin
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>()
+        ?.createNotificationChannel(
+          const AndroidNotificationChannel(
+            'hundred_notifications',
+            'Hundred Notifications',
+            description: 'Heads-up notifications for user activity and challenges',
+            importance: Importance.max,
+            playSound: true,
+            enableVibration: true,
+          ),
+        );
+
+    final id = 'background_${message.messageId ?? DateTime.now().microsecondsSinceEpoch}';
+    final notificationData = <String, dynamic>{...payload, 'title': title, 'body': body};
+    await localPlugin.show(
+      id.hashCode,
+      title.isEmpty ? 'Hundred' : title,
+      body.isEmpty ? 'You have a new update' : body,
+      NotificationDetails(
+        android: AndroidNotificationDetails(
+          'hundred_notifications',
+          'Hundred Notifications',
+          channelDescription: 'Heads-up notifications for user activity and challenges',
+          importance: Importance.max,
+          priority: Priority.high,
+          ticker: 'Hundred',
+          styleInformation: BigTextStyleInformation(body),
+        ),
+        iOS: const DarwinNotificationDetails(
+          presentAlert: true,
+          presentBadge: true,
+          presentSound: true,
+          interruptionLevel: InterruptionLevel.timeSensitive,
+        ),
+        macOS: const DarwinNotificationDetails(
+          presentAlert: true,
+          presentBadge: true,
+          presentSound: true,
+          interruptionLevel: InterruptionLevel.timeSensitive,
+        ),
+      ),
+      payload: jsonEncode(notificationData),
+    );
+  }
 
   StreamSubscription<User?>? _authSub;
   StreamSubscription<RemoteMessage>? _onMessageSub;
@@ -105,7 +204,13 @@ class NotificationRuntimeService with WidgetsBindingObserver {
             IOSFlutterLocalNotificationsPlugin>()
         ?.requestPermissions(alert: true, badge: true, sound: true);
 
-    await _messaging.requestPermission(alert: true, badge: true, sound: true);
+    final permission = await _messaging.requestPermission(alert: true, badge: true, sound: true);
+    debugPrint('FCM permission status: ${permission.authorizationStatus.name}');
+    await _messaging.setForegroundNotificationPresentationOptions(
+      alert: true,
+      badge: true,
+      sound: true,
+    );
     _onMessageSub = FirebaseMessaging.onMessage.listen((message) {
       final notification = message.notification;
       final title = (notification?.title ?? '').trim();
@@ -207,6 +312,11 @@ class NotificationRuntimeService with WidgetsBindingObserver {
         .orderBy('createdAt', descending: true)
         .limit(40);
 
+    final initialSnapshot = await query.get();
+    for (final doc in initialSnapshot.docs) {
+      _knownDocIds.add(doc.id);
+    }
+
     _notificationsSub = query.snapshots().listen((snapshot) {
       for (final change in snapshot.docChanges) {
         final doc = change.doc;
@@ -260,6 +370,7 @@ class NotificationRuntimeService with WidgetsBindingObserver {
     try {
       final token = forcedToken ?? await _messaging.getToken();
       final normalizedToken = (token ?? '').trim();
+      debugPrint('FCM token generated for uid=$uid: ${normalizedToken.isEmpty ? 'EMPTY' : normalizedToken.substring(0, 20)}...');
       if (normalizedToken.isEmpty) {
         return;
       }

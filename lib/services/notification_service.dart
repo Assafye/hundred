@@ -101,6 +101,72 @@ class NotificationService {
     return error is FirebaseException && error.code == 'permission-denied';
   }
 
+  static String _rateLimitBucketFor(String type, DateTime now) {
+    switch (type) {
+      case NotificationTypes.weeklyChallengeUpdated:
+        final startOfWeek = DateTime.utc(now.year, now.month, now.day)
+            .subtract(Duration(days: now.weekday - 1));
+        return 'week-${startOfWeek.year}-${startOfWeek.month.toString().padLeft(2, '0')}-${startOfWeek.day.toString().padLeft(2, '0')}';
+      case NotificationTypes.dailyChallengeUpdated:
+      case NotificationTypes.spontaneousReminder:
+        return 'day-${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+      default:
+        return '';
+    }
+  }
+
+  Future<bool> _shouldSkipDuplicateNotification({
+    required String recipientUid,
+    required String type,
+    required DateTime now,
+  }) async {
+    final bucket = _rateLimitBucketFor(type, now);
+    if (bucket.isEmpty) {
+      return false;
+    }
+
+    try {
+      final userDoc = await _db.collection('users').doc(recipientUid).get();
+      final notificationDedupe = userDoc.data()?['notificationDedupe'] as Map<String, dynamic>? ?? <String, dynamic>{};
+      final typeMap = notificationDedupe[type] as Map<String, dynamic>? ?? <String, dynamic>{};
+      if (typeMap[bucket] is Timestamp) {
+        return true;
+      }
+      if (typeMap[bucket] is DateTime) {
+        return true;
+      }
+      if (typeMap[bucket] is String) {
+        return true;
+      }
+    } catch (_) {
+      return false;
+    }
+
+    return false;
+  }
+
+  Future<void> _markNotificationSent({
+    required String recipientUid,
+    required String type,
+    required DateTime now,
+  }) async {
+    final bucket = _rateLimitBucketFor(type, now);
+    if (bucket.isEmpty) {
+      return;
+    }
+
+    try {
+      await _db.collection('users').doc(recipientUid).set(
+        <String, dynamic>{
+          'notificationDedupe.$type.$bucket': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+    } catch (_) {
+      // Best effort only.
+    }
+  }
+
   void _suspendOnPermissionDenied(Object error) {
     if (_isPermissionDenied(error)) {
       _notificationWritesSuspendedSessionWide = true;
@@ -168,6 +234,19 @@ class NotificationService {
       if (!enabled) return;
     }
 
+    final now = DateTime.now();
+    if (normalizedType == NotificationTypes.weeklyChallengeUpdated ||
+        normalizedType == NotificationTypes.dailyChallengeUpdated ||
+        normalizedType == NotificationTypes.spontaneousReminder) {
+      if (await _shouldSkipDuplicateNotification(
+        recipientUid: normalizedRecipient,
+        type: normalizedType,
+        now: now,
+      )) {
+        return;
+      }
+    }
+
     final payload = <String, dynamic>{
       'recipientUid': normalizedRecipient,
       'type': normalizedType,
@@ -200,6 +279,16 @@ class NotificationService {
         },
         SetOptions(merge: true),
       );
+
+      if (normalizedType == NotificationTypes.weeklyChallengeUpdated ||
+          normalizedType == NotificationTypes.dailyChallengeUpdated ||
+          normalizedType == NotificationTypes.spontaneousReminder) {
+        await _markNotificationSent(
+          recipientUid: normalizedRecipient,
+          type: normalizedType,
+          now: now,
+        );
+      }
     } catch (error) {
       _suspendOnPermissionDenied(error);
       // Intentionally swallowed: notification dispatch is best effort only.

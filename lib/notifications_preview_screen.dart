@@ -1,33 +1,15 @@
-import 'dart:typed_data';
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 
 import 'chats_screen.dart';
 import 'chat_room_screen.dart';
 import 'group_details_screen.dart';
-import 'post_media_utils.dart';
 import 'post_detail_view.dart';
 import 'services/notification_service.dart';
 import 'stars_screen.dart' show StarsScreen;
 import 'user_profile_screen.dart';
 import 'widgets/swipe_back_wrapper.dart';
-import 'video_preview_utils.dart';
-
-class _NotificationMediaPreview {
-  final String thumbnailUrl;
-  final String videoUrl;
-
-  const _NotificationMediaPreview({
-    required this.thumbnailUrl,
-    required this.videoUrl,
-  });
-
-  bool get hasThumbnail => thumbnailUrl.trim().isNotEmpty;
-  bool get hasVideo => videoUrl.trim().isNotEmpty;
-}
 
 class NotificationsPreviewScreen extends StatefulWidget {
   const NotificationsPreviewScreen({super.key});
@@ -40,16 +22,6 @@ class NotificationsPreviewScreen extends StatefulWidget {
 class _NotificationsPreviewScreenState
     extends State<NotificationsPreviewScreen> {
   final NotificationService _notificationService = NotificationService();
-  final Map<String, Future<Map<String, dynamic>?>> _postFutureCache =
-      <String, Future<Map<String, dynamic>?>>{};
-  final Map<String, Future<_NotificationMediaPreview>>
-      _postPreviewFutureCache = <String, Future<_NotificationMediaPreview>>{};
-  final Map<String, Future<String?>> _resolvedMediaUrlFutureCache =
-      <String, Future<String?>>{};
-  final Map<String, Future<Uint8List?>> _videoPreviewFutureByUrl =
-      <String, Future<Uint8List?>>{};
-    final Map<String, Future<String>> _profileAvatarFutureByUid =
-      <String, Future<String>>{};
   DateTime? _lastVisitedAt;
   bool _visitMarkerLoaded = false;
 
@@ -217,10 +189,6 @@ class _NotificationsPreviewScreenState
     return actorName.isNotEmpty ? actorName : 'משתמש';
   }
 
-  String _postImageUrl(Map<String, dynamic> data) {
-    return (data['postImageUrl'] as String? ?? '').trim();
-  }
-
   bool _isUnread(Map<String, dynamic> data) {
     return (data['isRead'] as bool? ?? false) == false;
   }
@@ -239,207 +207,6 @@ class _NotificationsPreviewScreenState
     data['id'] = snap.id;
     data['postId'] = (data['postId'] as String? ?? snap.id).trim();
     return data;
-  }
-
-  Future<Map<String, dynamic>?> _cachedPostFuture(String postId) {
-    final normalizedPostId = postId.trim();
-    if (normalizedPostId.isEmpty) {
-      return Future<Map<String, dynamic>?>.value(null);
-    }
-
-    return _postFutureCache.putIfAbsent(
-      normalizedPostId,
-      () => _fetchPost(normalizedPostId),
-    );
-  }
-
-  Future<String?> _resolveMediaUrl(String source) async {
-    final normalized = source.trim();
-    if (normalized.isEmpty) {
-      return null;
-    }
-
-    if (normalized.startsWith('http://') ||
-        normalized.startsWith('https://')) {
-      return normalized;
-    }
-
-    try {
-      if (normalized.startsWith('gs://')) {
-        return await FirebaseStorage.instance
-            .refFromURL(normalized)
-            .getDownloadURL();
-      }
-
-      return await FirebaseStorage.instance.ref(normalized).getDownloadURL();
-    } catch (_) {
-      return normalized;
-    }
-  }
-
-  Future<String?> _resolvedMediaUrlFuture(String source) {
-    final normalized = source.trim();
-    if (normalized.isEmpty) {
-      return Future<String?>.value(null);
-    }
-
-    return _resolvedMediaUrlFutureCache.putIfAbsent(
-      normalized,
-      () => _resolveMediaUrl(normalized),
-    );
-  }
-
-  Future<String> _profileAvatarFuture(String uid) {
-    final normalizedUid = uid.trim();
-    if (normalizedUid.isEmpty) {
-      return Future<String>.value('');
-    }
-
-    return _profileAvatarFutureByUid.putIfAbsent(normalizedUid, () async {
-      try {
-        final publicSnap = await FirebaseFirestore.instance
-            .collection('users_public')
-            .doc(normalizedUid)
-            .get();
-        final publicData = publicSnap.data() ?? const <String, dynamic>{};
-        final direct = (publicData['profilePictureUrl'] as String? ??
-                publicData['profileImageUrl'] as String? ??
-                publicData['avatarUrl'] as String? ??
-                '')
-            .trim();
-        if (direct.isNotEmpty) {
-          return direct;
-        }
-      } catch (_) {}
-
-      try {
-        final userSnap = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(normalizedUid)
-            .get();
-        final userData = userSnap.data() ?? const <String, dynamic>{};
-        final direct = (userData['profilePictureUrl'] as String? ??
-                userData['profileImageUrl'] as String? ??
-                userData['avatarUrl'] as String? ??
-                '')
-            .trim();
-        if (direct.isNotEmpty) {
-          return direct;
-        }
-      } catch (_) {}
-
-      return '';
-    });
-  }
-
-  Future<_NotificationMediaPreview> _notificationMediaPreviewFuture(
-      Map<String, dynamic> data) {
-    final postId = _postId(data);
-    if (postId.isEmpty) {
-      final fallback = _postImageUrl(data);
-      if (fallback.isEmpty) {
-        return Future<_NotificationMediaPreview>.value(
-          const _NotificationMediaPreview(thumbnailUrl: '', videoUrl: ''),
-        );
-      }
-      return _resolvedMediaUrlFuture(fallback).then(
-        (url) => _NotificationMediaPreview(
-          thumbnailUrl: url ?? fallback,
-          videoUrl: '',
-        ),
-      );
-    }
-
-    return _postPreviewFutureCache.putIfAbsent(
-      postId,
-      () async {
-        final post = await _cachedPostFuture(postId);
-        if (post == null) {
-          final fallback = _postImageUrl(data);
-          if (fallback.isEmpty) {
-            return const _NotificationMediaPreview(
-              thumbnailUrl: '',
-              videoUrl: '',
-            );
-          }
-          final resolved = await _resolvedMediaUrlFuture(fallback) ?? fallback;
-          return _NotificationMediaPreview(
-            thumbnailUrl: resolved,
-            videoUrl: '',
-          );
-        }
-
-        String? firstVideoUrl;
-        final directThumbnailCandidates = <String>[
-          (post['thumbnailUrl'] as String? ?? '').trim(),
-          (post['videoThumbnailUrl'] as String? ?? '').trim(),
-        ];
-
-        for (final candidate in directThumbnailCandidates) {
-          final resolved = await _resolvedMediaUrlFuture(candidate) ?? candidate;
-          if (resolved.isNotEmpty) {
-            return _NotificationMediaPreview(
-              thumbnailUrl: resolved,
-              videoUrl: '',
-            );
-          }
-        }
-
-        final mediaItems = postMediaItemsFromData(post);
-        for (final item in mediaItems) {
-          final resolvedUrl =
-              await _resolvedMediaUrlFuture(item.url) ?? item.url;
-          if (resolvedUrl.isEmpty) {
-            continue;
-          }
-
-          if (item.isVideo || isVideoMediaUrl(resolvedUrl)) {
-            firstVideoUrl ??= resolvedUrl;
-            continue;
-          }
-
-          return _NotificationMediaPreview(
-            thumbnailUrl: resolvedUrl,
-            videoUrl: '',
-          );
-        }
-
-        final fallbackCandidates = <String>[
-          (post['imageUrl'] as String? ?? '').trim(),
-          (post['mediaUrl'] as String? ?? '').trim(),
-          (post['postImageUrl'] as String? ?? '').trim(),
-          _postImageUrl(data),
-        ];
-
-        for (final candidate in fallbackCandidates) {
-          final resolved = await _resolvedMediaUrlFuture(candidate) ?? candidate;
-          if (resolved.isEmpty) {
-            continue;
-          }
-
-          if (!isVideoMediaUrl(resolved)) {
-            return _NotificationMediaPreview(
-              thumbnailUrl: resolved,
-              videoUrl: '',
-            );
-          }
-
-          firstVideoUrl ??= resolved;
-        }
-
-        if (firstVideoUrl != null && firstVideoUrl.isNotEmpty) {
-          return _NotificationMediaPreview(
-            thumbnailUrl: '',
-            videoUrl: firstVideoUrl,
-          );
-        }
-
-        return const _NotificationMediaPreview(
-          thumbnailUrl: '',
-          videoUrl: '',
-        );
-      },
-    );
   }
 
   Future<void> _openPostNotification(
@@ -753,265 +520,32 @@ class _NotificationsPreviewScreenState
     }
   }
 
-  Widget _buildNotificationMediaThumbnail(
-    BuildContext context,
-    Map<String, dynamic> data,
-  ) {
-    final isLight = Theme.of(context).brightness == Brightness.light;
-
-    return FutureBuilder<_NotificationMediaPreview>(
-      future: _notificationMediaPreviewFuture(data),
-      builder: (context, snapshot) {
-        final preview = snapshot.data ??
-            const _NotificationMediaPreview(thumbnailUrl: '', videoUrl: '');
-
-        if (preview.hasThumbnail) {
-          return Image.network(
-            preview.thumbnailUrl,
-            fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) {
-              if (preview.hasVideo) {
-                return Container(
-                  color: isLight ? const Color(0xFFEAF2FF) : const Color(0xFF1A2230),
-                  alignment: Alignment.center,
-                  child: const Icon(
-                    Icons.play_circle_fill_rounded,
-                    color: Colors.white,
-                    size: 26,
-                  ),
-                );
-              }
-
-              return Container(
-                color: isLight ? const Color(0xFFEAF2FF) : const Color(0xFF1A2230),
-                alignment: Alignment.center,
-                child: Icon(
-                  _iconForNotification(data),
-                  color: isLight ? const Color(0xFF5A6CFF) : Colors.white54,
-                  size: 24,
-                ),
-              );
-            },
-          );
-        }
-
-        if (preview.hasVideo) {
-          return FutureBuilder<Uint8List?>(
-            future: _videoPreviewFutureByUrl.putIfAbsent(
-              preview.videoUrl,
-              () => buildVideoPreviewBytesFromSource(preview.videoUrl),
-            ),
-            builder: (context, bytesSnapshot) {
-              final bytes = bytesSnapshot.data;
-              if (bytes != null && bytes.isNotEmpty) {
-                return Image.memory(bytes, fit: BoxFit.cover);
-              }
-
-              return Container(
-                color: isLight ? const Color(0xFFEAF2FF) : const Color(0xFF1A2230),
-                alignment: Alignment.center,
-                child: const Icon(
-                  Icons.play_circle_fill_rounded,
-                  color: Colors.white,
-                  size: 26,
-                ),
-              );
-            },
-          );
-        }
-
-        return Container(
-          color: isLight ? const Color(0xFFEAF2FF) : const Color(0xFF1A2230),
-          alignment: Alignment.center,
-          child: Icon(
-            _iconForNotification(data),
-            color: isLight ? const Color(0xFF5A6CFF) : Colors.white54,
-            size: 24,
-          ),
-        );
-      },
-    );
-  }
-
   Widget _buildNotificationAvatarStack(
     BuildContext context,
     QueryDocumentSnapshot<Map<String, dynamic>> doc,
     Map<String, dynamic> data,
+    Color accent,
   ) {
-    final isLight = Theme.of(context).brightness == Brightness.light;
-    final type = (data['type'] as String? ?? '').trim();
-
-    if (type == NotificationTypes.postLike) {
-      return FutureBuilder<List<String>>(
-        future: _notificationLikeAvatarUrlsFuture(data),
-        builder: (context, snapshot) {
-          final urls = snapshot.data ?? const <String>[];
-          if (urls.isEmpty) {
-            return _singleNotificationAvatar(
-              initial: '❤',
-              backgroundColor: isLight ? const Color(0xFFFFEEF3) : const Color(0xFF273347),
-              color: const Color(0xFFFF6D9A),
-            );
-          }
-
-          if (urls.length == 1) {
-            return _networkNotificationAvatar(urls.first, isLight: isLight);
-          }
-
-          return _avatarStack(urls.take(3).toList(growable: false), isLight: isLight);
-        },
-      );
-    }
-
-    final avatarUrl = (data['actorAvatarUrl'] as String? ?? '').trim();
-    if (avatarUrl.isNotEmpty) {
-      return _networkNotificationAvatar(avatarUrl, isLight: isLight);
-    }
-
-    final actorName = _actorName(data).trim();
-    final fallbackInitial = actorName.isNotEmpty
-        ? actorName.substring(0, 1).toUpperCase()
-        : '?';
-    return _singleNotificationAvatar(
-      initial: fallbackInitial,
-      backgroundColor: isLight ? const Color(0xFFEAF2FF) : const Color(0xFF273347),
-      color: isLight ? const Color(0xFF5A6CFF) : Colors.white,
-    );
-  }
-
-  Widget _networkNotificationAvatar(String url, {required bool isLight}) {
-    return ClipOval(
-      child: Image.network(
-        url,
-        fit: BoxFit.cover,
-        errorBuilder: (_, __, ___) => Container(
-          color: isLight ? const Color(0xFFEAF2FF) : const Color(0xFF273347),
-          alignment: Alignment.center,
-          child: const Icon(Icons.person_rounded, color: Colors.white),
-        ),
-      ),
-    );
-  }
-
-  Widget _singleNotificationAvatar({
-    required String initial,
-    required Color backgroundColor,
-    required Color color,
-  }) {
     return Container(
-      color: backgroundColor,
-      alignment: Alignment.center,
-      child: Text(
-        initial,
-        style: TextStyle(
-          color: color,
-          fontWeight: FontWeight.w900,
-          fontSize: 18,
+      width: 40,
+      height: 40,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: LinearGradient(
+          colors: [
+            accent.withValues(alpha: 0.9),
+            const Color(0xFF9E7CFF).withValues(alpha: 0.8),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
         ),
       ),
+      child: Icon(
+        _iconForNotification(data),
+        color: Colors.white,
+        size: 20,
+      ),
     );
-  }
-
-  Widget _avatarStack(List<String> urls, {required bool isLight}) {
-    final displayUrls =
-        urls.where((url) => url.trim().isNotEmpty).toList(growable: false);
-    if (displayUrls.isEmpty) {
-      return _singleNotificationAvatar(
-        initial: '?',
-        backgroundColor: isLight ? const Color(0xFFEAF2FF) : const Color(0xFF273347),
-        color: isLight ? const Color(0xFF5A6CFF) : Colors.white,
-      );
-    }
-
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        for (var i = 0; i < displayUrls.length; i++)
-          Positioned(
-            right: i * 11.0,
-            top: i * 1.5,
-            child: Container(
-              width: 28,
-              height: 28,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: isLight ? Colors.white : const Color(0xFF0B1019),
-                  width: 1.8,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha:  0.12),
-                    blurRadius: 6,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: ClipOval(
-                child: Image.network(
-                  displayUrls[i],
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => Container(
-                    color: isLight
-                        ? const Color(0xFFEAF2FF)
-                        : const Color(0xFF273347),
-                  ),
-                ),
-              ),
-            ),
-          ),
-      ],
-    );
-  }
-
-  Future<List<String>> _notificationLikeAvatarUrlsFuture(
-      Map<String, dynamic> data) async {
-    final result = <String>[];
-    final seen = <String>{};
-
-    void addUrl(String url) {
-      final normalized = url.trim();
-      if (normalized.isEmpty || !seen.add(normalized)) {
-        return;
-      }
-      result.add(normalized);
-    }
-
-    final recentLikeActorUids =
-        (data['recentLikeActorUids'] as List<dynamic>? ?? const <dynamic>[])
-            .map((item) => item.toString().trim())
-            .where((uid) => uid.isNotEmpty)
-            .toList(growable: false);
-
-    if (recentLikeActorUids.isNotEmpty) {
-      for (final uid in recentLikeActorUids) {
-        final avatarUrl = await _profileAvatarFuture(uid);
-        addUrl(avatarUrl);
-        if (result.length >= 3) {
-          return result;
-        }
-      }
-    }
-
-    final post = await _cachedPostFuture(_postId(data));
-    if (post != null) {
-      final likes = (post['likes'] as List<dynamic>? ?? const <dynamic>[])
-          .map((item) => item.toString().trim())
-          .where((uid) => uid.isNotEmpty)
-          .toList(growable: false);
-
-      for (final uid in likes) {
-        final avatarUrl = await _profileAvatarFuture(uid);
-        addUrl(avatarUrl);
-        if (result.length >= 3) {
-          return result;
-        }
-      }
-    }
-
-    final actorAvatar = (data['actorAvatarUrl'] as String? ?? '').trim();
-    addUrl(actorAvatar);
-    return result;
   }
 
   Color _accentForNotification(Map<String, dynamic> data) {
@@ -1047,7 +581,47 @@ class _NotificationsPreviewScreenState
     }
   }
 
-  Widget _buildNotificationCard(
+  String _actorAvatarUrl(Map<String, dynamic> data) {
+    return (data['actorAvatarUrl'] as String? ?? '').trim();
+  }
+
+  Widget _buildAvatarBadge({
+    required String avatarUrl,
+    required double size,
+    required Alignment alignment,
+  }) {
+    if (avatarUrl.isEmpty) {
+      return Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: const Color(0xFFBFD9FF),
+          border: Border.all(color: Colors.white, width: 1.5),
+        ),
+        child: const Icon(Icons.person_rounded, size: 14, color: Colors.white),
+      );
+    }
+
+    return ClipOval(
+      child: SizedBox(
+        width: size,
+        height: size,
+        child: Image.network(
+          avatarUrl,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => Container(
+            width: size,
+            height: size,
+            color: const Color(0xFFBFD9FF),
+            child: const Icon(Icons.person_rounded, size: 14, color: Colors.white),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPostLikeNotificationCard(
     BuildContext context,
     QueryDocumentSnapshot<Map<String, dynamic>> doc,
     Map<String, dynamic> data,
@@ -1056,10 +630,188 @@ class _NotificationsPreviewScreenState
     final isUnread = _isUnread(data);
     final isNew = _shouldHighlightAsNew(data);
     final accent = _accentForNotification(data);
+    final actorName = _actorName(data);
+    final likeCount = _intValue(data, const ['likeCount']);
+    final postImageUrl = (data['postImageUrl'] as String? ?? '').trim();
+    final actorAvatarUrl = _actorAvatarUrl(data);
+    final dynamicNewBorder = _dynamicNewBorderColor(
+      isLight: isLight,
+      docId: doc.id,
+      accent: accent,
+    );
+
+    final avatarStack = <Widget>[];
+    final avatarUrls = <String>[];
+    if (actorAvatarUrl.isNotEmpty) {
+      avatarUrls.add(actorAvatarUrl);
+    }
+    for (final avatar in avatarUrls) {
+      avatarStack.add(
+        Positioned(
+          right: avatarStack.length * 12.0,
+          child: _buildAvatarBadge(
+            avatarUrl: avatar,
+            size: 22,
+            alignment: Alignment.centerRight,
+          ),
+        ),
+      );
+    }
+
+    final stackWidth = avatarUrls.isEmpty ? 0.0 : avatarUrls.length * 12.0 + 22.0;
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(24),
+      onTap: () => _openNotification(context, doc, data),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(24),
+          gradient: isLight
+              ? null
+              : LinearGradient(
+                  colors: isNew
+                      ? [
+                          const Color(0xFF18263D).withValues(alpha: 0.98),
+                          const Color(0xFF261D44).withValues(alpha: 0.98),
+                        ]
+                      : [
+                          const Color(0xFF111A2A).withValues(alpha: 0.92),
+                          const Color(0xFF161D2C).withValues(alpha: 0.92),
+                        ],
+                  begin: Alignment.topRight,
+                  end: Alignment.bottomLeft,
+                ),
+          color: isLight ? Colors.white.withValues(alpha: 0.62) : null,
+          border: Border.all(
+            color: isNew
+                ? dynamicNewBorder
+                : (isLight
+                    ? const Color(0xFFA9C3FF)
+                    : Colors.white.withValues(alpha: 0.06)),
+            width: isNew ? 1.45 : 0.9,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: isLight
+                  ? const Color(0xFF53C1F9).withValues(alpha: 0.08)
+                  : isNew
+                      ? dynamicNewBorder.withValues(alpha: 0.22)
+                      : Colors.black.withValues(alpha: 0.12),
+              blurRadius: 18,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Row(
+          textDirection: TextDirection.rtl,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            SizedBox(
+              width: 64,
+              height: 64,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: postImageUrl.isNotEmpty
+                    ? Image.network(
+                        postImageUrl,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Container(
+                          color: const Color(0xFFBFD9FF),
+                          child: const Icon(Icons.image_rounded, color: Colors.white),
+                        ),
+                      )
+                    : Container(
+                        color: const Color(0xFFE9EBFF),
+                        child: const Icon(Icons.image_rounded, color: Color(0xFF7C7CEF)),
+                      ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    likeCount > 1 ? '$actorName +${likeCount - 1}' : actorName,
+                    textAlign: TextAlign.right,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: isLight ? Colors.black : Colors.white,
+                      fontSize: 15,
+                      fontWeight: isUnread ? FontWeight.w800 : FontWeight.w700,
+                      height: 1.2,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    likeCount > 1
+                        ? 'יש לך עכשיו $likeCount לייקים על הפוסט'
+                        : 'עשה לך לייק על הפוסט',
+                    textAlign: TextAlign.right,
+                    style: TextStyle(
+                      color: isLight ? Colors.black87 : Colors.white70,
+                      fontSize: 12.5,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    textDirection: TextDirection.rtl,
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      SizedBox(
+                        width: stackWidth,
+                        height: 22,
+                        child: Stack(
+                          children: avatarStack,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: accent.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          likeCount > 9 ? '9+' : likeCount.toString(),
+                          style: TextStyle(
+                            color: accent,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNotificationCard(
+    BuildContext context,
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+    Map<String, dynamic> data,
+  ) {
+    final type = (data['type'] as String? ?? '').trim();
+    if (type == NotificationTypes.postLike) {
+      return _buildPostLikeNotificationCard(context, doc, data);
+    }
+
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final isUnread = _isUnread(data);
+    final isNew = _shouldHighlightAsNew(data);
+    final accent = _accentForNotification(data);
     final title = _titleForNotification(data);
     final subtitle = _subtitleForNotification(data);
     final timeLabel = _timeLabel(data['createdAt']);
-    final type = (data['type'] as String? ?? '').trim();
     final likeCount = _intValue(data, const ['likeCount']);
     final dynamicNewBorder = _dynamicNewBorderColor(
       isLight: isLight,
@@ -1072,21 +824,21 @@ class _NotificationsPreviewScreenState
       onTap: () => _openNotification(context, doc, data),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 220),
-        padding: const EdgeInsets.all(10),
+        padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(24),
-          color: isLight ? Colors.white.withValues(alpha:  0.62) : null,
+          color: isLight ? Colors.white.withValues(alpha: 0.62) : null,
           gradient: isLight
               ? null
               : LinearGradient(
                   colors: isNew
                       ? [
-                          const Color(0xFF18263D).withValues(alpha:  0.98),
-                          const Color(0xFF261D44).withValues(alpha:  0.98),
+                          const Color(0xFF18263D).withValues(alpha: 0.98),
+                          const Color(0xFF261D44).withValues(alpha: 0.98),
                         ]
                       : [
-                          const Color(0xFF111A2A).withValues(alpha:  0.92),
-                          const Color(0xFF161D2C).withValues(alpha:  0.92),
+                          const Color(0xFF111A2A).withValues(alpha: 0.92),
+                          const Color(0xFF161D2C).withValues(alpha: 0.92),
                         ],
                   begin: Alignment.topRight,
                   end: Alignment.bottomLeft,
@@ -1096,34 +848,25 @@ class _NotificationsPreviewScreenState
                 ? dynamicNewBorder
                 : (isLight
                     ? const Color(0xFFA9C3FF)
-                    : Colors.white.withValues(alpha:  0.06)),
+                    : Colors.white.withValues(alpha: 0.06)),
             width: isNew ? 1.45 : 0.9,
           ),
           boxShadow: [
             BoxShadow(
               color: isLight
-                  ? const Color(0xFF53C1F9).withValues(alpha:  0.08)
+                  ? const Color(0xFF53C1F9).withValues(alpha: 0.08)
                   : isNew
-                      ? dynamicNewBorder.withValues(alpha:  0.22)
-                      : Colors.black.withValues(alpha:  0.12),
+                      ? dynamicNewBorder.withValues(alpha: 0.22)
+                      : Colors.black.withValues(alpha: 0.12),
               blurRadius: 18,
               offset: const Offset(0, 8),
             ),
           ],
         ),
         child: Row(
-          textDirection: TextDirection.ltr,
+          textDirection: TextDirection.rtl,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(14),
-              child: SizedBox(
-                width: 46,
-                height: 46,
-                child: _buildNotificationMediaThumbnail(context, data),
-              ),
-            ),
-            const SizedBox(width: 9),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1138,10 +881,10 @@ class _NotificationsPreviewScreenState
                           textAlign: TextAlign.right,
                           style: TextStyle(
                             color: isLight ? Colors.black : Colors.white,
-                            fontSize: 14,
+                            fontSize: 16,
                             fontWeight:
                                 isUnread ? FontWeight.w800 : FontWeight.w700,
-                            height: 1.15,
+                            height: 1.18,
                           ),
                         ),
                       ),
@@ -1152,7 +895,7 @@ class _NotificationsPreviewScreenState
                               horizontal: 8, vertical: 4),
                           decoration: BoxDecoration(
                             borderRadius: BorderRadius.circular(999),
-                            color: accent.withValues(alpha:  0.18),
+                            color: accent.withValues(alpha: 0.18),
                           ),
                           child: Text(
                             likeCount > 9 ? '9+' : likeCount.toString(),
@@ -1165,7 +908,7 @@ class _NotificationsPreviewScreenState
                         ),
                     ],
                   ),
-                  const SizedBox(height: 3),
+                  const SizedBox(height: 4),
                   if (subtitle.isNotEmpty)
                     Text(
                       subtitle,
@@ -1173,10 +916,10 @@ class _NotificationsPreviewScreenState
                       style: TextStyle(
                         color: isLight
                             ? Colors.black87
-                            : Colors.white.withValues(alpha:  0.72),
-                        fontSize: 12,
+                            : Colors.white.withValues(alpha: 0.72),
+                        fontSize: 13,
                         fontWeight: FontWeight.w400,
-                        height: 1.25,
+                        height: 1.3,
                       ),
                     ),
                   const SizedBox(height: 6),
@@ -1188,40 +931,19 @@ class _NotificationsPreviewScreenState
                         style: TextStyle(
                           color: isLight
                               ? Colors.black54
-                              : Colors.white.withValues(alpha:  0.45),
+                              : Colors.white.withValues(alpha: 0.45),
                           fontSize: 11.5,
                           fontWeight: FontWeight.w400,
                         ),
                       ),
                       const Spacer(),
-                      if (type == NotificationTypes.weeklyChallengeUpdated)
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(999),
-                            color: const Color(0xFF53C1F9).withValues(alpha:  0.14),
-                          ),
-                          child: const Text(
-                            'אתגר השבוע',
-                            style: TextStyle(
-                              color: Color(0xFF8EDEFF),
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
                     ],
                   ),
                 ],
               ),
             ),
-            const SizedBox(width: 8),
-            SizedBox(
-              width: 46,
-              height: 46,
-              child: _buildNotificationAvatarStack(context, doc, data),
-            ),
+            const SizedBox(width: 10),
+            _buildNotificationAvatarStack(context, doc, data, accent),
           ],
         ),
       ),

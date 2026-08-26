@@ -106,7 +106,8 @@ class _NotificationBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isLight = Theme.of(context).brightness == Brightness.light;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -115,70 +116,86 @@ class _NotificationBanner extends StatelessWidget {
         child: Ink(
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(18),
-            color: isLight
-                ? Colors.white.withValues(alpha: 0.98)
-                : const Color(0xFF16253A).withValues(alpha: 0.98),
-            border: Border.all(
-              color: isLight
-                  ? const Color(0xFF8DBBFF)
-                  : const Color(0xFF53C1F9).withValues(alpha: 0.45),
+            gradient: LinearGradient(
+              colors: isDark
+                  ? [
+                      const Color(0xFF1B2D4C).withValues(alpha: 0.92),
+                      const Color(0xFF182845).withValues(alpha: 0.92),
+                    ]
+                  : [
+                      const Color(0xFFEAF5FF),
+                      const Color(0xFFE9EEFF),
+                    ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.22),
-                blurRadius: 16,
+                color: const Color(0xFF75CEF9).withValues(alpha: 0.18),
+                blurRadius: 18,
                 offset: const Offset(0, 8),
               ),
             ],
           ),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(
+                width: 1.25,
+                color: const Color(0xFF7ED9FF),
+              ),
+            ),
+            foregroundDecoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(
+                width: 1.0,
+                strokeAlign: BorderSide.strokeAlignInside,
+                color: Colors.transparent,
+              ),
+            ),
             child: Row(
+              textDirection: TextDirection.rtl,
               children: [
                 Container(
                   width: 34,
                   height: 34,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: const Color(0xFF53C1F9).withValues(alpha: 0.22),
+                    gradient: const LinearGradient(
+                      colors: [
+                        Color(0xFF8EE3FF),
+                        Color(0xFFB7A9FF),
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF8EE3FF).withValues(alpha: 0.25),
+                        blurRadius: 12,
+                        offset: const Offset(0, 5),
+                      ),
+                    ],
                   ),
                   child: const Icon(
                     Icons.notifications_active_rounded,
-                    color: Color(0xFF53C1F9),
-                    size: 20,
+                    color: Colors.white,
+                    size: 18,
                   ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        event.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: isLight
-                              ? const Color(0xFF0E1524)
-                              : Colors.white,
-                          fontWeight: FontWeight.w800,
-                          fontSize: 14,
-                        ),
-                      ),
-                      if (event.body.trim().isNotEmpty)
-                        Text(
-                          event.body,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: isLight
-                                ? const Color(0xFF4A5C7A)
-                                : Colors.white70,
-                            fontWeight: FontWeight.w500,
-                            fontSize: 12,
-                          ),
-                        ),
-                    ],
+                  child: Text(
+                    event.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.right,
+                    style: TextStyle(
+                      color: isDark ? Colors.white : const Color(0xFF13233B),
+                      fontWeight: FontWeight.w800,
+                      fontSize: 16,
+                    ),
                   ),
                 ),
               ],

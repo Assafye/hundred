@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
@@ -110,6 +112,26 @@ class BlockUserService {
     return blockedBy[uid] == true;
   }
 
+  bool _isValidReverseBlockRecord({
+    required Map<String, dynamic>? data,
+    required String expectedBlockerUid,
+    required String expectedBlockedUid,
+  }) {
+    if (data == null) {
+      return true;
+    }
+
+    final blockedByUid = (data['blockedByUid'] as String? ?? '').trim();
+    final blockedUid = (data['blockedUid'] as String? ?? '').trim();
+
+    if (blockedByUid.isEmpty && blockedUid.isEmpty) {
+      return true;
+    }
+
+    return blockedByUid == expectedBlockerUid &&
+        blockedUid == expectedBlockedUid;
+  }
+
   Future<bool> isBlockedByMe(String targetUid) async {
     final myUid = _requireUid();
     final normalizedTargetUid = targetUid.trim();
@@ -149,15 +171,60 @@ class BlockUserService {
       final chatSnap = await _directChatRef(myUid, normalizedOtherUid)
           .get(const GetOptions(source: Source.serverAndCache))
           .timeout(const Duration(seconds: 3));
-      if (!chatSnap.exists) {
-        return false;
+      if (chatSnap.exists) {
+        final blockedByOther =
+            _directChatBlockedByUid(chatSnap.data(), normalizedOtherUid);
+        if (blockedByOther) {
+          _trace(
+            'is_blocked_by_other_from_chat other=$normalizedOtherUid blocked=true includeLegacyFallback=$includeLegacyFallback',
+          );
+          return true;
+        }
       }
-      final blockedByOther =
-          _directChatBlockedByUid(chatSnap.data(), normalizedOtherUid);
-      _trace(
-        'is_blocked_by_other_from_chat other=$normalizedOtherUid blocked=$blockedByOther includeLegacyFallback=$includeLegacyFallback',
+
+      final reverseBlockRef = _blockedUserRef(
+        ownerUid: normalizedOtherUid,
+        targetUid: myUid,
       );
-      return blockedByOther;
+      final reverseBlockSnap = await reverseBlockRef
+          .get(const GetOptions(source: Source.serverAndCache))
+          .timeout(const Duration(seconds: 3));
+      if (reverseBlockSnap.exists &&
+          _isValidReverseBlockRecord(
+            data: reverseBlockSnap.data(),
+            expectedBlockerUid: normalizedOtherUid,
+            expectedBlockedUid: myUid,
+          )) {
+        _trace(
+          'is_blocked_by_other_from_reverse_block other=$normalizedOtherUid reverseExists=true includeLegacyFallback=$includeLegacyFallback',
+        );
+        return true;
+      }
+
+      if (includeLegacyFallback) {
+        final targetUserSnap = await _db
+            .collection('users')
+            .doc(normalizedOtherUid)
+            .get(const GetOptions(source: Source.serverAndCache))
+            .timeout(const Duration(seconds: 3));
+        final blockedUsers =
+            (targetUserSnap.data()?['blockedUsers'] as List<dynamic>? ??
+                    const [])
+                .map((value) => value.toString().trim())
+                .where((value) => value.isNotEmpty)
+                .toSet();
+        if (blockedUsers.contains(myUid)) {
+          _trace(
+            'is_blocked_by_other_from_user_array other=$normalizedOtherUid blockedUserContainsMe=true includeLegacyFallback=$includeLegacyFallback',
+          );
+          return true;
+        }
+      }
+
+      _trace(
+        'is_blocked_by_other_false other=$normalizedOtherUid includeLegacyFallback=$includeLegacyFallback',
+      );
+      return false;
     } catch (error) {
       _trace(
         'is_blocked_by_other_error other=$normalizedOtherUid includeLegacyFallback=$includeLegacyFallback errorType=${error.runtimeType} error=$error',
@@ -222,12 +289,44 @@ class BlockUserService {
     return Stream<Set<String>>.multi((controller) {
       Set<String>? lastGood;
 
+      Future<void> emitMerged(Set<String> chatUids) async {
+        try {
+          final reverseDocs = await _db
+              .collectionGroup('blocked_users')
+              .where(FieldPath.documentId, isEqualTo: myUid)
+              .get(const GetOptions(source: Source.serverAndCache))
+              .timeout(const Duration(seconds: 5));
+          final reverseUids = reverseDocs.docs
+              .where((doc) {
+                final data = doc.data();
+                final blockedByUid =
+                    (data['blockedByUid'] as String? ?? '').trim();
+                // Ignore legacy reverse markers authored by the current user.
+                return blockedByUid != myUid;
+              })
+              .map((doc) => doc.reference.parent.parent?.id.trim() ?? '')
+              .where((uid) => uid.isNotEmpty)
+              .toSet();
+          final merged = mergeBlockedUidSets(chatUids, reverseUids);
+          lastGood = merged;
+          controller.add(merged);
+        } catch (error) {
+          if (_isRecoverableBlockReadError(error)) {
+            if (lastGood != null) {
+              controller.add(lastGood!);
+            }
+            return;
+          }
+          controller.addError(error);
+        }
+      }
+
       final sub = _db
           .collection('chats')
           .where('participants', arrayContains: myUid)
           .snapshots()
           .listen((snapshot) {
-        final uids = <String>{};
+        final chatUids = <String>{};
         for (final doc in snapshot.docs) {
           final data = doc.data();
           final participants =
@@ -249,11 +348,11 @@ class BlockUserService {
             continue;
           }
           if (_directChatBlockedByUid(data, otherUid)) {
-            uids.add(otherUid);
+            chatUids.add(otherUid);
           }
         }
-        lastGood = uids;
-        controller.add(uids);
+
+        unawaited(emitMerged(chatUids));
       }, onError: (error) {
         if (_isRecoverableBlockReadError(error)) {
           if (lastGood != null) {
@@ -264,10 +363,60 @@ class BlockUserService {
         controller.addError(error);
       });
 
+      Future<void> initialLoad() async {
+        try {
+          final chatSnapshot = await _db
+              .collection('chats')
+              .where('participants', arrayContains: myUid)
+              .get(const GetOptions(source: Source.serverAndCache))
+              .timeout(const Duration(seconds: 5));
+          final chatUids = <String>{};
+          for (final doc in chatSnapshot.docs) {
+            final data = doc.data();
+            final participants =
+                ((data['participants'] as List<dynamic>?) ?? const <dynamic>[])
+                    .map((value) => value.toString().trim())
+                    .where((value) => value.isNotEmpty)
+                    .toList(growable: false);
+            final isPublic = (data['isPublic'] as bool?) ?? false;
+            final isDirect = (data['isDirect'] as bool?) ??
+                (!isPublic && participants.length == 2);
+            if (!isDirect || participants.length != 2) {
+              continue;
+            }
+            final otherUid = participants.firstWhere(
+              (uid) => uid != myUid,
+              orElse: () => '',
+            );
+            if (otherUid.isEmpty) {
+              continue;
+            }
+            if (_directChatBlockedByUid(data, otherUid)) {
+              chatUids.add(otherUid);
+            }
+          }
+          await emitMerged(chatUids);
+        } catch (error) {
+          if (_isRecoverableBlockReadError(error)) {
+            return;
+          }
+          controller.addError(error);
+        }
+      }
+
+      initialLoad();
+
       controller.onCancel = () async {
         await sub.cancel();
       };
     });
+  }
+
+  static Set<String> mergeBlockedUidSets(
+    Set<String> blockedByMe,
+    Set<String> blockedMe,
+  ) {
+    return <String>{...blockedByMe, ...blockedMe};
   }
 
   Stream<Set<String>> streamBlockedConnections() {
@@ -282,7 +431,7 @@ class BlockUserService {
       Set<String>? lastGood;
 
       void emit() {
-        final merged = <String>{...blockedByMe, ...blockedMe};
+        final merged = mergeBlockedUidSets(blockedByMe, blockedMe);
         lastGood = merged;
         controller.add(merged);
       }
@@ -330,7 +479,8 @@ class BlockUserService {
     try {
       final blockedByMeSnap = await _blockedUsersCol(myUid).get();
       blockedByMe = blockedByMeSnap.docs
-          .map((doc) => ((doc.data()['blockedUid'] as String?) ?? doc.id).trim())
+          .map(
+              (doc) => ((doc.data()['blockedUid'] as String?) ?? doc.id).trim())
           .where((uid) => uid.isNotEmpty)
           .toSet();
     } catch (error) {
@@ -341,6 +491,29 @@ class BlockUserService {
     }
 
     Set<String> blockedMe = <String>{};
+    try {
+      final reverseDocs = await _db
+          .collectionGroup('blocked_users')
+          .where(FieldPath.documentId, isEqualTo: myUid)
+          .get(const GetOptions(source: Source.serverAndCache))
+          .timeout(const Duration(seconds: 5));
+      blockedMe = reverseDocs.docs
+          .where((doc) {
+            final data = doc.data();
+            final blockedByUid = (data['blockedByUid'] as String? ?? '').trim();
+            // Ignore legacy reverse markers authored by the current user.
+            return blockedByUid != myUid;
+          })
+          .map((doc) => doc.reference.parent.parent?.id.trim() ?? '')
+          .where((uid) => uid.isNotEmpty)
+          .toSet();
+    } catch (error) {
+      if (!_isRecoverableBlockReadError(error)) {
+        rethrow;
+      }
+      blockedMe = <String>{};
+    }
+
     try {
       final chatsSnap = await _db
           .collection('chats')
@@ -374,10 +547,9 @@ class BlockUserService {
       if (!_isRecoverableBlockReadError(error)) {
         rethrow;
       }
-      blockedMe = <String>{};
     }
 
-    return <String>{...blockedByMe, ...blockedMe};
+    return mergeBlockedUidSets(blockedByMe, blockedMe);
   }
 
   Stream<BlockRelationship> streamRelationship(String otherUid) {
@@ -438,9 +610,30 @@ class BlockUserService {
         controller.addError(error);
       });
 
+      final reverseBlockSub = _blockedUserRef(
+        ownerUid: normalizedOtherUid,
+        targetUid: myUid,
+      ).snapshots().listen((doc) {
+        final reverseIsValid = doc.exists &&
+            _isValidReverseBlockRecord(
+              data: doc.data(),
+              expectedBlockerUid: normalizedOtherUid,
+              expectedBlockedUid: myUid,
+            );
+        blockedByOther = blockedByOther || reverseIsValid;
+        emit();
+      }, onError: (error) {
+        if (_isRecoverableBlockReadError(error)) {
+          emit();
+          return;
+        }
+        controller.addError(error);
+      });
+
       controller.onCancel = () async {
         await mineSub.cancel();
         await chatSub.cancel();
+        await reverseBlockSub.cancel();
       };
     });
   }
@@ -501,6 +694,7 @@ class BlockUserService {
       targetUid: normalizedTargetUid,
     );
     final myUserRef = _db.collection('users').doc(myUid);
+    final myPublicUserRef = _db.collection('users_public').doc(myUid);
     final directChatRef = _directChatRef(myUid, normalizedTargetUid);
     final sortedParticipants = <String>[myUid, normalizedTargetUid]..sort();
 
@@ -511,22 +705,26 @@ class BlockUserService {
         'blockedAt': FieldValue.serverTimestamp(),
       });
 
+      final currentUserCleanup = {
+        'blockedUsers': FieldValue.arrayUnion(<String>[normalizedTargetUid]),
+        'following': FieldValue.arrayRemove(<String>[normalizedTargetUid]),
+        'followers': FieldValue.arrayRemove(<String>[normalizedTargetUid]),
+        'followRequests': FieldValue.arrayRemove(<String>[normalizedTargetUid]),
+        'sentFollowRequests':
+            FieldValue.arrayRemove(<String>[normalizedTargetUid]),
+        'friends': FieldValue.arrayRemove(<String>[normalizedTargetUid]),
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+
+      tx.set(myUserRef, currentUserCleanup, SetOptions(merge: true));
+
       tx.set(
-        myUserRef,
-        {
-          'blockedUsers': FieldValue.arrayUnion(<String>[normalizedTargetUid]),
-          // Best-effort local cleanup for relationship collections.
-          'following': FieldValue.arrayRemove(<String>[normalizedTargetUid]),
-          'followers': FieldValue.arrayRemove(<String>[normalizedTargetUid]),
-          'followRequests':
-              FieldValue.arrayRemove(<String>[normalizedTargetUid]),
-          'sentFollowRequests':
-              FieldValue.arrayRemove(<String>[normalizedTargetUid]),
-          'friends': FieldValue.arrayRemove(<String>[normalizedTargetUid]),
-          'updatedAt': FieldValue.serverTimestamp(),
-        },
-        SetOptions(merge: true),
-      );
+          myPublicUserRef,
+          {
+            'following': FieldValue.arrayRemove(<String>[normalizedTargetUid]),
+            'followers': FieldValue.arrayRemove(<String>[normalizedTargetUid]),
+          },
+          SetOptions(merge: true));
 
       tx.set(
         directChatRef,
@@ -561,8 +759,6 @@ class BlockUserService {
         .where('blockedUid', isEqualTo: normalizedTargetUid)
         .get();
 
-    // The unblock operation must succeed based on the current user's own
-    // block records, regardless of the direct chat document state.
     final batch = _db.batch();
     batch.delete(blockedRef);
     for (final doc in legacyDocs.docs) {
@@ -578,10 +774,16 @@ class BlockUserService {
       },
       SetOptions(merge: true),
     );
+    batch.set(
+      _db.collection('users_public').doc(myUid),
+      {
+        'following': FieldValue.arrayRemove(<String>[normalizedTargetUid]),
+        'followers': FieldValue.arrayRemove(<String>[normalizedTargetUid]),
+      },
+      SetOptions(merge: true),
+    );
     await batch.commit();
 
-    // Best-effort cleanup for direct chat block markers. This should not fail
-    // the unblock action if chat permissions or shape do not allow the update.
     final directChatRef = _directChatRef(myUid, normalizedTargetUid);
     try {
       final directSnap = await directChatRef.get();

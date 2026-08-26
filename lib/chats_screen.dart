@@ -3958,6 +3958,11 @@ class _ChatsScreenState extends State<ChatsScreen> {
           continue;
         }
 
+        final isBlockedRelation = await _blockUserService.isEitherUserBlocked(uid);
+        if (isBlockedRelation) {
+          continue;
+        }
+
         final data = entry.value;
         final displayName = ((data['displayName'] as String?) ?? '').trim();
         final username = ((data['usernameLowercase'] as String?) ??

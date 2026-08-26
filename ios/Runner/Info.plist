@@ -24,8 +24,15 @@
 	<string>????</string>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<key>FirebaseAppDelegateProxyEnabled</key>
+	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+		<string>remote-notification</string>
+	</array>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>המיקום משמש כדי להציג אנשים וקבוצות קרובים אליך בזמן אמת.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>

@@ -5,6 +5,7 @@ import 'package:hundred_version1/chats_screen.dart';
 import 'package:hundred_version1/feed_screen.dart';
 import 'package:hundred_version1/post_model.dart';
 import 'package:hundred_version1/services/app_home_service.dart';
+import 'package:hundred_version1/services/block_user_service.dart';
 import 'package:hundred_version1/stars_screen.dart';
 
 void main() {
@@ -166,5 +167,14 @@ void main() {
     );
 
     expect(filtered.map((entry) => entry.id), ['keep']);
+  });
+
+  test('merges direct and reverse block sources for the same user', () {
+    final merged = BlockUserService.mergeBlockedUidSets(
+      {'u2', 'u3'},
+      {'u3', 'u4'},
+    );
+
+    expect(merged, {'u2', 'u3', 'u4'});
   });
 }

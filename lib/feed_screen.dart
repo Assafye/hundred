@@ -187,7 +187,8 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
             if (value == null) {
               continue;
             }
-            loaded[key] = DateTime.fromMillisecondsSinceEpoch(value, isUtc: true);
+            loaded[key] =
+                DateTime.fromMillisecondsSinceEpoch(value, isUtc: true);
           }
         }
       } catch (_) {
@@ -489,7 +490,8 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
     }
 
     if (_activeSpontaneousTask != null) {
-      await showActiveSpontaneousTaskModal(context, task: _activeSpontaneousTask!);
+      await showActiveSpontaneousTaskModal(context,
+          task: _activeSpontaneousTask!);
       return;
     }
 
@@ -503,7 +505,8 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
       return;
     }
 
-    await showActiveSpontaneousTaskModal(context, task: _activeSpontaneousTask!);
+    await showActiveSpontaneousTaskModal(context,
+        task: _activeSpontaneousTask!);
   }
 
   void _scheduleSpontaneousPromptIfNeeded() {
@@ -551,7 +554,10 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
             gradient: LinearGradient(
               colors: isLight
                   ? [timerTopColor, timerBottomColor]
-                  : [timerTopColor.withOpacity(0.82), timerBottomColor.withOpacity(0.82)],
+                  : [
+                      timerTopColor.withOpacity(0.82),
+                      timerBottomColor.withOpacity(0.82)
+                    ],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
@@ -766,12 +772,11 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
     }
 
     final normalizedIndex = activeIndex.clamp(0, feedPosts.length - 1);
-    final nextPosts = feedPosts
-        .skip(normalizedIndex)
-        .take(2)
-        .toList(growable: false);
+    final nextPosts =
+        feedPosts.skip(normalizedIndex).take(2).toList(growable: false);
     final signature = nextPosts
-        .map((post) => '${post.id}:${_precacheMediaUrlsForPost(post).join(',')}')
+        .map(
+            (post) => '${post.id}:${_precacheMediaUrlsForPost(post).join(',')}')
         .join('|');
 
     if (signature.isEmpty || signature == _lastPrecachedFeedSignature) {
@@ -1520,7 +1525,12 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
         return true;
       }
       final map = Map<String, dynamic>.from(comment);
-      final authorId = (map['authorId'] as String? ?? '').trim();
+      final authorId = ((map['authorId'] as String?) ??
+              (map['authorUid'] as String?) ??
+              (map['userId'] as String?) ??
+              (map['uid'] as String?) ??
+              '')
+          .trim();
       return authorId.isEmpty || !blockedUids.contains(authorId);
     }).toList(growable: false);
     final savedBy = (data['savedBy'] as List<dynamic>? ?? const []);
@@ -1532,14 +1542,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
     final createdAtRaw = data['createdAt'];
     final authorMap =
         (data['author'] as Map<String, dynamic>?) ?? <String, dynamic>{};
-    final uid = ((data['authorId'] as String?) ??
-            (data['userId'] as String?) ??
-            (data['uid'] as String?) ??
-            (authorMap['authorId'] as String?) ??
-            (authorMap['userId'] as String?) ??
-            (authorMap['uid'] as String?) ??
-            '')
-        .trim();
+    final uid = _authorIdFromPostData(data);
     final rawUsername = ((data['username'] as String?) ??
             (data['authorName'] as String?) ??
             (data['authorDisplayName'] as String?) ??
@@ -1683,6 +1686,21 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
     final hh = createdAt.hour.toString().padLeft(2, '0');
     final min = createdAt.minute.toString().padLeft(2, '0');
     return '$dd.$mm.$yyyy • $hh:$min';
+  }
+
+  String _authorIdFromPostData(Map<String, dynamic> data) {
+    final authorMap =
+        (data['author'] as Map<String, dynamic>?) ?? <String, dynamic>{};
+    return ((data['authorId'] as String?) ??
+            (data['authorUid'] as String?) ??
+            (data['userId'] as String?) ??
+            (data['uid'] as String?) ??
+            (authorMap['authorId'] as String?) ??
+            (authorMap['authorUid'] as String?) ??
+            (authorMap['userId'] as String?) ??
+            (authorMap['uid'] as String?) ??
+            '')
+        .trim();
   }
 
   String _formatCompactCount(int value) {
@@ -3178,25 +3196,88 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
     return (data['audience'] as String? ?? 'public').trim().toLowerCase();
   }
 
-  Future<List<PostModel>> _applyAudienceFilter(List<PostModel> posts) async {
+  Future<Set<String>> _resolveBlockedAuthorsForFeed(
+    Set<String> authorIds,
+    Set<String> blockedUids,
+  ) async {
+    final effectiveBlocked = <String>{...blockedUids};
+    if (authorIds.isEmpty) {
+      return effectiveBlocked;
+    }
+
+    final currentUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    final toCheck = authorIds
+        .where((authorId) =>
+            authorId.isNotEmpty &&
+            authorId != currentUid &&
+            !effectiveBlocked.contains(authorId))
+        .toSet();
+    if (toCheck.isEmpty) {
+      return effectiveBlocked;
+    }
+
+    final results = await Future.wait(
+      toCheck.map((authorId) async {
+        try {
+          final isBlocked =
+              await _blockUserService.isEitherUserBlocked(authorId);
+          return MapEntry(authorId, isBlocked);
+        } catch (_) {
+          return MapEntry(authorId, false);
+        }
+      }),
+    );
+
+    for (final result in results) {
+      if (result.value) {
+        effectiveBlocked.add(result.key);
+      }
+    }
+
+    return effectiveBlocked;
+  }
+
+  Future<List<PostModel>> _applyAudienceFilter(
+    List<PostModel> posts, {
+    Set<String> blockedUids = const <String>{},
+  }) async {
     final authorIds = posts
         .map((post) => post.authorId.trim())
         .where((authorId) => authorId.isNotEmpty)
         .toSet();
 
+    final effectiveBlockedAuthorIds =
+        await _resolveBlockedAuthorsForFeed(authorIds, blockedUids);
+
+    final visiblePosts = posts.where((post) {
+      final authorId = post.authorId.trim();
+      if (authorId.isEmpty) {
+        return false;
+      }
+      return !effectiveBlockedAuthorIds.contains(authorId);
+    }).toList(growable: false);
+
+    if (visiblePosts.isEmpty) {
+      return const <PostModel>[];
+    }
+
     final profilesByAuthorId = <String, PublicUserProfile?>{
       for (final entry in await Future.wait(
-        authorIds.map(
-          (authorId) async => MapEntry(
-            authorId,
-            await _publicUserProfileService.fetchProfile(authorId),
-          ),
-        ),
+        visiblePosts
+            .map((post) => post.authorId.trim())
+            .where((authorId) => authorId.isNotEmpty)
+            .toSet()
+            .map(
+              (authorId) async => MapEntry(
+                authorId,
+                await _publicUserProfileService.fetchProfile(authorId),
+              ),
+            ),
       ))
         entry.key: entry.value,
     };
 
-    final friendsOnlyAuthors = posts
+    final friendsOnlyAuthors = visiblePosts
         .where((post) {
           final audience = post.audience.trim().toLowerCase();
           return audience == 'friends';
@@ -3205,7 +3286,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
         .where((authorId) => authorId.isNotEmpty)
         .toSet();
 
-    final privateAuthors = posts
+    final privateAuthors = visiblePosts
         .where((post) {
           final authorId = post.authorId.trim();
           if (authorId.isEmpty) {
@@ -3225,7 +3306,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
         .toSet();
 
     if (friendsOnlyAuthors.isEmpty && privateAuthors.isEmpty) {
-      return posts;
+      return visiblePosts;
     }
 
     final mutualChecks = await Future.wait(
@@ -3255,7 +3336,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
         .map((entry) => entry.key)
         .toSet();
 
-    return posts.where((post) {
+    return visiblePosts.where((post) {
       final audience = post.audience.trim().toLowerCase();
       final authorId = post.authorId.trim();
       if (audience == 'friends') {
@@ -3268,15 +3349,20 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
     }).toList(growable: false);
   }
 
-  Future<List<PostModel>> _resolveAudienceFilteredPosts(List<PostModel> posts) {
+  Future<List<PostModel>> _resolveAudienceFilteredPosts(
+    List<PostModel> posts, {
+    Set<String> blockedUids = const <String>{},
+  }) {
     if (posts.isEmpty) {
       return Future<List<PostModel>>.value(const <PostModel>[]);
     }
 
-    final signature = posts
+    final postSignature = posts
         .map((post) => post.id.trim())
         .where((id) => id.isNotEmpty)
         .join('|');
+    final blockedSignature = blockedUids.toList(growable: false)..sort();
+    final signature = '$postSignature::${blockedSignature.join(',')}';
 
     if (signature.isEmpty) {
       return Future<List<PostModel>>.value(const <PostModel>[]);
@@ -3284,7 +3370,10 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
 
     return _audienceFilteredPostsCache.putIfAbsent(
       signature,
-      () => _applyAudienceFilter(posts),
+      () => _applyAudienceFilter(
+        posts,
+        blockedUids: blockedUids,
+      ),
     );
   }
 
@@ -3550,10 +3639,14 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
             final postsFromDb = rawPosts
                 .where((post) => !_isDeletedAuthorPost(post))
                 .map((post) => _postFromMap(post, blockedUids: blockedUids))
-                .where((post) =>
-                    post.authorId.trim().isEmpty ||
-                    !blockedUids.contains(post.authorId.trim()))
-                .toList(growable: false);
+                .where((post) {
+              final authorId = post.authorId.trim();
+              if (authorId.isEmpty) {
+                // Avoid showing posts when author identity cannot be resolved.
+                return false;
+              }
+              return !blockedUids.contains(authorId);
+            }).toList(growable: false);
             final randomizedPosts = _randomizePostsOnce(postsFromDb);
             final postsWithoutCurrentUser =
                 _excludeCurrentUserPosts(randomizedPosts);
@@ -3566,9 +3659,11 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                       'Following IDs stream error: ${followingSnapshot.error}');
                 }
                 final followingIds = followingSnapshot.data ?? <String>{};
+                final visibleFollowingIds =
+                    followingIds.difference(blockedUids);
                 final scopedPosts = _postsForFeedScope(
                   postsWithoutCurrentUser,
-                  followingIds,
+                  visibleFollowingIds,
                   alreadyScopedByBackend: usingBackendFeed,
                 );
 
@@ -3585,7 +3680,10 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                 }
 
                 return FutureBuilder<List<PostModel>>(
-                  future: _resolveAudienceFilteredPosts(scopedPosts),
+                  future: _resolveAudienceFilteredPosts(
+                    scopedPosts,
+                    blockedUids: blockedUids,
+                  ),
                   builder: (context, audienceSnapshot) {
                     final baseFeedPosts =
                         audienceSnapshot.data ?? const <PostModel>[];
@@ -3599,13 +3697,13 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
 
                     _scheduleFeedMediaPrecache(feedPosts, activeFeedIndex);
                     final scrollControls =
-                      _buildScrollControls(feedPosts.length);
+                        _buildScrollControls(feedPosts.length);
 
                     final isFeedStillLoading =
                         audienceSnapshot.connectionState ==
-                            ConnectionState.waiting &&
-                        !audienceSnapshot.hasData &&
-                        !feedPosts.isEmpty;
+                                ConnectionState.waiting &&
+                            !audienceSnapshot.hasData &&
+                            !feedPosts.isEmpty;
 
                     return Scaffold(
                       extendBody: true,
@@ -3657,9 +3755,8 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                                 },
                               ),
                       ),
-                      floatingActionButton: isFeedStillLoading
-                          ? null
-                          : scrollControls,
+                      floatingActionButton:
+                          isFeedStillLoading ? null : scrollControls,
                       floatingActionButtonLocation:
                           FloatingActionButtonLocation.startFloat,
                       bottomNavigationBar: const MainBottomNav(currentIndex: 0),
@@ -4649,8 +4746,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                   textAlign: TextAlign.right,
                   textDirection: TextDirection.rtl,
                   style: TextStyle(
-                    color:
-                        selected ? timerTextColor : const Color(0xFF425070),
+                    color: selected ? timerTextColor : const Color(0xFF425070),
                     fontSize: emphasize ? 14 : 12,
                     fontWeight: selected ? FontWeight.w800 : FontWeight.w700,
                     letterSpacing: selected ? 0.2 : 0,

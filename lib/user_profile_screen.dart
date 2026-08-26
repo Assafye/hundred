@@ -3429,18 +3429,19 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   }
 
   Future<List<String>> _followersForProfile(String uid) async {
-    final data = await _relationSourceDataForProfile(uid);
-    final directFollowers = _uidListFromData(data, 'followers');
-    if (directFollowers.isNotEmpty) {
-      return directFollowers;
-    }
-
     final normalizedUid = uid.trim();
     if (normalizedUid.isEmpty) {
       return const <String>[];
     }
 
     try {
+      final data = await _relationSourceDataForProfile(normalizedUid);
+      final directFollowers = _uidListFromData(data, 'followers');
+      if (directFollowers.isNotEmpty) {
+        final ids = directFollowers.toSet().toList(growable: false)..sort();
+        return _filterRelationIdsByBlocked(ids);
+      }
+
       final reverseSnapshot = await _db
           .collection('users_public')
           .where('following', arrayContains: normalizedUid)
@@ -3452,7 +3453,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
           .toList(growable: false)
         ..sort();
       if (ids.isNotEmpty) {
-        return ids;
+        return _filterRelationIdsByBlocked(ids);
       }
 
       final privateReverseSnapshot = await _db
@@ -3465,7 +3466,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
           .toSet()
           .toList(growable: false)
         ..sort();
-      return privateIds;
+      return _filterRelationIdsByBlocked(privateIds);
     } catch (error) {
       debugPrint(
         '[UserProfileScreen][followersForProfile] reverse query failed for $normalizedUid: $error',
@@ -3478,7 +3479,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     final data = await _relationSourceDataForProfile(uid);
     final directFollowing = _uidListFromData(data, 'following');
     if (directFollowing.isNotEmpty) {
-      return directFollowing;
+      final ids = directFollowing.toSet().toList(growable: false)..sort();
+      return _filterRelationIdsByBlocked(ids);
     }
 
     final normalizedUid = uid.trim();
@@ -3498,7 +3500,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
           .toList(growable: false)
         ..sort();
       if (ids.isNotEmpty) {
-        return ids;
+        return _filterRelationIdsByBlocked(ids);
       }
 
       final privateReverseSnapshot = await _db
@@ -3511,7 +3513,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
           .toSet()
           .toList(growable: false)
         ..sort();
-      return privateIds;
+      return _filterRelationIdsByBlocked(privateIds);
     } catch (error) {
       debugPrint(
         '[UserProfileScreen][followingForProfile] reverse query failed for $normalizedUid: $error',
@@ -3534,14 +3536,66 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     final explicitFriends = _uidListFromData(relationData, 'friends').toSet();
     if (explicitFriends.isNotEmpty) {
       final ids = explicitFriends.toList(growable: false)..sort();
-      return ids;
+      return _filterRelationIdsByBlocked(ids);
     }
 
     final followers = (await _followersForProfile(normalizedUid)).toSet();
     final following = (await _followingForProfile(normalizedUid)).toSet();
     final ids = followers.intersection(following).toList(growable: false)
       ..sort();
-    return ids;
+    return _filterRelationIdsByBlocked(ids);
+  }
+
+  Future<List<String>> _filterRelationIdsByBlocked(List<String> ids) async {
+    if (ids.isEmpty) {
+      return const <String>[];
+    }
+
+    final myUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    final seen = <String>{};
+    final orderedIds = <String>[];
+    for (final rawId in ids) {
+      final uid = rawId.trim();
+      if (uid.isEmpty || uid == myUid || seen.contains(uid)) {
+        continue;
+      }
+      seen.add(uid);
+      orderedIds.add(uid);
+    }
+
+    if (orderedIds.isEmpty) {
+      return const <String>[];
+    }
+
+    final blocked = <String>{};
+    try {
+      blocked.addAll(await _blockUserService.fetchBlockedConnections());
+    } catch (_) {
+      // Best effort: fallback checks below still protect visibility.
+    }
+
+    final visible = <String>[];
+    for (final uid in orderedIds) {
+      if (blocked.contains(uid)) {
+        continue;
+      }
+
+      var isBlockedRelation = false;
+      try {
+        isBlockedRelation = await _blockUserService.isEitherUserBlocked(uid);
+      } catch (_) {
+        isBlockedRelation = false;
+      }
+
+      if (isBlockedRelation) {
+        blocked.add(uid);
+        continue;
+      }
+
+      visible.add(uid);
+    }
+
+    return visible;
   }
 
   Future<Set<String>> _groupIdsFromRootGroupQueriesForUser(String uid) async {
@@ -6669,149 +6723,226 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
           child: StreamBuilder<PublicUserProfile?>(
             stream: _profileStreamRef,
             builder: (context, profileSnapshot) {
-            return StreamBuilder<BlockRelationship>(
-              stream: _blockRelationshipStream,
-              builder: (context, blockSnapshot) {
-                final relation = blockSnapshot.data ?? BlockRelationship.none;
-                final blockedByMe = relation == BlockRelationship.blockedByMe ||
-                    relation == BlockRelationship.both;
-                final blockedByOther =
-                    relation == BlockRelationship.blockedByOther ||
-                        relation == BlockRelationship.both;
+              return StreamBuilder<BlockRelationship>(
+                stream: _blockRelationshipStream,
+                builder: (context, blockSnapshot) {
+                  final relation = blockSnapshot.data ?? BlockRelationship.none;
+                  final blockedByMe =
+                      relation == BlockRelationship.blockedByMe ||
+                          relation == BlockRelationship.both;
+                  final blockedByOther =
+                      relation == BlockRelationship.blockedByOther ||
+                          relation == BlockRelationship.both;
 
-                if (blockedByMe || blockedByOther) {
-                  if (!_blockedBackNavigationScheduled) {
-                    _blockedBackNavigationScheduled = true;
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      if (!mounted) return;
-                      final navigator = Navigator.of(context);
-                      if (widget.openedFromDirectChat) {
-                        Navigator.of(context).pushAndRemoveUntil(
-                          PageRouteBuilder(
-                            pageBuilder:
-                                (context, animation, secondaryAnimation) =>
-                                    const ChatsScreen(),
-                            transitionsBuilder: (context, animation,
-                                secondaryAnimation, child) {
-                              return FadeTransition(
-                                opacity: animation,
-                                child: child,
-                              );
-                            },
+                  if (blockedByMe || blockedByOther) {
+                    if (!_blockedBackNavigationScheduled) {
+                      _blockedBackNavigationScheduled = true;
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (!mounted) return;
+                        final navigator = Navigator.of(context);
+                        if (widget.openedFromDirectChat) {
+                          Navigator.of(context).pushAndRemoveUntil(
+                            PageRouteBuilder(
+                              pageBuilder:
+                                  (context, animation, secondaryAnimation) =>
+                                      const ChatsScreen(),
+                              transitionsBuilder: (context, animation,
+                                  secondaryAnimation, child) {
+                                return FadeTransition(
+                                  opacity: animation,
+                                  child: child,
+                                );
+                              },
+                            ),
+                            (route) => false,
+                          );
+                          return;
+                        }
+                        if (navigator.canPop()) {
+                          navigator.pop();
+                          return;
+                        }
+
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('הפרופיל לא זמין עקב חסימה.'),
                           ),
-                          (route) => false,
                         );
-                        return;
-                      }
-                      if (navigator.canPop()) {
-                        navigator.pop();
-                        return;
-                      }
+                      });
+                    }
 
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('הפרופיל לא זמין עקב חסימה.'),
+                    return Scaffold(
+                      backgroundColor:
+                          isLight ? Colors.white : const Color(0xFF0F172A),
+                      appBar: AppBar(
+                        backgroundColor:
+                            isLight ? Colors.white : const Color(0xFF0F172A),
+                        foregroundColor: isLight ? Colors.black : Colors.white,
+                        elevation: 0,
+                        automaticallyImplyLeading: false,
+                        leading: IconButton(
+                          tooltip: 'חזרה',
+                          onPressed: () {
+                            if (Navigator.of(context).canPop()) {
+                              Navigator.of(context).pop();
+                              return;
+                            }
+                            Navigator.of(context).pushAndRemoveUntil(
+                              MaterialPageRoute(
+                                  builder: (_) => const ChatsScreen()),
+                              (route) => false,
+                            );
+                          },
+                          icon: const Icon(Icons.arrow_back_rounded),
                         ),
-                      );
-                    });
+                      ),
+                      body: Center(
+                        child: Container(
+                          width: 280,
+                          padding: const EdgeInsets.all(24),
+                          decoration: BoxDecoration(
+                            color: isLight
+                                ? const Color(0xFFF3F6FF)
+                                : const Color(0xFF1A2435),
+                            borderRadius: BorderRadius.circular(24),
+                            border: Border.all(
+                              color: isLight
+                                  ? const Color(0xFFB8C8FF)
+                                  : const Color(0xFF53C1F9)
+                                      .withValues(alpha: 0.35),
+                            ),
+                          ),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.block_rounded,
+                                size: 48,
+                                color: isLight
+                                    ? const Color(0xFF6E7A90)
+                                    : Colors.white70,
+                              ),
+                              const SizedBox(height: 16),
+                              Text(
+                                'הפרופיל אינו זמין',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color:
+                                      isLight ? Colors.black87 : Colors.white,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'הגישה נחסמה עקב קשר חסימה בין המשתמשים.',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: isLight
+                                      ? const Color(0xFF5B6782)
+                                      : Colors.white70,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  } else {
+                    _blockedBackNavigationScheduled = false;
                   }
 
-                  return const Center(
-                    child: CircularProgressIndicator(),
-                  );
-                } else {
-                  _blockedBackNavigationScheduled = false;
-                }
+                  if (profileSnapshot.connectionState ==
+                          ConnectionState.waiting &&
+                      !profileSnapshot.hasData) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
 
-                if (profileSnapshot.connectionState ==
-                        ConnectionState.waiting &&
-                    !profileSnapshot.hasData) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-
-                if (profileSnapshot.hasError) {
-                  return Center(
-                    child: Text(
-                      'שגיאה בטעינת פרטי המשתמש',
-                      style: TextStyle(
-                          color: isLight ? Colors.black54 : Colors.grey[300]),
-                    ),
-                  );
-                }
-
-                final profile = profileSnapshot.data;
-                if (profile == null || !profile.exists) {
-                  return Center(
-                    child: Text(
-                      'המשתמש לא נמצא',
-                      style: TextStyle(
-                          color: isLight ? Colors.black54 : Colors.grey[300]),
-                    ),
-                  );
-                }
-
-                final profileData = profile.toMap();
-                final currentUid =
-                    FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
-                if (profile.isDeleted) {
-                  return Center(
-                    child: Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 24),
-                      padding: const EdgeInsets.all(18),
-                      decoration: BoxDecoration(
-                        color: isLight
-                            ? Colors.white.withValues(alpha: 0.84)
-                            : const Color(0xFF1A2435),
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(
-                          color: isLight
-                              ? const Color(0xFFA9C3FF)
-                              : const Color(0xFF53C1F9).withValues(alpha: 0.22),
-                        ),
-                      ),
+                  if (profileSnapshot.hasError) {
+                    return Center(
                       child: Text(
-                        'משתמש מחוק',
-                        textAlign: TextAlign.center,
+                        'שגיאה בטעינת פרטי המשתמש',
                         style: TextStyle(
-                          color: isLight ? Colors.black87 : Colors.white70,
-                          fontSize: 16,
+                            color: isLight ? Colors.black54 : Colors.grey[300]),
+                      ),
+                    );
+                  }
+
+                  final profile = profileSnapshot.data;
+                  if (profile == null || !profile.exists) {
+                    return Center(
+                      child: Text(
+                        'המשתמש לא נמצא',
+                        style: TextStyle(
+                            color: isLight ? Colors.black54 : Colors.grey[300]),
+                      ),
+                    );
+                  }
+
+                  final profileData = profile.toMap();
+                  final currentUid =
+                      FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+                  if (profile.isDeleted) {
+                    return Center(
+                      child: Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 24),
+                        padding: const EdgeInsets.all(18),
+                        decoration: BoxDecoration(
+                          color: isLight
+                              ? Colors.white.withValues(alpha: 0.84)
+                              : const Color(0xFF1A2435),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                            color: isLight
+                                ? const Color(0xFFA9C3FF)
+                                : const Color(0xFF53C1F9)
+                                    .withValues(alpha: 0.22),
+                          ),
+                        ),
+                        child: Text(
+                          'משתמש מחוק',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: isLight ? Colors.black87 : Colors.white70,
+                            fontSize: 16,
+                          ),
                         ),
                       ),
-                    ),
-                  );
-                }
+                    );
+                  }
 
-                final isPrivateProfile =
-                    profile.isPrivate && currentUid != widget.uid;
+                  final isPrivateProfile =
+                      profile.isPrivate && currentUid != widget.uid;
 
-                if (isPrivateProfile) {
+                  if (isPrivateProfile) {
+                    return FutureBuilder<bool>(
+                      future: _canViewProfileContentFuture,
+                      builder: (context, privacySnapshot) {
+                        final canView = privacySnapshot.data ?? false;
+                        return _buildProfileContent(
+                          profileData,
+                          profile,
+                          showPosts: canView,
+                          canViewFriendsOnlyPosts: canView,
+                        );
+                      },
+                    );
+                  }
+
                   return FutureBuilder<bool>(
-                    future: _canViewProfileContentFuture,
-                    builder: (context, privacySnapshot) {
-                      final canView = privacySnapshot.data ?? false;
+                    future: _canViewFriendsOnlyPostsFuture,
+                    builder: (context, audienceSnapshot) {
+                      final canViewFriendsOnly = audienceSnapshot.data ?? false;
                       return _buildProfileContent(
                         profileData,
                         profile,
-                        showPosts: canView,
-                        canViewFriendsOnlyPosts: canView,
+                        canViewFriendsOnlyPosts: canViewFriendsOnly,
                       );
                     },
                   );
-                }
-
-                return FutureBuilder<bool>(
-                  future: _canViewFriendsOnlyPostsFuture,
-                  builder: (context, audienceSnapshot) {
-                    final canViewFriendsOnly = audienceSnapshot.data ?? false;
-                    return _buildProfileContent(
-                      profileData,
-                      profile,
-                      canViewFriendsOnlyPosts: canViewFriendsOnly,
-                    );
-                  },
-                );
-              },
-            );
+                },
+              );
             },
           ),
         ),

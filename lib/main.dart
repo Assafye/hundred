@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -21,6 +22,12 @@ import 'services/challenge_notifications_orchestrator.dart';
 import 'widgets/adaptive_viewport.dart';
 import 'widgets/animated_infinity_splash_screen.dart';
 import 'widgets/in_app_notification_overlay.dart';
+
+@pragma('vm:entry-point')
+Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  await Firebase.initializeApp();
+  await NotificationRuntimeService.handleBackgroundMessage(message);
+}
 
 const bool _useAuthEmulator = bool.fromEnvironment(
   'USE_AUTH_EMULATOR',
@@ -70,6 +77,7 @@ Future<void> main() async {
         const Settings(persistenceEnabled: true);
     await ShareFlowLogService.log('FIRESTORE_PERSISTENCE_ENABLED');
 
+    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
     await _configureAuthConnection();
     await ShareFlowLogService.log('AUTH_CONNECTION_CONFIGURED');
     await NotificationRuntimeService.instance.initialize();

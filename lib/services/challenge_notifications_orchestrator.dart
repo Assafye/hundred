@@ -22,7 +22,6 @@ class ChallengeNotificationsOrchestrator {
 
   void start() {
     _timer?.cancel();
-    _runSafely();
     _timer = Timer.periodic(const Duration(minutes: 20), (_) {
       _runSafely();
     });
@@ -178,7 +177,7 @@ class ChallengeNotificationsOrchestrator {
       );
       final hoursSince =
           lastReminderRaw == null ? 9999 : now.difference(lastReminderRaw).inHours;
-      if (hoursSince >= 48) {
+      if (hoursSince >= 24) {
         await _notificationService.sendSpontaneousReminderNotification(
           recipientUid: uid,
         );

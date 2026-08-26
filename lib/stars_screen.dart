@@ -94,12 +94,20 @@ List<Map<String, dynamic>> filterBlockedUserPostsForViewer(
   required String currentUserId,
 }) {
   return posts.where((post) {
+    final authorMap =
+        (post['author'] as Map<String, dynamic>?) ?? <String, dynamic>{};
     final authorId = ((post['authorId'] as String?) ??
+            (post['authorUid'] as String?) ??
+            (post['userId'] as String?) ??
             (post['uid'] as String?) ??
+            (authorMap['authorId'] as String?) ??
+            (authorMap['authorUid'] as String?) ??
+            (authorMap['userId'] as String?) ??
+            (authorMap['uid'] as String?) ??
             '')
         .trim();
     if (authorId.isEmpty) {
-      return true;
+      return false;
     }
     if (authorId == currentUserId) {
       return true;
@@ -173,7 +181,8 @@ class _StarsScreenState extends State<StarsScreen> {
     super.initState();
     _challenge = WeeklyChallengeService.currentChallenge();
     _hotSectionsFuture = _buildHotSections();
-    _blockedUsersSub = _blockUserService.streamBlockedConnections().listen((ids) {
+    _blockedUsersSub =
+        _blockUserService.streamBlockedConnections().listen((ids) {
       if (!mounted) {
         return;
       }
@@ -321,11 +330,29 @@ class _StarsScreenState extends State<StarsScreen> {
     return DateTime.fromMillisecondsSinceEpoch(0);
   }
 
+  String _authorIdFromPost(Map<String, dynamic> post) {
+    final authorMap =
+        (post['author'] as Map<String, dynamic>?) ?? <String, dynamic>{};
+    return ((post['authorId'] as String?) ??
+            (post['authorUid'] as String?) ??
+            (post['userId'] as String?) ??
+            (post['uid'] as String?) ??
+            (authorMap['authorId'] as String?) ??
+            (authorMap['authorUid'] as String?) ??
+            (authorMap['userId'] as String?) ??
+            (authorMap['uid'] as String?) ??
+            '')
+        .trim();
+  }
+
   Map<String, dynamic> _toPostMap(
       QueryDocumentSnapshot<Map<String, dynamic>> doc) {
     final data = Map<String, dynamic>.from(doc.data());
     data['id'] = doc.id;
     data['postId'] = (data['postId'] as String? ?? doc.id).trim();
+    if ((data['authorId'] as String? ?? '').trim().isEmpty) {
+      data['authorId'] = _authorIdFromPost(data);
+    }
     return data;
   }
 
@@ -337,34 +364,78 @@ class _StarsScreenState extends State<StarsScreen> {
     return (post['audience'] as String? ?? 'public').trim().toLowerCase();
   }
 
+  Future<Set<String>> _resolveBlockedAuthorsForViewer(
+    Iterable<Map<String, dynamic>> posts, {
+    required Set<String> blockedUserIds,
+    required String currentUid,
+  }) async {
+    final effectiveBlocked = <String>{...blockedUserIds};
+    final authorIdsToCheck = posts
+        .map(_authorIdFromPost)
+        .where((authorId) =>
+            authorId.isNotEmpty &&
+            authorId != currentUid &&
+            !effectiveBlocked.contains(authorId))
+        .toSet();
+
+    if (authorIdsToCheck.isEmpty) {
+      return effectiveBlocked;
+    }
+
+    final checks = await Future.wait(
+      authorIdsToCheck.map((authorId) async {
+        try {
+          final isBlocked =
+              await _blockUserService.isEitherUserBlocked(authorId);
+          return MapEntry(authorId, isBlocked);
+        } catch (_) {
+          return MapEntry(authorId, false);
+        }
+      }),
+    );
+
+    for (final result in checks) {
+      if (result.value) {
+        effectiveBlocked.add(result.key);
+      }
+    }
+
+    return effectiveBlocked;
+  }
+
   Future<List<Map<String, dynamic>>> _filterVisiblePostsForViewer(
     List<Map<String, dynamic>> posts, {
     Set<String> blockedUserIds = const <String>{},
   }) async {
     final currentUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    final effectiveBlockedUserIds = await _resolveBlockedAuthorsForViewer(
+      posts,
+      blockedUserIds: blockedUserIds,
+      currentUid: currentUid,
+    );
+
     final baseVisible = posts.where((post) {
       final audience = _postAudience(post);
       if (audience != 'friends') {
-        return true;
+        return _authorIdFromPost(post).isNotEmpty;
       }
 
-      final authorId = ((post['authorId'] as String?) ??
-              (post['uid'] as String?) ??
-              '')
-          .trim();
+      final authorId = _authorIdFromPost(post);
       if (authorId.isEmpty || authorId == currentUid) {
-        return true;
+        return authorId == currentUid;
       }
 
-      return !blockedUserIds.contains(authorId);
+      return !effectiveBlockedUserIds.contains(authorId);
     }).toList(growable: false);
 
     if (currentUid.isEmpty) {
       return filterBlockedUserPostsForViewer(
         baseVisible,
-        blockedUserIds: blockedUserIds,
+        blockedUserIds: effectiveBlockedUserIds,
         currentUserId: currentUid,
-      ).where((post) => _postAudience(post) != 'friends').toList(growable: false);
+      )
+          .where((post) => _postAudience(post) != 'friends')
+          .toList(growable: false);
     }
 
     final socialService = SocialService();
@@ -376,12 +447,11 @@ class _StarsScreenState extends State<StarsScreen> {
         continue;
       }
 
-      final authorId = ((post['authorId'] as String?) ??
-              (post['uid'] as String?) ??
-              '')
-          .trim();
+      final authorId = _authorIdFromPost(post);
       if (authorId.isEmpty || authorId == currentUid) {
-        visible.add(post);
+        if (authorId == currentUid) {
+          visible.add(post);
+        }
         continue;
       }
 
@@ -392,7 +462,7 @@ class _StarsScreenState extends State<StarsScreen> {
     }
     return filterBlockedUserPostsForViewer(
       visible,
-      blockedUserIds: blockedUserIds,
+      blockedUserIds: effectiveBlockedUserIds,
       currentUserId: currentUid,
     );
   }
@@ -590,7 +660,7 @@ class _StarsScreenState extends State<StarsScreen> {
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha:  0.25),
+              color: Colors.black.withValues(alpha: 0.25),
               blurRadius: 18,
               offset: const Offset(0, 10),
             ),
@@ -604,7 +674,7 @@ class _StarsScreenState extends State<StarsScreen> {
               textAlign: TextAlign.center,
               textDirection: TextDirection.rtl,
               style: TextStyle(
-                color: Colors.white.withValues(alpha:  0.95),
+                color: Colors.white.withValues(alpha: 0.95),
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
               ),
@@ -701,8 +771,8 @@ class _StarsScreenState extends State<StarsScreen> {
       alignment: Alignment.center,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: color.withValues(alpha:  isLight ? 0.2 : 0.22),
-        border: Border.all(color: color.withValues(alpha:  0.95)),
+        color: color.withValues(alpha: isLight ? 0.2 : 0.22),
+        border: Border.all(color: color.withValues(alpha: 0.95)),
       ),
       child: Text(
         _rankLabel(rank),
@@ -744,13 +814,13 @@ class _StarsScreenState extends State<StarsScreen> {
         margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: isLight ? Colors.white.withValues(alpha:  0.76) : null,
+          color: isLight ? Colors.white.withValues(alpha: 0.76) : null,
           gradient: isLight
               ? null
               : LinearGradient(
                   colors: [
-                    const Color(0xFF18263D).withValues(alpha:  0.96),
-                    const Color(0xFF2A2144).withValues(alpha:  0.96),
+                    const Color(0xFF18263D).withValues(alpha: 0.96),
+                    const Color(0xFF2A2144).withValues(alpha: 0.96),
                   ],
                   begin: Alignment.topRight,
                   end: Alignment.bottomLeft,
@@ -759,11 +829,11 @@ class _StarsScreenState extends State<StarsScreen> {
           border: Border.all(
             color: isLight
                 ? const Color(0xFFA9C3FF)
-                : const Color(0xFF53C1F9).withValues(alpha:  0.22),
+                : const Color(0xFF53C1F9).withValues(alpha: 0.22),
           ),
           boxShadow: [
             BoxShadow(
-              color: const Color(0xFF53C1F9).withValues(alpha:  0.08),
+              color: const Color(0xFF53C1F9).withValues(alpha: 0.08),
               blurRadius: 12,
               offset: const Offset(0, 5),
             ),
@@ -835,7 +905,7 @@ class _StarsScreenState extends State<StarsScreen> {
                             borderRadius: BorderRadius.circular(999),
                             border: Border.all(
                               color: const Color(0xFF53C1F9)
-                                  .withValues(alpha:  0.32),
+                                  .withValues(alpha: 0.32),
                             ),
                           ),
                           child: Text(
@@ -928,13 +998,13 @@ class _StarsScreenState extends State<StarsScreen> {
         margin: const EdgeInsets.fromLTRB(20, 0, 20, 14),
         padding: const EdgeInsets.fromLTRB(0, 18, 0, 14),
         decoration: BoxDecoration(
-          color: isLight ? Colors.white.withValues(alpha:  0.74) : null,
+          color: isLight ? Colors.white.withValues(alpha: 0.74) : null,
           gradient: isLight
               ? null
               : LinearGradient(
                   colors: [
-                    const Color(0xFF18263D).withValues(alpha:  0.97),
-                    const Color(0xFF261F41).withValues(alpha:  0.97),
+                    const Color(0xFF18263D).withValues(alpha: 0.97),
+                    const Color(0xFF261F41).withValues(alpha: 0.97),
                   ],
                   begin: Alignment.topRight,
                   end: Alignment.bottomLeft,
@@ -943,7 +1013,7 @@ class _StarsScreenState extends State<StarsScreen> {
           border: Border.all(
             color: isLight
                 ? const Color(0xFFA9C3FF)
-                : const Color(0xFF53C1F9).withValues(alpha:  0.24),
+                : const Color(0xFF53C1F9).withValues(alpha: 0.24),
           ),
         ),
         child: Column(
@@ -1086,12 +1156,12 @@ class _StarsScreenState extends State<StarsScreen> {
         style: IconButton.styleFrom(
           padding: const EdgeInsets.all(8),
           backgroundColor: isLight
-              ? Colors.white.withValues(alpha:  0.82)
+              ? Colors.white.withValues(alpha: 0.82)
               : const Color(0x221D2D46),
           side: BorderSide(
             color: isLight
                 ? const Color(0xFFA9C3FF)
-                : const Color(0xFF53C1F9).withValues(alpha:  0.28),
+                : const Color(0xFF53C1F9).withValues(alpha: 0.28),
           ),
         ),
       ),
@@ -1121,13 +1191,13 @@ class _StarsScreenState extends State<StarsScreen> {
               ),
               boxShadow: [
                 BoxShadow(
-                  color: const Color(0xFF76CFFF).withValues(alpha:  0.4),
+                  color: const Color(0xFF76CFFF).withValues(alpha: 0.4),
                   blurRadius: 14,
                   offset: const Offset(0, 7),
                 ),
               ],
               border: Border.all(
-                color: Colors.white.withValues(alpha:  0.65),
+                color: Colors.white.withValues(alpha: 0.65),
                 width: 1.1,
               ),
             ),
@@ -1174,13 +1244,13 @@ class _StarsScreenState extends State<StarsScreen> {
               ),
               boxShadow: [
                 BoxShadow(
-                  color: const Color(0xFF76CFFF).withValues(alpha:  0.4),
+                  color: const Color(0xFF76CFFF).withValues(alpha: 0.4),
                   blurRadius: 14,
                   offset: const Offset(0, 7),
                 ),
               ],
               border: Border.all(
-                color: Colors.white.withValues(alpha:  0.65),
+                color: Colors.white.withValues(alpha: 0.65),
                 width: 1.1,
               ),
             ),
@@ -1233,13 +1303,13 @@ class _StarsScreenState extends State<StarsScreen> {
               ),
               boxShadow: [
                 BoxShadow(
-                  color: const Color(0xFF76CFFF).withValues(alpha:  0.4),
+                  color: const Color(0xFF76CFFF).withValues(alpha: 0.4),
                   blurRadius: 14,
                   offset: const Offset(0, 7),
                 ),
               ],
               border: Border.all(
-                color: Colors.white.withValues(alpha:  0.65),
+                color: Colors.white.withValues(alpha: 0.65),
                 width: 1.1,
               ),
             ),
@@ -1376,7 +1446,7 @@ class _StarsScreenState extends State<StarsScreen> {
                   height: 220,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: const Color(0xFF53C1F9).withValues(alpha:  0.08),
+                    color: const Color(0xFF53C1F9).withValues(alpha: 0.08),
                   ),
                 ),
               ),
@@ -1429,7 +1499,7 @@ class _StarsScreenState extends State<StarsScreen> {
                               style: TextStyle(
                                 color: isLight
                                     ? Colors.black
-                                    : Colors.white.withValues(alpha:  0.95),
+                                    : Colors.white.withValues(alpha: 0.95),
                                 fontSize: 18,
                                 fontWeight: FontWeight.bold,
                               ),
@@ -1757,7 +1827,8 @@ class _ActiveSpontaneousTaskDialogState
                         'המשימה שלך:',
                         textAlign: TextAlign.right,
                         style: TextStyle(
-                          color: isLight ? const Color(0xFF243355) : Colors.white,
+                          color:
+                              isLight ? const Color(0xFF243355) : Colors.white,
                           fontSize: 16,
                           fontWeight: FontWeight.w900,
                         ),
@@ -1783,8 +1854,8 @@ class _ActiveSpontaneousTaskDialogState
                   ),
                   child: Container(
                     width: double.infinity,
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 18, vertical: 20),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 18, vertical: 20),
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(19),
                       gradient: const LinearGradient(
@@ -1794,7 +1865,8 @@ class _ActiveSpontaneousTaskDialogState
                       ),
                       boxShadow: [
                         BoxShadow(
-                          color: const Color(0xFF76CFFF).withValues(alpha: 0.35),
+                          color:
+                              const Color(0xFF76CFFF).withValues(alpha: 0.35),
                           blurRadius: 12,
                           offset: const Offset(0, 6),
                         ),
@@ -1941,10 +2013,10 @@ class _ActiveSpontaneousTaskDialogState
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(16),
         color: isLight
-            ? Colors.white.withValues(alpha:  0.82)
+            ? Colors.white.withValues(alpha: 0.82)
             : const Color(0xFF0F1728),
         border:
-            Border.all(color: const Color(0xFF9E7CFF).withValues(alpha:  0.24)),
+            Border.all(color: const Color(0xFF9E7CFF).withValues(alpha: 0.24)),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -2270,9 +2342,8 @@ class _SpontaneousChallengeDialogState
                           fontSize: 22,
                           fontWeight: FontWeight.w900,
                           height: 1.15,
-                          color: isLight
-                              ? const Color(0xFF243355)
-                              : Colors.white,
+                          color:
+                              isLight ? const Color(0xFF243355) : Colors.white,
                         ),
                       ),
                       const SizedBox(height: 14),
@@ -2428,13 +2499,13 @@ class _SpontaneousChallengeDialogState
                                           ).toColor(),
                                           border: Border.all(
                                             color: Colors.white
-                                                .withValues(alpha:  0.68),
+                                                .withValues(alpha: 0.68),
                                             width: 1.2,
                                           ),
                                           boxShadow: [
                                             BoxShadow(
                                               color: Colors.black
-                                                  .withValues(alpha:  0.2),
+                                                  .withValues(alpha: 0.2),
                                               blurRadius: 10,
                                               offset: const Offset(0, 5),
                                             ),
@@ -2466,9 +2537,9 @@ class _SpontaneousChallengeDialogState
                                       gradient: RadialGradient(
                                         colors: [
                                           const Color(0xFFFFE08A)
-                                              .withValues(alpha:  0.96),
+                                              .withValues(alpha: 0.96),
                                           const Color(0xFFFF8DA1)
-                                              .withValues(alpha:  0.35),
+                                              .withValues(alpha: 0.35),
                                           Colors.transparent,
                                         ],
                                       ),
@@ -2515,7 +2586,7 @@ class _SpontaneousChallengeDialogState
         ),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF53C1F9).withValues(alpha:  0.3),
+            color: const Color(0xFF53C1F9).withValues(alpha: 0.3),
             blurRadius: 16,
             offset: const Offset(0, 10),
           ),
@@ -2578,10 +2649,10 @@ class _SpontaneousChallengeDialogState
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(18),
         color: filled
-            ? const Color(0xFF53C1F9).withValues(alpha:  isLight ? 0.16 : 0.24)
+            ? const Color(0xFF53C1F9).withValues(alpha: isLight ? 0.16 : 0.24)
             : Colors.transparent,
         border: Border.all(
-          color: const Color(0xFF53C1F9).withValues(alpha:  0.3),
+          color: const Color(0xFF53C1F9).withValues(alpha: 0.3),
         ),
       ),
       child: Text(
@@ -2605,10 +2676,10 @@ class _SpontaneousChallengeDialogState
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(18),
         color: isLight
-            ? Colors.white.withValues(alpha:  0.8)
+            ? Colors.white.withValues(alpha: 0.8)
             : const Color(0xFF0F1728),
         border: Border.all(
-          color: const Color(0xFF9E7CFF).withValues(alpha:  0.25),
+          color: const Color(0xFF9E7CFF).withValues(alpha: 0.25),
         ),
       ),
       child: Column(

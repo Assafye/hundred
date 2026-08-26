@@ -17,6 +17,7 @@ import 'post_media_utils.dart';
 import 'profile_post_grouping.dart';
 import 'post_detail_view.dart';
 import 'saved_posts_screen.dart';
+import 'services/block_user_service.dart';
 import 'services/keyboard_dismiss_controller.dart';
 import 'services/social_service.dart';
 import 'services/spontaneous_challenge_service.dart';
@@ -73,6 +74,18 @@ class _TaskCategoryProgress {
   bool get isComplete => totalCount > 0 && doneCount >= totalCount;
 }
 
+class _ProfileRelationLists {
+  final List<String> followers;
+  final List<String> following;
+  final List<String> friends;
+
+  const _ProfileRelationLists({
+    required this.followers,
+    required this.following,
+    required this.friends,
+  });
+}
+
 class MainUserProfileScreen extends StatefulWidget {
   final String initialCategoryKey;
 
@@ -102,7 +115,10 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
   String _selectedCategoryKey = 'general';
   final Map<String, Future<String?>> _resolvedMediaFutureByPostKey = {};
   final Map<String, Future<Uint8List?>> _videoPreviewFutureByUrl = {};
+  final Map<String, Future<_ProfileRelationLists>>
+      _filteredRelationListsFutureBySignature = {};
   final SocialService _socialService = SocialService();
+  final BlockUserService _blockUserService = BlockUserService();
   final PublicUserProfileService _publicUserProfileService =
       PublicUserProfileService();
 
@@ -2042,6 +2058,95 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
     return result;
   }
 
+  Future<List<String>> _filterRelationIdsByBlocked(List<String> ids) async {
+    if (ids.isEmpty) {
+      return const <String>[];
+    }
+
+    final myUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    final seen = <String>{};
+    final orderedIds = <String>[];
+    for (final rawId in ids) {
+      final uid = rawId.trim();
+      if (uid.isEmpty || uid == myUid || seen.contains(uid)) {
+        continue;
+      }
+      seen.add(uid);
+      orderedIds.add(uid);
+    }
+
+    if (orderedIds.isEmpty) {
+      return const <String>[];
+    }
+
+    final blocked = <String>{};
+    try {
+      blocked.addAll(await _blockUserService.fetchBlockedConnections());
+    } catch (_) {
+      // Best effort: fallback checks below still protect visibility.
+    }
+
+    final visible = <String>[];
+    for (final uid in orderedIds) {
+      if (blocked.contains(uid)) {
+        continue;
+      }
+
+      var isBlockedRelation = false;
+      try {
+        isBlockedRelation = await _blockUserService.isEitherUserBlocked(uid);
+      } catch (_) {
+        isBlockedRelation = false;
+      }
+
+      if (isBlockedRelation) {
+        blocked.add(uid);
+        continue;
+      }
+
+      visible.add(uid);
+    }
+
+    return visible;
+  }
+
+  String _relationSignatureFromProfileData(Map<String, dynamic> profileData) {
+    final followers =
+        _uidListFromData(profileData, 'followers').toSet().toList()..sort();
+    final following =
+        _uidListFromData(profileData, 'following').toSet().toList()..sort();
+    return 'followers:${followers.join(',')}|following:${following.join(',')}';
+  }
+
+  Future<_ProfileRelationLists> _filteredRelationListsForProfileData(
+    Map<String, dynamic> profileData,
+  ) {
+    final signature = _relationSignatureFromProfileData(profileData);
+    return _filteredRelationListsFutureBySignature.putIfAbsent(
+      signature,
+      () async {
+        final rawFollowers =
+            _uidListFromData(profileData, 'followers').toSet().toList()..sort();
+        final rawFollowing =
+            _uidListFromData(profileData, 'following').toSet().toList()..sort();
+
+        final followers = await _filterRelationIdsByBlocked(rawFollowers);
+        final following = await _filterRelationIdsByBlocked(rawFollowing);
+        final friends = followers
+            .toSet()
+            .intersection(following.toSet())
+            .toList(growable: false)
+          ..sort();
+
+        return _ProfileRelationLists(
+          followers: followers,
+          following: following,
+          friends: friends,
+        );
+      },
+    );
+  }
+
   Future<List<_ProfileRelationUser>> _relationUsersForIds(
       List<String> ids) async {
     if (ids.isEmpty) return const <_ProfileRelationUser>[];
@@ -2082,6 +2187,9 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
   }) async {
     if (!mounted) return;
 
+    final filteredUserIds = await _filterRelationIdsByBlocked(userIds);
+    if (!mounted) return;
+
     String query = '';
     final isLight = Theme.of(context).brightness == Brightness.light;
     showModalBottomSheet<void>(
@@ -2116,7 +2224,7 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                 ),
                 padding: const EdgeInsets.fromLTRB(14, 14, 14, 10),
                 child: FutureBuilder<List<_ProfileRelationUser>>(
-                  future: _relationUsersForIds(userIds),
+                  future: _relationUsersForIds(filteredUserIds),
                   builder: (context, snapshot) {
                     if (snapshot.connectionState == ConnectionState.waiting) {
                       return const Center(
@@ -3754,17 +3862,18 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
         .fold<int>(0, (total, doc) => total + _postScore(doc.data()));
     final score =
         livePublishedScore > storedScore ? livePublishedScore : storedScore;
-    final followers = _uidListFromData(profileData, 'followers').toSet();
-    final following = _uidListFromData(profileData, 'following').toSet();
+    final rawFollowers = _uidListFromData(profileData, 'followers').toSet();
+    final rawFollowing = _uidListFromData(profileData, 'following').toSet();
     final isPrivateProfile = (profileData['isPrivate'] as bool?) ?? false;
-    final friends = followers.intersection(following).toList(growable: false);
-    final followersCount = followers.isNotEmpty
-        ? followers.length
+    final rawFriends =
+        rawFollowers.intersection(rawFollowing).toList(growable: false);
+    final followersCountFallback = rawFollowers.isNotEmpty
+        ? rawFollowers.length
         : _intValue(profileData, const ['followerCount', 'followersCount']);
-    final followingCount = following.isNotEmpty
-        ? following.length
+    final followingCountFallback = rawFollowing.isNotEmpty
+        ? rawFollowing.length
         : _intValue(profileData, const ['followingCount']);
-    final friendsCount = friends.length;
+    final friendsCountFallback = rawFriends.length;
     const lightIconColor = Color(0xFF9AB0FF);
     const borderColor = Color(0xFFA7BFFF);
     final clampedPostedSubCategoryCount =
@@ -3985,47 +4094,70 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                       const SizedBox(width: 10),
                       Expanded(
                         flex: 4,
-                        child: Column(
-                          children: [
-                            _buildSocialRectTile(
-                              label: 'עוקבים',
-                              value: followersCount,
-                              icon: Icons.people_alt_rounded,
-                              isLight: isLight,
-                              showLabel: false,
-                              onTap: () => _showRelationSheet(
-                                title: 'עוקבים',
-                                userIds: followers.toList(growable: false),
-                                emptyMessage: 'אין עוקבים להצגה כרגע',
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            _buildSocialRectTile(
-                              label: 'נעקבים',
-                              value: followingCount,
-                              icon: Icons.person_add_alt_1_rounded,
-                              isLight: isLight,
-                              showLabel: false,
-                              onTap: () => _showRelationSheet(
-                                title: 'נעקבים',
-                                userIds: following.toList(growable: false),
-                                emptyMessage: 'אין נעקבים להצגה כרגע',
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            _buildSocialRectTile(
-                              label: 'חברים',
-                              value: friendsCount,
-                              icon: Icons.handshake_rounded,
-                              isLight: isLight,
-                              showLabel: false,
-                              onTap: () => _showRelationSheet(
-                                title: 'חברים',
-                                userIds: friends,
-                                emptyMessage: 'אין חברים להצגה כרגע',
-                              ),
-                            ),
-                          ],
+                        child: FutureBuilder<_ProfileRelationLists>(
+                          future:
+                              _filteredRelationListsForProfileData(profileData),
+                          builder: (context, relationSnapshot) {
+                            final relationLists = relationSnapshot.data;
+                            final followers = relationLists?.followers ??
+                                rawFollowers.toList(growable: false);
+                            final following = relationLists?.following ??
+                                rawFollowing.toList(growable: false);
+                            final friends =
+                                relationLists?.friends ?? rawFriends;
+                            final followersCount = relationLists != null
+                                ? followers.length
+                                : followersCountFallback;
+                            final followingCount = relationLists != null
+                                ? following.length
+                                : followingCountFallback;
+                            final friendsCount = relationLists != null
+                                ? friends.length
+                                : friendsCountFallback;
+
+                            return Column(
+                              children: [
+                                _buildSocialRectTile(
+                                  label: 'עוקבים',
+                                  value: followersCount,
+                                  icon: Icons.people_alt_rounded,
+                                  isLight: isLight,
+                                  showLabel: false,
+                                  onTap: () => _showRelationSheet(
+                                    title: 'עוקבים',
+                                    userIds: followers,
+                                    emptyMessage: 'אין עוקבים להצגה כרגע',
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                _buildSocialRectTile(
+                                  label: 'נעקבים',
+                                  value: followingCount,
+                                  icon: Icons.person_add_alt_1_rounded,
+                                  isLight: isLight,
+                                  showLabel: false,
+                                  onTap: () => _showRelationSheet(
+                                    title: 'נעקבים',
+                                    userIds: following,
+                                    emptyMessage: 'אין נעקבים להצגה כרגע',
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                _buildSocialRectTile(
+                                  label: 'חברים',
+                                  value: friendsCount,
+                                  icon: Icons.handshake_rounded,
+                                  isLight: isLight,
+                                  showLabel: false,
+                                  onTap: () => _showRelationSheet(
+                                    title: 'חברים',
+                                    userIds: friends,
+                                    emptyMessage: 'אין חברים להצגה כרגע',
+                                  ),
+                                ),
+                              ],
+                            );
+                          },
                         ),
                       ),
                     ],
@@ -4232,9 +4364,8 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
     final rightInset = isWideLayout
         ? (screenWidth * 0.04).clamp(16.0, 48.0)
         : (badgeRightInset - 14).clamp(0.0, 80.0);
-    final bubbleWidth = isWideLayout
-        ? (screenWidth * 0.28).clamp(170.0, 240.0)
-        : 118.0;
+    final bubbleWidth =
+        isWideLayout ? (screenWidth * 0.28).clamp(170.0, 240.0) : 118.0;
     final verticalOffset = isWideLayout ? 86.0 : 92.0;
     final timerGap = isWideLayout ? 10.0 : 10.0;
     return Positioned(
@@ -4521,165 +4652,166 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
         onPointerDown: _dismissKeyboardOnBackgroundTap,
         child: Stack(
           children: [
-          if (isLight)
-            Positioned(
-              top: -120,
-              right: -100,
-              child: IgnorePointer(
-                child: Container(
-                  width: orbSizeA,
-                  height: orbSizeA,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: const Color(0xFFB9A9FF).withValues(alpha: 0.12),
+            if (isLight)
+              Positioned(
+                top: -120,
+                right: -100,
+                child: IgnorePointer(
+                  child: Container(
+                    width: orbSizeA,
+                    height: orbSizeA,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: const Color(0xFFB9A9FF).withValues(alpha: 0.12),
+                    ),
                   ),
                 ),
               ),
-            ),
-          if (isLight)
-            Positioned(
-              bottom: -140,
-              left: -100,
-              child: IgnorePointer(
-                child: Container(
-                  width: orbSizeB,
-                  height: orbSizeB,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: const Color(0xFF9EEBFF).withValues(alpha: 0.12),
+            if (isLight)
+              Positioned(
+                bottom: -140,
+                left: -100,
+                child: IgnorePointer(
+                  child: Container(
+                    width: orbSizeB,
+                    height: orbSizeB,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: const Color(0xFF9EEBFF).withValues(alpha: 0.12),
+                    ),
                   ),
                 ),
               ),
-            ),
-          Positioned.fill(
-            child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-              stream: _profileStream(),
-              builder: (context, profileSnapshot) {
-                if (profileSnapshot.hasError) {
-                  debugPrint('Profile stream error: ${profileSnapshot.error}');
-                }
+            Positioned.fill(
+              child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                stream: _profileStream(),
+                builder: (context, profileSnapshot) {
+                  if (profileSnapshot.hasError) {
+                    debugPrint(
+                        'Profile stream error: ${profileSnapshot.error}');
+                  }
 
-                return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                  stream: _publicProfileStream(),
-                  builder: (context, publicProfileSnapshot) {
-                    final privateData =
-                        profileSnapshot.data?.data() ?? <String, dynamic>{};
-                    final publicData = publicProfileSnapshot.data?.data() ??
-                        <String, dynamic>{};
-                    final mergedProfileData = _mergeProfileData(
-                      privateData: privateData,
-                      publicData: publicData,
-                    );
-                    final profileData = mergedProfileData.isEmpty
-                        ? fallbackProfile
-                        : mergedProfileData;
-                    final unreadCount = _intValue(
-                      privateData,
-                      const ['unreadNotificationsCount'],
-                    );
+                  return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                    stream: _publicProfileStream(),
+                    builder: (context, publicProfileSnapshot) {
+                      final privateData =
+                          profileSnapshot.data?.data() ?? <String, dynamic>{};
+                      final publicData = publicProfileSnapshot.data?.data() ??
+                          <String, dynamic>{};
+                      final mergedProfileData = _mergeProfileData(
+                        privateData: privateData,
+                        publicData: publicData,
+                      );
+                      final profileData = mergedProfileData.isEmpty
+                          ? fallbackProfile
+                          : mergedProfileData;
+                      final unreadCount = _intValue(
+                        privateData,
+                        const ['unreadNotificationsCount'],
+                      );
 
-                    if ((profileData['isDeleted'] as bool?) ?? false) {
-                      return Center(
-                        child: Container(
-                          margin: const EdgeInsets.symmetric(horizontal: 24),
-                          padding: const EdgeInsets.all(18),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF1A2435),
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(
-                              color: const Color(0xFF53C1F9)
-                                  .withValues(alpha: 0.22),
+                      if ((profileData['isDeleted'] as bool?) ?? false) {
+                        return Center(
+                          child: Container(
+                            margin: const EdgeInsets.symmetric(horizontal: 24),
+                            padding: const EdgeInsets.all(18),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF1A2435),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(
+                                color: const Color(0xFF53C1F9)
+                                    .withValues(alpha: 0.22),
+                              ),
+                            ),
+                            child: const Text(
+                              'משתמש מחוק',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                  color: Colors.white70, fontSize: 16),
                             ),
                           ),
-                          child: const Text(
-                            'משתמש מחוק',
-                            textAlign: TextAlign.center,
-                            style:
-                                TextStyle(color: Colors.white70, fontSize: 16),
-                          ),
-                        ),
-                      );
-                    }
-
-                    return StreamBuilder<
-                        List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
-                      stream: _allPostsStream(),
-                      builder: (context, postsSnapshot) {
-                        if (postsSnapshot.hasError) {
-                          debugPrint(
-                              'Error loading posts stream: ${postsSnapshot.error}');
-                        }
-
-                        final allDocs = postsSnapshot.data ??
-                            const <QueryDocumentSnapshot<
-                                Map<String, dynamic>>>[];
-
-                        int publishedCount = 0;
-                        for (final doc in allDocs) {
-                          final isMine = _postAuthorId(doc.data()) == _uid;
-                          if (!isMine) {
-                            continue;
-                          }
-                          final status = _postStatus(doc.data());
-                          if (status != 'draft') {
-                            publishedCount += 1;
-                          }
-                        }
-
-                        final postedSubCategoryCount =
-                            _livePostedSubCategoryCount(allDocs);
-
-                        final filteredDocs = _filteredPosts(allDocs);
-
-                        return NestedScrollView(
-                          physics: const BouncingScrollPhysics(),
-                          headerSliverBuilder: (context, innerBoxIsScrolled) {
-                            return [
-                              SliverToBoxAdapter(
-                                child: _buildHeader(
-                                  profileData,
-                                  publishedCount,
-                                  postedSubCategoryCount,
-                                  allDocs,
-                                  isLight: isLight,
-                                  unreadCount: unreadCount,
-                                ),
-                              ),
-                            ];
-                          },
-                          body: LayoutBuilder(
-                            builder: (context, constraints) {
-                              final isNarrow = constraints.maxWidth < 700;
-                              final sidebarWidth = constraints.maxWidth < 390
-                                  ? 102.0
-                                  : (isNarrow ? 108.0 : 120.0);
-
-                              return Transform.translate(
-                                offset: const Offset(0, -18),
-                                child: Row(
-                                  children: [
-                                    SizedBox(
-                                      width: sidebarWidth,
-                                      child: _buildSidebarWithLock(
-                                        viewportHeight: constraints.maxHeight,
-                                        isLight: isLight,
-                                      ),
-                                    ),
-                                    Expanded(
-                                        child: _buildPostsGrid(filteredDocs)),
-                                  ],
-                                ),
-                              );
-                            },
-                          ),
                         );
-                      },
-                    );
-                  },
-                );
-              },
+                      }
+
+                      return StreamBuilder<
+                          List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
+                        stream: _allPostsStream(),
+                        builder: (context, postsSnapshot) {
+                          if (postsSnapshot.hasError) {
+                            debugPrint(
+                                'Error loading posts stream: ${postsSnapshot.error}');
+                          }
+
+                          final allDocs = postsSnapshot.data ??
+                              const <QueryDocumentSnapshot<
+                                  Map<String, dynamic>>>[];
+
+                          int publishedCount = 0;
+                          for (final doc in allDocs) {
+                            final isMine = _postAuthorId(doc.data()) == _uid;
+                            if (!isMine) {
+                              continue;
+                            }
+                            final status = _postStatus(doc.data());
+                            if (status != 'draft') {
+                              publishedCount += 1;
+                            }
+                          }
+
+                          final postedSubCategoryCount =
+                              _livePostedSubCategoryCount(allDocs);
+
+                          final filteredDocs = _filteredPosts(allDocs);
+
+                          return NestedScrollView(
+                            physics: const BouncingScrollPhysics(),
+                            headerSliverBuilder: (context, innerBoxIsScrolled) {
+                              return [
+                                SliverToBoxAdapter(
+                                  child: _buildHeader(
+                                    profileData,
+                                    publishedCount,
+                                    postedSubCategoryCount,
+                                    allDocs,
+                                    isLight: isLight,
+                                    unreadCount: unreadCount,
+                                  ),
+                                ),
+                              ];
+                            },
+                            body: LayoutBuilder(
+                              builder: (context, constraints) {
+                                final isNarrow = constraints.maxWidth < 700;
+                                final sidebarWidth = constraints.maxWidth < 390
+                                    ? 102.0
+                                    : (isNarrow ? 108.0 : 120.0);
+
+                                return Transform.translate(
+                                  offset: const Offset(0, -18),
+                                  child: Row(
+                                    children: [
+                                      SizedBox(
+                                        width: sidebarWidth,
+                                        child: _buildSidebarWithLock(
+                                          viewportHeight: constraints.maxHeight,
+                                          isLight: isLight,
+                                        ),
+                                      ),
+                                      Expanded(
+                                          child: _buildPostsGrid(filteredDocs)),
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
+                          );
+                        },
+                      );
+                    },
+                  );
+                },
+              ),
             ),
-          ),
           ],
         ),
       ),
