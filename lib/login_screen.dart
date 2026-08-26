@@ -30,7 +30,8 @@ class LoginScreen extends StatefulWidget {
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> {
+class _LoginScreenState extends State<LoginScreen>
+  with WidgetsBindingObserver {
   static const Color _bgTop = Color(0xFF0B1222);
   static const Color _bgBottom = Color(0xFF070B12);
   static const Color _primary = Color(0xFF7B79FF);
@@ -38,19 +39,27 @@ class _LoginScreenState extends State<LoginScreen> {
   static const Color _textPrimary = Color(0xFFEAF0FF);
   static const Color _textSecondary = Color(0xFFAAB7E8);
   static const Color _fieldFill = Color(0xFF141D2E);
+  static const bool _useLightForgotPasswordDialog = false;
 
   final TextEditingController _usernameController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
+  final FocusNode _usernameFocusNode = FocusNode();
+  final FocusNode _passwordFocusNode = FocusNode();
   final AuthService _authService = AuthService();
 
   bool _showError = false;
   bool _hidePassword = true;
   bool _animateBg = false;
   String? _errorMessage;
+  double? _minObservedKeyboardInset;
+  double? _maxObservedKeyboardInset;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _usernameFocusNode.addListener(_handleLoginFieldFocusChange);
+    _passwordFocusNode.addListener(_handleLoginFieldFocusChange);
     KeyboardDismissController.suspend();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
@@ -79,11 +88,83 @@ class _LoginScreenState extends State<LoginScreen> {
     });
   }
 
+  bool get _isEditingLoginFields =>
+      _usernameFocusNode.hasFocus || _passwordFocusNode.hasFocus;
+
+  void _clearKeyboardInsetTracking() {
+    _minObservedKeyboardInset = null;
+    _maxObservedKeyboardInset = null;
+  }
+
+  void _handleLoginFieldFocusChange() {
+    if (!mounted || _isEditingLoginFields) {
+      return;
+    }
+
+    setState(_clearKeyboardInsetTracking);
+  }
+
+  @override
+  void didChangeMetrics() {
+    super.didChangeMetrics();
+    final view = WidgetsBinding.instance.platformDispatcher.views.firstOrNull;
+    if (view == null || !mounted) {
+      return;
+    }
+
+    final keyboardInset = view.viewInsets.bottom / view.devicePixelRatio;
+    if (keyboardInset <= 0) {
+      if (_minObservedKeyboardInset != null || _maxObservedKeyboardInset != null) {
+        setState(() {
+          _minObservedKeyboardInset = null;
+          _maxObservedKeyboardInset = null;
+        });
+      }
+      return;
+    }
+
+    final nextMin = _minObservedKeyboardInset == null
+        ? keyboardInset
+        : (_minObservedKeyboardInset! < keyboardInset
+            ? _minObservedKeyboardInset!
+            : keyboardInset);
+    final nextMax = _maxObservedKeyboardInset == null
+        ? keyboardInset
+        : (_maxObservedKeyboardInset! > keyboardInset
+            ? _maxObservedKeyboardInset!
+            : keyboardInset);
+
+    if (nextMin != _minObservedKeyboardInset || nextMax != _maxObservedKeyboardInset) {
+      setState(() {
+        _minObservedKeyboardInset = nextMin;
+        _maxObservedKeyboardInset = nextMax;
+      });
+    }
+  }
+
+  double _stableKeyboardInset(double currentKeyboardInset) {
+    if (currentKeyboardInset <= 0) {
+      return 0;
+    }
+
+    final maxInset = _maxObservedKeyboardInset;
+    if (maxInset == null) {
+      return currentKeyboardInset;
+    }
+
+    return maxInset;
+  }
+
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _usernameFocusNode.removeListener(_handleLoginFieldFocusChange);
+    _passwordFocusNode.removeListener(_handleLoginFieldFocusChange);
     KeyboardDismissController.resume();
     _usernameController.dispose();
     _passwordController.dispose();
+    _usernameFocusNode.dispose();
+    _passwordFocusNode.dispose();
     super.dispose();
   }
 
@@ -370,7 +451,7 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _onForgotPasswordPressed() async {
     final seedValue = _usernameController.text.trim();
     final controller = TextEditingController(text: seedValue);
-    final isLight = Theme.of(context).brightness == Brightness.light;
+    final isLight = _useLightForgotPasswordDialog;
 
     final value = await showDialog<String>(
       context: context,
@@ -383,12 +464,29 @@ class _LoginScreenState extends State<LoginScreen> {
               'איפוס סיסמה',
               style: TextStyle(color: isLight ? Colors.black : Colors.white),
             ),
-            content: TextField(
-              controller: controller,
-              textAlign: TextAlign.right,
-              textDirection: TextDirection.rtl,
-              decoration: const InputDecoration(
-                hintText: 'אימייל או שם משתמש',
+            content: SizedBox(
+              width: 320,
+              child: TextField(
+                controller: controller,
+                textAlign: TextAlign.right,
+                textDirection: TextDirection.rtl,
+                maxLines: 1,
+                style: const TextStyle(color: Colors.black),
+                cursorColor: Colors.black,
+                decoration: InputDecoration(
+                  hintText: 'אימייל...',
+                  hintStyle: TextStyle(color: Colors.black.withValues(alpha: 0.55)),
+                  filled: true,
+                  fillColor: Colors.white,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 12,
+                  ),
+                ),
               ),
             ),
             actions: [
@@ -479,7 +577,6 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget build(BuildContext context) {
     final mediaQuery = MediaQuery.of(context);
     final screenWidth = mediaQuery.size.width;
-    final keyboardLift = (mediaQuery.viewInsets.bottom * 0.2).clamp(0.0, 64.0);
     final orbSizeA = (screenWidth * 0.78).clamp(220.0, 300.0);
     final orbSizeB = (screenWidth * 0.9).clamp(250.0, 350.0);
     return SwipeBackWrapper(
@@ -543,47 +640,66 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
               LayoutBuilder(
                 builder: (context, constraints) {
-                  return SingleChildScrollView(
-                    keyboardDismissBehavior:
-                        ScrollViewKeyboardDismissBehavior.onDrag,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    child: ConstrainedBox(
-                      constraints: BoxConstraints(
-                        minHeight: constraints.maxHeight,
-                      ),
-                      child: Center(
-                        child: AnimatedPadding(
-                          duration: const Duration(milliseconds: 180),
-                          curve: Curves.easeOut,
-                          padding: EdgeInsets.only(bottom: keyboardLift),
-                          child: ConstrainedBox(
-                            constraints: const BoxConstraints(maxWidth: 460),
+                  final keyboardInset = mediaQuery.viewInsets.bottom;
+                  final activeKeyboardInset =
+                      _isEditingLoginFields ? keyboardInset : 0.0;
+                  final targetKeyboardInset =
+                      _stableKeyboardInset(activeKeyboardInset);
+
+                  return TweenAnimationBuilder<double>(
+                    duration: Duration(
+                      milliseconds: _isEditingLoginFields ? 120 : 280,
+                    ),
+                    curve: Curves.easeOutCubic,
+                    tween: Tween<double>(end: targetKeyboardInset),
+                    builder: (context, animatedKeyboardInset, child) {
+                      final visibleHeight =
+                          (constraints.maxHeight - animatedKeyboardInset)
+                              .clamp(0.0, constraints.maxHeight);
+
+                      return SingleChildScrollView(
+                        keyboardDismissBehavior:
+                            ScrollViewKeyboardDismissBehavior.onDrag,
+                        padding: EdgeInsets.fromLTRB(
+                          0,
+                          16,
+                          0,
+                          animatedKeyboardInset + 16,
+                        ),
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(
+                            minHeight: visibleHeight,
+                          ),
+                          child: Center(
                             child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 24, vertical: 16),
-                              child: Container(
-                                padding:
-                                    const EdgeInsets.fromLTRB(20, 24, 20, 18),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xD0121A2B),
-                                  borderRadius: BorderRadius.circular(30),
-                                  border: Border.all(
-                                      color: _accent.withValues(alpha: 0.12),
-                                      width: 0.8),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color:
-                                          Colors.black.withValues(alpha: 0.24),
-                                      blurRadius: 28,
-                                      offset: const Offset(0, 14),
+                              padding: EdgeInsets.zero,
+                              child: ConstrainedBox(
+                                constraints: const BoxConstraints(maxWidth: 460),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 24, vertical: 16),
+                                  child: Container(
+                                    padding:
+                                        const EdgeInsets.fromLTRB(20, 24, 20, 18),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xD0121A2B),
+                                      borderRadius: BorderRadius.circular(30),
+                                      border: Border.all(
+                                          color: _accent.withValues(alpha: 0.12),
+                                          width: 0.8),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.black.withValues(alpha: 0.24),
+                                          blurRadius: 28,
+                                          offset: const Offset(0, 14),
+                                        ),
+                                      ],
                                     ),
-                                  ],
-                                ),
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.stretch,
-                                  children: [
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.stretch,
+                                      children: [
                                     const Text(
                                       'התחברות',
                                       textAlign: TextAlign.center,
@@ -607,6 +723,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                     const SizedBox(height: 24),
                                     TextField(
                                       controller: _usernameController,
+                                      focusNode: _usernameFocusNode,
                                       keyboardType: TextInputType.emailAddress,
                                       textInputAction: TextInputAction.next,
                                       textDirection: TextDirection.rtl,
@@ -622,6 +739,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                     const SizedBox(height: 14),
                                     TextField(
                                       controller: _passwordController,
+                                      focusNode: _passwordFocusNode,
                                       obscureText: _hidePassword,
                                       textDirection: TextDirection.rtl,
                                       textAlign: TextAlign.right,
@@ -741,14 +859,16 @@ class _LoginScreenState extends State<LoginScreen> {
                                             )
                                           : const SizedBox(height: 0),
                                     ),
-                                  ],
+                                      ],
+                                    ),
+                                  ),
                                 ),
                               ),
                             ),
                           ),
                         ),
-                      ),
-                    ),
+                      );
+                    },
                   );
                 },
               ),

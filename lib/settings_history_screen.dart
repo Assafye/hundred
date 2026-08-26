@@ -10,6 +10,8 @@ import 'app_categories.dart';
 import 'chat_room_screen.dart';
 import 'post_media_utils.dart';
 import 'post_detail_view.dart';
+import 'services/app_home_service.dart';
+import 'services/geohash_utils.dart';
 import 'services/keyboard_dismiss_controller.dart';
 import 'widgets/post_media_viewer.dart';
 import 'widgets/swipe_back_wrapper.dart';
@@ -652,7 +654,7 @@ class _SettingsHistoryScreenState extends State<SettingsHistoryScreen>
     if (shouldSave == true) {
       final desiredParticipants =
           int.tryParse(participantsController.text.trim());
-      await _db.collection('meet_now_posts').doc(doc.id).set({
+      final payload = <String, dynamic>{
         'title': titleController.text.trim(),
         'details': detailsController.text.trim(),
         'meetingLocation': locationController.text.trim(),
@@ -663,7 +665,18 @@ class _SettingsHistoryScreenState extends State<SettingsHistoryScreen>
         'minAge': useAgeRange ? ageRange.start.round() : null,
         'maxAge': useAgeRange ? ageRange.end.round() : null,
         'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      };
+      final existingGeo = data['geo'];
+      if (existingGeo is GeoPoint) {
+        payload['geohash'] = GeoHashUtils.encodeGeoPoint(
+          existingGeo,
+          precision: AppHomeService.meetNowGeoHashPrecision,
+        );
+      }
+      await _db.collection('meet_now_posts').doc(doc.id).set(
+            payload,
+            SetOptions(merge: true),
+          );
     }
 
     titleController.dispose();

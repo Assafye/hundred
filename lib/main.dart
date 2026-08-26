@@ -5,7 +5,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'firebase_options.dart';
 import 'feed_screen.dart';
@@ -14,10 +13,14 @@ import 'services/auth_service.dart';
 import 'services/share_flow_log_service.dart';
 import 'services/theme_mode_service.dart';
 import 'services/location_service.dart';
+import 'services/notification_runtime_service.dart';
 import 'services/presence_service.dart';
+import 'services/app_navigator.dart';
 import 'services/keyboard_dismiss_controller.dart';
+import 'services/challenge_notifications_orchestrator.dart';
 import 'widgets/adaptive_viewport.dart';
 import 'widgets/animated_infinity_splash_screen.dart';
+import 'widgets/in_app_notification_overlay.dart';
 
 const bool _useAuthEmulator = bool.fromEnvironment(
   'USE_AUTH_EMULATOR',
@@ -69,6 +72,8 @@ Future<void> main() async {
 
     await _configureAuthConnection();
     await ShareFlowLogService.log('AUTH_CONNECTION_CONFIGURED');
+    await NotificationRuntimeService.instance.initialize();
+    await ShareFlowLogService.log('NOTIFICATION_RUNTIME_INITIALIZED');
     await ThemeModeService.instance.load();
     await ShareFlowLogService.log('THEME_MODE_LOADED');
     runApp(const MyApp());
@@ -534,6 +539,7 @@ class _MyAppState extends State<MyApp> {
         return MaterialApp(
           title: 'Pastel App',
           debugShowCheckedModeBanner: false,
+          navigatorKey: appNavigatorKey,
           builder: (context, child) {
             return AdaptiveViewport(
               child: Listener(
@@ -553,7 +559,9 @@ class _MyAppState extends State<MyApp> {
                 },
                 child: Directionality(
                   textDirection: TextDirection.rtl,
-                  child: child ?? const SizedBox.shrink(),
+                  child: InAppNotificationOverlay(
+                    child: child ?? const SizedBox.shrink(),
+                  ),
                 ),
               ),
             );
@@ -672,12 +680,14 @@ class _AuthenticatedAppShellState extends State<AuthenticatedAppShell> {
     super.initState();
     _presenceService.start();
     _locationService.start();
+    ChallengeNotificationsOrchestrator.instance.start();
   }
 
   @override
   void dispose() {
     _presenceService.stop();
     _locationService.stop();
+    ChallengeNotificationsOrchestrator.instance.stop();
     super.dispose();
   }
 

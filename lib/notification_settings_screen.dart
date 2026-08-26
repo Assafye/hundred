@@ -198,6 +198,11 @@ const List<_NotificationOption> _notificationOptions = <_NotificationOption>[
     subtitle: 'כשמישהו עושה לייק לפוסט שלך',
   ),
   _NotificationOption(
+    key: NotificationSettingKeys.postSaves,
+    title: 'שמירות לפוסטים שלי',
+    subtitle: 'כשמישהו שומר את הפוסט שלך',
+  ),
+  _NotificationOption(
     key: NotificationSettingKeys.newMessages,
     title: 'הודעות חדשות',
     subtitle: 'הודעות מקבוצות או צאטים אישיים',
@@ -233,9 +238,19 @@ const List<_NotificationOption> _notificationOptions = <_NotificationOption>[
     subtitle: 'התראה כשהאתגר השבועי משתנה',
   ),
   _NotificationOption(
-    key: NotificationSettingKeys.discoveryReminders,
-    title: 'תזכורת פעם ביומיים',
-    subtitle: 'בא לך לעשות משהו? היכנס לחפש סביבך',
+    key: NotificationSettingKeys.dailyChallengeUpdates,
+    title: 'עדכון משימה יומית',
+    subtitle: 'התראה כשהמשימה היומית בכוכבי השבוע משתנה',
+  ),
+  _NotificationOption(
+    key: NotificationSettingKeys.spontaneousReminders,
+    title: 'תזכורות ספונטניות',
+    subtitle: 'התראות להגרלת משימה ספונטנית כשאין משימה פעילה',
+  ),
+  _NotificationOption(
+    key: NotificationSettingKeys.spontaneousTimeWarnings,
+    title: 'התראות זמן למשימה ספונטנית',
+    subtitle: 'התראות על זמן שנותר לביצוע המשימה הספונטנית',
   ),
   _NotificationOption(
     key: NotificationSettingKeys.weeklyStars,

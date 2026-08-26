@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import '../age_restrictions.dart';
 import '../models/public_user_profile.dart';
 import 'block_user_service.dart';
+import 'geohash_utils.dart';
 import 'location_service.dart';
 import 'public_user_profile_service.dart';
 
@@ -134,7 +135,30 @@ class MeetNowPublishLimitException implements Exception {
   const MeetNowPublishLimitException();
 }
 
+class MeetNowStreamTelemetry {
+  final int rawDocCount;
+  final int emittedEntryCount;
+  final int candidateLimit;
+  final int activeGeoQueryCount;
+  final int activePrecision;
+  final int sortDurationMs;
+
+  const MeetNowStreamTelemetry({
+    required this.rawDocCount,
+    required this.emittedEntryCount,
+    required this.candidateLimit,
+    required this.activeGeoQueryCount,
+    required this.activePrecision,
+    required this.sortDurationMs,
+  });
+}
+
 class AppHomeService {
+  static const int meetNowGeoHashPrecision = GeoHashUtils.defaultPrecision;
+  static const List<int> _meetNowQueryPrecisions = <int>[7, 6, 5, 4, 3];
+  static const int _minimumMeetNowCandidateLimit = 60;
+  static const int _maximumMeetNowCandidateLimit = 360;
+
   AppHomeService({
     FirebaseFirestore? firestore,
     FirebaseAuth? auth,
@@ -758,27 +782,48 @@ class AppHomeService {
     return 2;
   }
 
-  Stream<List<MeetNowPostEntry>> streamMeetNowPosts() {
+  Stream<List<MeetNowPostEntry>> streamMeetNowPosts({
+    int candidateLimit = _minimumMeetNowCandidateLimit,
+    ValueChanged<MeetNowStreamTelemetry>? onTelemetry,
+  }) {
     final uid = currentUid;
     if (uid == null || uid.isEmpty) {
       return Stream.value(const <MeetNowPostEntry>[]);
     }
 
+    final effectiveCandidateLimit = candidateLimit
+      .clamp(_minimumMeetNowCandidateLimit, _maximumMeetNowCandidateLimit)
+      .toInt();
+
     return Stream.multi((controller) {
       DocumentSnapshot<Map<String, dynamic>>? currentUserSnapshot;
-      QuerySnapshot<Map<String, dynamic>>? postsSnapshot;
       StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? userSub;
-      StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? postsSub;
       StreamSubscription<Set<String>>? blockedUsersSub;
       final loggedPermissionDeniedPostIds = <String>{};
       final profileFutureByUid = <String, Future<PublicUserProfile?>>{};
       final userImageUrlsFutureByUid = <String, Future<List<String>>>{};
       final groupDocFutureById =
           <String, Future<DocumentSnapshot<Map<String, dynamic>>?>>{};
+      final postDocsByQueryKey =
+          <String, Map<String, QueryDocumentSnapshot<Map<String, dynamic>>>>{};
+      final initializedQueryKeys = <String>{};
+      final activeQueryKeys = <String>{};
+      final postSubs =
+          <StreamSubscription<QuerySnapshot<Map<String, dynamic>>>>[];
       String? lastMeetUserSortKey;
+      var activeGeoQueryPrecisionIndex = 0;
+      var activeGeoPrecision = -1;
       var emitInProgress = false;
       var emitQueued = false;
       var blockedUserIds = <String>{};
+
+      List<QueryDocumentSnapshot<Map<String, dynamic>>> nearbyPostDocs() {
+        final merged = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
+        for (final docs in postDocsByQueryKey.values) {
+          merged.addAll(docs);
+        }
+        return merged.values.toList(growable: false);
+      }
 
       Future<PublicUserProfile?> resolveProfile(String rawUid) {
         final uid = rawUid.trim();
@@ -829,15 +874,16 @@ class AppHomeService {
       }
 
       Future<void> emitMerged() async {
-        if (currentUserSnapshot == null || postsSnapshot == null) {
+        if (currentUserSnapshot == null) {
           return;
         }
 
         final userData = currentUserSnapshot!.data() ?? <String, dynamic>{};
         final userLocation = _userLocationFromData(userData);
         final userGeo = _geoPointFromData(userData);
+        final docs = nearbyPostDocs();
         final entries = <MeetNowPostEntry>[];
-        final buildFutures = postsSnapshot!.docs.map((doc) async {
+        final buildFutures = docs.map((doc) async {
           try {
             final data = doc.data();
             final status =
@@ -970,6 +1016,7 @@ class AppHomeService {
         final builtEntries = await Future.wait(buildFutures);
         entries.addAll(builtEntries.whereType<MeetNowPostEntry>());
 
+        final sortStopwatch = Stopwatch()..start();
         entries.sort((a, b) {
           final geoA = a.meetingGeo ?? a.authorGeo;
           final geoB = b.meetingGeo ?? b.authorGeo;
@@ -1007,8 +1054,22 @@ class AppHomeService {
           }
           return b.createdAt.compareTo(a.createdAt);
         });
+        sortStopwatch.stop();
 
-        controller.add(entries);
+        final emittedEntries =
+            entries.take(effectiveCandidateLimit).toList(growable: false);
+        onTelemetry?.call(
+          MeetNowStreamTelemetry(
+            rawDocCount: docs.length,
+            emittedEntryCount: emittedEntries.length,
+            candidateLimit: effectiveCandidateLimit,
+            activeGeoQueryCount: activeQueryKeys.length,
+            activePrecision: activeGeoPrecision,
+            sortDurationMs: sortStopwatch.elapsedMilliseconds,
+          ),
+        );
+
+        controller.add(emittedEntries);
       }
 
       Future<void> scheduleEmit() async {
@@ -1028,6 +1089,77 @@ class AppHomeService {
         }
       }
 
+      Future<void> resubscribeNearbyPosts() async {
+        final existingSubs = postSubs.toList(growable: false);
+        postSubs.clear();
+        for (final sub in existingSubs) {
+          await sub.cancel();
+        }
+
+        postDocsByQueryKey.clear();
+        initializedQueryKeys.clear();
+        activeQueryKeys.clear();
+
+        final userData = currentUserSnapshot?.data() ?? <String, dynamic>{};
+        final userGeo = _geoPointFromData(userData);
+        if (userGeo == null) {
+          activeGeoPrecision = -1;
+          const fallbackKey = 'fallback';
+          activeQueryKeys.add(fallbackKey);
+          final fallbackSub = _meetNowPosts
+              .where('status', isEqualTo: 'active')
+              .orderBy('createdAt', descending: true)
+              .limit(effectiveCandidateLimit)
+              .snapshots()
+              .listen((snapshot) {
+            postDocsByQueryKey[fallbackKey] = {
+              for (final doc in snapshot.docs) doc.id: doc,
+            };
+            initializedQueryKeys.add(fallbackKey);
+            unawaited(scheduleEmit());
+          }, onError: controller.addError);
+          postSubs.add(fallbackSub);
+          return;
+        }
+
+        final precision = _meetNowQueryPrecisions[activeGeoQueryPrecisionIndex];
+        activeGeoPrecision = precision;
+        final prefixes = GeoHashUtils.nearbyPrefixes(
+          center: userGeo,
+          precision: precision,
+        ).toList(growable: false)
+          ..sort();
+
+        for (final prefix in prefixes) {
+          activeQueryKeys.add(prefix);
+          final sub = _meetNowPosts
+              .where('status', isEqualTo: 'active')
+              .orderBy('geohash')
+              .startAt([prefix])
+              .endAt(['$prefix\uf8ff'])
+              .limit(effectiveCandidateLimit)
+              .snapshots()
+              .listen((snapshot) {
+            postDocsByQueryKey[prefix] = {
+              for (final doc in snapshot.docs) doc.id: doc,
+            };
+            initializedQueryKeys.add(prefix);
+
+            if (initializedQueryKeys.length == activeQueryKeys.length &&
+                nearbyPostDocs().length < effectiveCandidateLimit &&
+                activeGeoQueryPrecisionIndex <
+                    _meetNowQueryPrecisions.length - 1) {
+              activeGeoQueryPrecisionIndex += 1;
+              unawaited(resubscribeNearbyPosts());
+              return;
+            }
+
+            unawaited(scheduleEmit());
+          }, onError: controller.addError);
+          postSubs.add(sub);
+        }
+      }
+
       userSub = _users.doc(uid).snapshots().listen((snapshot) {
         final data = snapshot.data() ?? <String, dynamic>{};
         final geo = _geoPointFromData(data);
@@ -1038,21 +1170,14 @@ class AppHomeService {
 
         // Presence/status writes can update the user doc frequently; only
         // recompute meet-now ordering when location/sort inputs changed.
-        if (postsSnapshot != null && nextSortKey == lastMeetUserSortKey) {
+        if (nextSortKey == lastMeetUserSortKey) {
           return;
         }
 
         lastMeetUserSortKey = nextSortKey;
         currentUserSnapshot = snapshot;
-        unawaited(scheduleEmit());
-      }, onError: controller.addError);
-
-      postsSub = _meetNowPosts
-          .where('status', isEqualTo: 'active')
-          .limit(60)
-          .snapshots()
-          .listen((snapshot) {
-        postsSnapshot = snapshot;
+        activeGeoQueryPrecisionIndex = 0;
+        unawaited(resubscribeNearbyPosts());
         unawaited(scheduleEmit());
       }, onError: controller.addError);
 
@@ -1069,7 +1194,9 @@ class AppHomeService {
 
       controller.onCancel = () async {
         await userSub?.cancel();
-        await postsSub?.cancel();
+        for (final sub in postSubs) {
+          await sub.cancel();
+        }
         await blockedUsersSub?.cancel();
       };
     });
@@ -1203,14 +1330,13 @@ class AppHomeService {
     final userGeo = _geoPointFromData(userData);
     final normalizedDetails = details.trim();
 
-    await _meetNowPosts.add({
+    final payload = <String, dynamic>{
       'authorUid': uid,
       'title': normalizedTitle,
       'details': normalizedDetails,
       'category': category.trim(),
       'subCategory': subCategory.trim(),
       'meetingLocation': meetingLocation.trim(),
-      'geo': userGeo,
       'desiredParticipants': desiredParticipants,
       'timePreference': timePreference.trim(),
       'minAge': minAge,
@@ -1219,7 +1345,16 @@ class AppHomeService {
       'status': 'active',
       'createdAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
-    });
+    };
+    if (userGeo != null) {
+      payload['geo'] = userGeo;
+      payload['geohash'] = GeoHashUtils.encodeGeoPoint(
+        userGeo,
+        precision: meetNowGeoHashPrecision,
+      );
+    }
+
+    await _meetNowPosts.add(payload);
   }
 
   Future<String> createGroupForMeetNowPost(MeetNowPostEntry entry) async {

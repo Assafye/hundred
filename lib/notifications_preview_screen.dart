@@ -6,7 +6,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 
 import 'chats_screen.dart';
-import 'feed_screen.dart';
+import 'chat_room_screen.dart';
 import 'group_details_screen.dart';
 import 'post_media_utils.dart';
 import 'post_detail_view.dart';
@@ -564,19 +564,25 @@ class _NotificationsPreviewScreenState
         await _openGroup(context, doc, data);
         return;
       case NotificationTypes.newMessage:
+        await _openChatNotification(context, doc, data);
+        return;
+      case NotificationTypes.dailyChallengeUpdated:
         await _notificationService.markNotificationAsRead(
             notificationId: doc.id);
         if (!context.mounted) return;
         Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => const ChatsScreen()),
+          MaterialPageRoute(builder: (_) => const StarsScreen()),
         );
         return;
-      case NotificationTypes.discoveryReminder:
+      case NotificationTypes.spontaneousReminder:
+      case NotificationTypes.spontaneousTimeWarning:
         await _notificationService.markNotificationAsRead(
             notificationId: doc.id);
         if (!context.mounted) return;
         Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => const FeedScreen()),
+          MaterialPageRoute(
+            builder: (_) => const StarsScreen(openSpontaneousModalOnStart: true),
+          ),
         );
         return;
       default:
@@ -586,22 +592,71 @@ class _NotificationsPreviewScreenState
     }
   }
 
+  Future<void> _openChatNotification(
+    BuildContext context,
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+    Map<String, dynamic> data,
+  ) async {
+    final chatId = (data['chatId'] as String? ?? '').trim();
+    await _notificationService.markNotificationAsRead(notificationId: doc.id);
+    if (!context.mounted) return;
+
+    if (chatId.isEmpty) {
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const ChatsScreen()),
+      );
+      return;
+    }
+
+    final chatSnap =
+        await FirebaseFirestore.instance.collection('chats').doc(chatId).get();
+    if (!context.mounted) return;
+    final chatData = chatSnap.data();
+    if (chatData == null) {
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const ChatsScreen()),
+      );
+      return;
+    }
+
+    final chatName = (chatData['name'] as String? ?? '').trim();
+    final avatarUrl = (chatData['groupImageUrl'] as String? ?? '').trim();
+    final isPublic = (chatData['isPublic'] as bool?) ?? false;
+    final participants = (chatData['participants'] as List<dynamic>? ?? const [])
+        .map((item) => item.toString().trim())
+        .where((item) => item.isNotEmpty)
+        .toList(growable: false);
+
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ChatRoomScreen(
+          chatName: chatName.isEmpty ? 'צ׳אט' : chatName,
+          avatarUrl: avatarUrl,
+          chatId: chatId,
+          isDirectChat: !isPublic && participants.length == 2,
+          directOtherUserId: (data['actorUid'] as String? ?? '').trim(),
+        ),
+      ),
+    );
+  }
+
   String _titleForNotification(Map<String, dynamic> data) {
     final type = (data['type'] as String? ?? '').trim();
     switch (type) {
       case NotificationTypes.postLike:
-        final likeCount = _intValue(data, const ['likeCount'], fallback: 1);
-        return likeCount > 1
-            ? '$likeCount לייקים על הפוסט שלך'
+        return (data['title'] as String? ?? '').trim().isNotEmpty
+            ? (data['title'] as String).trim()
             : 'לייק חדש על הפוסט שלך';
       case NotificationTypes.postSave:
         return '${_actorName(data)} שמר את הפוסט שלך';
       case NotificationTypes.postComment:
-        return '${_actorName(data)} הגיב על הפוסט שלך.';
+        return (data['title'] as String? ?? '').trim();
       case NotificationTypes.commentReply:
-        return '${_actorName(data)} הגיב לתגובה שלך';
+        return (data['title'] as String? ?? '').trim();
       case NotificationTypes.weeklyChallengeUpdated:
         return 'האתגר השבועי התעדכן';
+      case NotificationTypes.dailyChallengeUpdated:
+        return 'המשימה היומית התעדכנה';
       case NotificationTypes.weeklyStars:
         return 'הפוסט שלך נכנס לכוכבי השבוע';
       case NotificationTypes.newFollower:
@@ -616,8 +671,10 @@ class _NotificationsPreviewScreenState
         return 'הוסיפו אותך לקבוצה';
       case NotificationTypes.newMessage:
         return 'הודעה חדשה';
-      case NotificationTypes.discoveryReminder:
-        return 'יש משהו חדש לגלות';
+      case NotificationTypes.spontaneousReminder:
+        return 'משימה ספונטנית מחכה לך';
+      case NotificationTypes.spontaneousTimeWarning:
+        return 'תזכורת למשימה הספונטנית';
       default:
         return (data['title'] as String? ?? '').trim().isNotEmpty
             ? (data['title'] as String).trim()
@@ -631,22 +688,20 @@ class _NotificationsPreviewScreenState
 
     switch (type) {
       case NotificationTypes.postLike:
-        final likeCount = _intValue(data, const ['likeCount'], fallback: 1);
-        final actor = _actorName(data);
-        return likeCount > 1
-            ? 'הלייק האחרון: $actor'
-            : '$actor עשה לייק לפוסט שלך';
+        return body.isNotEmpty ? body : 'יש עדכון לייקים חדש על הפוסט שלך';
       case NotificationTypes.postSave:
         return '';
       case NotificationTypes.postComment:
-        return body.isNotEmpty ? body : 'מישהו הגיב לפוסט שלך';
+        return body.isNotEmpty ? body : '${_actorName(data)} הגיב על הפוסט שלך';
       case NotificationTypes.commentReply:
-        return body.isNotEmpty ? body : 'יש תגובה חדשה על תגובה שלך';
+        return body.isNotEmpty ? body : '${_actorName(data)} הגיב על תגובה שלך';
       case NotificationTypes.weeklyChallengeUpdated:
+      case NotificationTypes.dailyChallengeUpdated:
       case NotificationTypes.weeklyStars:
       case NotificationTypes.newFollower:
       case NotificationTypes.newFriend:
-      case NotificationTypes.discoveryReminder:
+      case NotificationTypes.spontaneousReminder:
+      case NotificationTypes.spontaneousTimeWarning:
         return body;
       case NotificationTypes.popJoin:
         return body.isNotEmpty ? body : 'הצטרפות דרך פופ';
@@ -674,6 +729,8 @@ class _NotificationsPreviewScreenState
         return Icons.reply_rounded;
       case NotificationTypes.weeklyChallengeUpdated:
         return Icons.bolt_rounded;
+      case NotificationTypes.dailyChallengeUpdated:
+        return Icons.today_rounded;
       case NotificationTypes.weeklyStars:
         return Icons.star_rounded;
       case NotificationTypes.newFollower:
@@ -688,8 +745,9 @@ class _NotificationsPreviewScreenState
         return Icons.group_add_rounded;
       case NotificationTypes.newMessage:
         return Icons.chat_bubble_rounded;
-      case NotificationTypes.discoveryReminder:
-        return Icons.explore_rounded;
+      case NotificationTypes.spontaneousReminder:
+      case NotificationTypes.spontaneousTimeWarning:
+        return Icons.flash_on_rounded;
       default:
         return Icons.notifications_rounded;
     }
@@ -908,7 +966,6 @@ class _NotificationsPreviewScreenState
 
   Future<List<String>> _notificationLikeAvatarUrlsFuture(
       Map<String, dynamic> data) async {
-    final post = await _cachedPostFuture(_postId(data));
     final result = <String>[];
     final seen = <String>{};
 
@@ -920,6 +977,23 @@ class _NotificationsPreviewScreenState
       result.add(normalized);
     }
 
+    final recentLikeActorUids =
+        (data['recentLikeActorUids'] as List<dynamic>? ?? const <dynamic>[])
+            .map((item) => item.toString().trim())
+            .where((uid) => uid.isNotEmpty)
+            .toList(growable: false);
+
+    if (recentLikeActorUids.isNotEmpty) {
+      for (final uid in recentLikeActorUids) {
+        final avatarUrl = await _profileAvatarFuture(uid);
+        addUrl(avatarUrl);
+        if (result.length >= 3) {
+          return result;
+        }
+      }
+    }
+
+    final post = await _cachedPostFuture(_postId(data));
     if (post != null) {
       final likes = (post['likes'] as List<dynamic>? ?? const <dynamic>[])
           .map((item) => item.toString().trim())
@@ -953,6 +1027,8 @@ class _NotificationsPreviewScreenState
         return const Color(0xFF9E7CFF);
       case NotificationTypes.weeklyChallengeUpdated:
         return const Color(0xFF7B79FF);
+      case NotificationTypes.dailyChallengeUpdated:
+        return const Color(0xFF53C1F9);
       case NotificationTypes.weeklyStars:
         return const Color(0xFFFFD166);
       case NotificationTypes.newFollower:
@@ -963,8 +1039,9 @@ class _NotificationsPreviewScreenState
         return const Color(0xFF7EE0B8);
       case NotificationTypes.newMessage:
         return const Color(0xFF8EDEFF);
-      case NotificationTypes.discoveryReminder:
-        return const Color(0xFF9E7CFF);
+      case NotificationTypes.spontaneousReminder:
+      case NotificationTypes.spontaneousTimeWarning:
+        return const Color(0xFFFFB347);
       default:
         return const Color(0xFF53C1F9);
     }

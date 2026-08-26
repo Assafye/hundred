@@ -5,7 +5,11 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/widgets.dart';
 import 'package:geolocator/geolocator.dart';
 
+import 'geohash_utils.dart';
+
 class LocationService with WidgetsBindingObserver {
+  static const Duration _activeMeetNowPostLifetime = Duration(hours: 24);
+
   LocationService({
     FirebaseAuth? auth,
     FirebaseFirestore? firestore,
@@ -19,6 +23,66 @@ class LocationService with WidgetsBindingObserver {
   DateTime? _lastSyncAt;
   bool _started = false;
   bool _syncInFlight = false;
+
+  Future<void> _syncActiveMeetNowPostsLocation({
+    required String uid,
+    required GeoPoint geoPoint,
+  }) async {
+    final authoredPosts =
+        await _firestore.collection('meet_now_posts').where('authorUid', isEqualTo: uid).get();
+    if (authoredPosts.docs.isEmpty) {
+      return;
+    }
+
+    final now = DateTime.now();
+    final geohash = GeoHashUtils.encodeGeoPoint(geoPoint);
+    WriteBatch? batch;
+    var writesInBatch = 0;
+
+    Future<void> commitBatchIfNeeded({bool force = false}) async {
+      if (batch == null || writesInBatch == 0) {
+        return;
+      }
+      if (!force && writesInBatch < 450) {
+        return;
+      }
+
+      final batchToCommit = batch!;
+      batch = null;
+      writesInBatch = 0;
+      await batchToCommit.commit();
+    }
+
+    for (final doc in authoredPosts.docs) {
+      final data = doc.data();
+      final status = (data['status'] as String? ?? 'active').trim().toLowerCase();
+      if (status != 'active') {
+        continue;
+      }
+
+      final createdAt = data['createdAt'];
+      final createdAtDate = createdAt is Timestamp
+          ? createdAt.toDate()
+          : createdAt is DateTime
+              ? createdAt
+              : null;
+      if (createdAtDate != null &&
+          now.difference(createdAtDate) > _activeMeetNowPostLifetime) {
+        continue;
+      }
+
+      batch ??= _firestore.batch();
+      batch!.set(doc.reference, {
+        'geo': geoPoint,
+        'geohash': geohash,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      writesInBatch += 1;
+      await commitBatchIfNeeded();
+    }
+
+    await commitBatchIfNeeded(force: true);
+  }
 
   Future<void> start() async {
     if (_started) {
@@ -101,9 +165,10 @@ class LocationService with WidgetsBindingObserver {
 
       _lastPosition = position;
       _lastSyncAt = DateTime.now();
+      final geoPoint = GeoPoint(position.latitude, position.longitude);
 
       final payload = <String, dynamic>{
-        'geo': GeoPoint(position.latitude, position.longitude),
+        'geo': geoPoint,
         'latitude': position.latitude,
         'longitude': position.longitude,
         'locationUpdatedAt': FieldValue.serverTimestamp(),
@@ -123,6 +188,7 @@ class LocationService with WidgetsBindingObserver {
           },
           SetOptions(merge: true),
         ),
+        _syncActiveMeetNowPostsLocation(uid: uid, geoPoint: geoPoint),
       ]);
     } catch (error) {
       debugPrint('[LocationService] sync failed: $error');

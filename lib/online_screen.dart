@@ -40,6 +40,11 @@ class _OnlineScreenState extends State<OnlineScreen>
   static const Duration _meetNowPostLifetime = Duration(hours: 24);
   static const Duration _meetNowRefreshInterval = Duration(seconds: 15);
   static const double _friendItemExtent = 88;
+  static const int _initialMeetNowVisibleCount = 60;
+  static const int _meetNowVisibleCountStep = 30;
+  static const double _meetNowLoadMoreThreshold = 320;
+  static const Duration _meetNowLoadMoreCooldown =
+      Duration(milliseconds: 320);
 
   final AppHomeService _homeService = AppHomeService();
   final GroupService _groupService = GroupService();
@@ -47,6 +52,7 @@ class _OnlineScreenState extends State<OnlineScreen>
   final BlockUserService _blockUserService = BlockUserService();
 
   late final AnimationController _spaceUsersController;
+  late final ScrollController _mainScrollController;
   late final ScrollController _friendsLoopController;
   late final ScrollController _upcomingGroupsScrollController;
   late final ValueNotifier<int> _sectionRefreshTick;
@@ -55,7 +61,7 @@ class _OnlineScreenState extends State<OnlineScreen>
   late final Stream<List<HomeFriendEntry>> _connectedFriendsStream;
   late final Stream<DateTime?> _forcedOnlineUntilStream;
   late final Stream<List<HomePublicGroupEntry>> _upcomingGroupsStream;
-  late final Stream<List<MeetNowPostEntry>> _meetNowPostsStream;
+  late Stream<List<MeetNowPostEntry>> _meetNowPostsStream;
 
   Timer? _meetNowRefreshTimer;
   StreamSubscription<Set<String>>? _joinedMeetPostsSub;
@@ -84,11 +90,75 @@ class _OnlineScreenState extends State<OnlineScreen>
         _meetFilterAgeRange.end != maximumAgeRange;
   }
 
+  int _visibleMeetNowPostCount = _initialMeetNowVisibleCount;
+  int _latestMeetNowFilteredCount = 0;
+  int? _lastMeetNowQueryTargetCount;
+  DateTime _lastMeetNowLoadMoreAt =
+      DateTime.fromMillisecondsSinceEpoch(0);
+  DateTime? _meetNowQueryStartedAt;
+  bool _hasLoggedMeetNowFirstPaint = false;
+  int _droppedFrameEvents = 0;
+  int _sampledFrames = 0;
+  DateTime _lastFrameTelemetryAt = DateTime.now();
+  List<MeetNowPostEntry> _cachedMeetNowEntries = const <MeetNowPostEntry>[];
+
+  int get _meetNowQueryTargetCount {
+    return _visibleMeetNowPostCount;
+  }
+
+  void _onFrameTimings(List<FrameTiming> timings) {
+    _sampledFrames += timings.length;
+    for (final timing in timings) {
+      if (timing.totalSpan > const Duration(milliseconds: 16)) {
+        _droppedFrameEvents += 1;
+      }
+    }
+
+    final now = DateTime.now();
+    if (now.difference(_lastFrameTelemetryAt) >= const Duration(seconds: 30)) {
+      debugPrint(
+        '[OnlineScreen][Perf] sampledFrames=$_sampledFrames droppedFrameEvents=$_droppedFrameEvents',
+      );
+      _lastFrameTelemetryAt = now;
+    }
+  }
+
+  void _onMeetNowTelemetry(MeetNowStreamTelemetry telemetry) {
+    debugPrint(
+      '[OnlineScreen][MeetNowTelemetry] docs=${telemetry.rawDocCount} emitted=${telemetry.emittedEntryCount} '
+      'candidateLimit=${telemetry.candidateLimit} precision=${telemetry.activePrecision} '
+      'geoQueries=${telemetry.activeGeoQueryCount} sortMs=${telemetry.sortDurationMs}',
+    );
+  }
+
+  void _reportMeetNowFirstPaintIfNeeded(int visibleCount) {
+    if (_hasLoggedMeetNowFirstPaint || visibleCount <= 0) {
+      return;
+    }
+
+    _hasLoggedMeetNowFirstPaint = true;
+    final startedAt = _meetNowQueryStartedAt;
+    if (startedAt == null) {
+      return;
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+
+      final elapsedMs = DateTime.now().difference(startedAt).inMilliseconds;
+      debugPrint('[OnlineScreen][Perf] meetNowFirstPaintMs=$elapsedMs');
+    });
+  }
+
   @override
   void initState() {
     super.initState();
     KeyboardDismissController.suspend();
     _sectionRefreshTick = ValueNotifier<int>(0);
+    _mainScrollController = ScrollController()
+      ..addListener(_handleMainScroll);
     _spaceUsersController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 14),
@@ -103,7 +173,8 @@ class _OnlineScreenState extends State<OnlineScreen>
     _forcedOnlineUntilStream = _homeService.streamMyForcedOnlineUntil();
     _upcomingGroupsStream =
         _homeService.streamUpcomingPublicGroups(withinDays: 7);
-    _meetNowPostsStream = _homeService.streamMeetNowPosts();
+    _configureMeetNowPostsStream();
+    WidgetsBinding.instance.addTimingsCallback(_onFrameTimings);
     _meetNowRefreshTimer = Timer.periodic(_meetNowRefreshInterval, (_) {
       if (!mounted) {
         return;
@@ -127,6 +198,9 @@ class _OnlineScreenState extends State<OnlineScreen>
     KeyboardDismissController.resume();
     _meetNowRefreshTimer?.cancel();
     _joinedMeetPostsSub?.cancel();
+    WidgetsBinding.instance.removeTimingsCallback(_onFrameTimings);
+    _mainScrollController.removeListener(_handleMainScroll);
+    _mainScrollController.dispose();
     _friendsLoopController.dispose();
     _upcomingGroupsScrollController.dispose();
     _spaceUsersController.dispose();
@@ -152,6 +226,56 @@ class _OnlineScreenState extends State<OnlineScreen>
       return;
     }
     FocusManager.instance.primaryFocus?.unfocus();
+  }
+
+  void _resetMeetNowVisibleCount() {
+    _visibleMeetNowPostCount = _initialMeetNowVisibleCount;
+  }
+
+  void _configureMeetNowPostsStream() {
+    final targetCount = _meetNowQueryTargetCount;
+    if (_lastMeetNowQueryTargetCount == targetCount) {
+      return;
+    }
+    _lastMeetNowQueryTargetCount = targetCount;
+    _meetNowQueryStartedAt = DateTime.now();
+    _hasLoggedMeetNowFirstPaint = false;
+    _meetNowPostsStream = _homeService.streamMeetNowPosts(
+      candidateLimit: targetCount,
+      onTelemetry: _onMeetNowTelemetry,
+    );
+  }
+
+  void _handleMainScroll() {
+    if (!_mainScrollController.hasClients) {
+      return;
+    }
+    if (_mainScrollController.position.extentAfter >
+        _meetNowLoadMoreThreshold) {
+      return;
+    }
+    _maybeLoadMoreMeetNowPosts();
+  }
+
+  void _maybeLoadMoreMeetNowPosts() {
+    final now = DateTime.now();
+    if (now.difference(_lastMeetNowLoadMoreAt) < _meetNowLoadMoreCooldown) {
+      return;
+    }
+
+    final nextVisibleCount = math.min(
+      _visibleMeetNowPostCount + _meetNowVisibleCountStep,
+      _latestMeetNowFilteredCount,
+    );
+    if (nextVisibleCount <= _visibleMeetNowPostCount) {
+      return;
+    }
+
+    _lastMeetNowLoadMoreAt = now;
+    setState(() {
+      _visibleMeetNowPostCount = nextVisibleCount;
+      _configureMeetNowPostsStream();
+    });
   }
 
   Future<void> _scrollUpcomingGroupsForward() async {
@@ -845,6 +969,8 @@ class _OnlineScreenState extends State<OnlineScreen>
                                   _meetFilterAgeRange = draftAgeRange;
                                   _meetFilterCategory = draftCategory;
                                   _meetFilterSubCategory = draftSubCategory;
+                                  _resetMeetNowVisibleCount();
+                                  _configureMeetNowPostsStream();
                                 });
                                 Navigator.of(sheetContext).pop();
                               },
@@ -3979,6 +4105,8 @@ class _OnlineScreenState extends State<OnlineScreen>
                   _meetFilterMinScore = null;
                   _meetFilterCategory = null;
                   _meetFilterSubCategory = null;
+                  _resetMeetNowVisibleCount();
+                  _configureMeetNowPostsStream();
                 });
               },
               child: const Text('נקה'),
@@ -3994,10 +4122,18 @@ class _OnlineScreenState extends State<OnlineScreen>
     return StreamBuilder<List<MeetNowPostEntry>>(
       stream: _meetNowPostsStream,
       builder: (context, snapshot) {
-        final allEntries = snapshot.data ?? const <MeetNowPostEntry>[];
+        if (snapshot.hasData) {
+          _cachedMeetNowEntries = snapshot.data!;
+        }
+        final allEntries = snapshot.data ?? _cachedMeetNowEntries;
+        final isSoftLoading =
+            snapshot.connectionState == ConnectionState.waiting &&
+                !snapshot.hasData &&
+                _cachedMeetNowEntries.isNotEmpty;
 
         if (snapshot.connectionState == ConnectionState.waiting &&
-            !snapshot.hasData) {
+            !snapshot.hasData &&
+            _cachedMeetNowEntries.isEmpty) {
           return const Padding(
             padding: EdgeInsets.symmetric(vertical: 30),
             child: Center(child: CircularProgressIndicator()),
@@ -4016,26 +4152,40 @@ class _OnlineScreenState extends State<OnlineScreen>
               valueListenable: _sectionRefreshTick,
               builder: (context, _, __) {
                 final entries = _applyMeetFilters(visibleEntries);
-                return Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
-                  child: Directionality(
-                    textDirection: TextDirection.rtl,
-                    child: GridView.builder(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      itemCount: entries.length + 1,
-                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 3,
-                        crossAxisSpacing: 10,
-                        mainAxisSpacing: 10,
-                        childAspectRatio: 0.58,
+                _latestMeetNowFilteredCount = entries.length;
+                final pagedEntries = entries
+                    .take(_visibleMeetNowPostCount)
+                    .toList(growable: false);
+                _reportMeetNowFirstPaintIfNeeded(pagedEntries.length);
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (isSoftLoading)
+                      const Padding(
+                        padding: EdgeInsets.fromLTRB(16, 0, 16, 10),
+                        child: LinearProgressIndicator(minHeight: 2),
                       ),
-                      itemBuilder: (context, index) {
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
+                      child: Directionality(
+                        textDirection: TextDirection.rtl,
+                        child: GridView.builder(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          itemCount: pagedEntries.length + 1,
+                          gridDelegate:
+                              const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 3,
+                            crossAxisSpacing: 10,
+                            mainAxisSpacing: 10,
+                            childAspectRatio: 0.58,
+                          ),
+                          itemBuilder: (context, index) {
                         if (index == 0) {
                           return _buildStaticDiscoverPopCard();
                         }
 
-                        final entry = entries[index - 1];
+                        final entry = pagedEntries[index - 1];
                         final card = Container(
                           decoration: BoxDecoration(
                             color: isLight ? Colors.white : null,
@@ -4196,16 +4346,18 @@ class _OnlineScreenState extends State<OnlineScreen>
                           ),
                         );
 
-                        return GestureDetector(
-                          onTap: () => _openMeetPostsViewer(
-                            entries: entries,
-                            initialIndex: index - 1,
-                          ),
-                          child: card,
-                        );
-                      },
+                            return GestureDetector(
+                              onTap: () => _openMeetPostsViewer(
+                                entries: entries,
+                                initialIndex: index - 1,
+                              ),
+                              child: card,
+                            );
+                          },
+                        ),
+                      ),
                     ),
-                  ),
+                  ],
                 );
               },
             );
@@ -5027,6 +5179,7 @@ class _OnlineScreenState extends State<OnlineScreen>
               behavior: HitTestBehavior.translucent,
               onPointerDown: _dismissKeyboardOnBackgroundTap,
               child: SingleChildScrollView(
+                controller: _mainScrollController,
               physics: const BouncingScrollPhysics(),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,

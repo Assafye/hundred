@@ -35,6 +35,25 @@ class GroupService {
   final NotificationService _notificationService = NotificationService();
   final SecureActionQueueService _secureQueue = SecureActionQueueService();
 
+  Future<void> _notifyGroupJoinParticipants({
+    required String groupId,
+    required String groupName,
+    required String joiningUid,
+  }) async {
+    final memberUids = await fetchMembershipUids(groupId);
+    for (final memberUid in memberUids) {
+      if (memberUid == joiningUid) {
+        continue;
+      }
+      await _notificationService.sendGroupJoinNotification(
+        recipientUid: memberUid,
+        groupId: groupId,
+        groupName: groupName,
+        joiningUid: joiningUid,
+      );
+    }
+  }
+
   bool _isPermissionDenied(Object error) {
     return error is FirebaseException && error.code == 'permission-denied';
   }
@@ -376,8 +395,7 @@ class GroupService {
             joiningUid: uid,
           );
         } else {
-          await _notificationService.sendGroupJoinNotification(
-            recipientUid: groupAdminUid,
+          await _notifyGroupJoinParticipants(
             groupId: groupId,
             groupName: groupName,
             joiningUid: uid,
@@ -541,8 +559,7 @@ class GroupService {
           joiningUid: uid,
         );
       } else {
-        await _notificationService.sendGroupJoinNotification(
-          recipientUid: adminUid,
+        await _notifyGroupJoinParticipants(
           groupId: groupId,
           groupName: groupName,
           joiningUid: uid,
@@ -773,13 +790,20 @@ class GroupService {
 
     final groupData = (await groupRef.get()).data() ?? <String, dynamic>{};
     final groupName = (groupData['groupName'] as String? ?? '').trim();
+    final groupAdminUid = (groupData['adminUid'] as String? ?? '').trim();
+    final shouldRequireApproval =
+        (groupData['isAdminApprovalRequired'] as bool?) ?? false;
     try {
-      await _notificationService.sendAddedToGroupNotification(
-        recipientUid: normalizedTargetUid,
-        groupId: groupId,
-        groupName: groupName,
-        addedByUid: inviterUid,
-      );
+      if (groupAdminUid.isNotEmpty && groupAdminUid != inviterUid) {
+        await _notificationService.sendAddedToGroupNotification(
+          recipientUid: groupAdminUid,
+          groupId: groupId,
+          groupName: groupName,
+          addedByUid: inviterUid,
+          addedUserUid: normalizedTargetUid,
+          requiresApproval: shouldRequireApproval || status == 'pending',
+        );
+      }
     } catch (_) {
       // Invitation itself succeeded; notification dispatch is best-effort.
     }

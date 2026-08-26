@@ -22,10 +22,12 @@ import 'widgets/swipe_back_wrapper.dart';
 
 class StarsScreen extends StatefulWidget {
   final String initialPostId;
+  final bool openSpontaneousModalOnStart;
 
   const StarsScreen({
     super.key,
     this.initialPostId = '',
+    this.openSpontaneousModalOnStart = false,
   });
 
   @override
@@ -179,7 +181,21 @@ class _StarsScreenState extends State<StarsScreen> {
         _hotSectionsFuture = _buildHotSections(blockedUserIds: ids);
       });
     });
-    _loadActiveSpontaneousTask();
+    _loadActiveSpontaneousTask().then((_) {
+      if (!mounted || !widget.openSpontaneousModalOnStart) {
+        return;
+      }
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        if (!mounted) {
+          return;
+        }
+        if (_activeSpontaneousTask != null) {
+          await _openActiveSpontaneousTaskModal();
+        } else {
+          await _openSpontaneousChallengeModal();
+        }
+      });
+    });
   }
 
   @override

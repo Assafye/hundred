@@ -11,7 +11,9 @@ class NotificationTypes {
   static const String groupJoin = 'group_join';
   static const String addedToGroup = 'added_to_group';
   static const String weeklyChallengeUpdated = 'weekly_challenge_updated';
-  static const String discoveryReminder = 'discovery_reminder';
+  static const String dailyChallengeUpdated = 'daily_challenge_updated';
+  static const String spontaneousReminder = 'spontaneous_reminder';
+  static const String spontaneousTimeWarning = 'spontaneous_time_warning';
   static const String weeklyStars = 'weekly_stars';
   static const String newFollower = 'new_follower';
   static const String newFriend = 'new_friend';
@@ -27,7 +29,9 @@ class NotificationSettingKeys {
   static const String groupJoins = 'groupJoins';
   static const String addedToGroups = 'addedToGroups';
   static const String weeklyChallengeUpdates = 'weeklyChallengeUpdates';
-  static const String discoveryReminders = 'discoveryReminders';
+  static const String dailyChallengeUpdates = 'dailyChallengeUpdates';
+  static const String spontaneousReminders = 'spontaneousReminders';
+  static const String spontaneousTimeWarnings = 'spontaneousTimeWarnings';
   static const String weeklyStars = 'weeklyStars';
   static const String newFollowers = 'newFollowers';
   static const String newFriends = 'newFriends';
@@ -59,7 +63,9 @@ class NotificationService {
     NotificationSettingKeys.groupJoins: true,
     NotificationSettingKeys.addedToGroups: true,
     NotificationSettingKeys.weeklyChallengeUpdates: true,
-    NotificationSettingKeys.discoveryReminders: true,
+    NotificationSettingKeys.dailyChallengeUpdates: true,
+    NotificationSettingKeys.spontaneousReminders: true,
+    NotificationSettingKeys.spontaneousTimeWarnings: true,
     NotificationSettingKeys.weeklyStars: true,
     NotificationSettingKeys.newFollowers: true,
     NotificationSettingKeys.newFriends: true,
@@ -76,7 +82,12 @@ class NotificationService {
     NotificationTypes.addedToGroup: NotificationSettingKeys.addedToGroups,
     NotificationTypes.weeklyChallengeUpdated:
         NotificationSettingKeys.weeklyChallengeUpdates,
-    NotificationTypes.discoveryReminder: NotificationSettingKeys.discoveryReminders,
+    NotificationTypes.dailyChallengeUpdated:
+      NotificationSettingKeys.dailyChallengeUpdates,
+    NotificationTypes.spontaneousReminder:
+      NotificationSettingKeys.spontaneousReminders,
+    NotificationTypes.spontaneousTimeWarning:
+      NotificationSettingKeys.spontaneousTimeWarnings,
     NotificationTypes.weeklyStars: NotificationSettingKeys.weeklyStars,
     NotificationTypes.newFollower: NotificationSettingKeys.newFollowers,
     NotificationTypes.newFriend: NotificationSettingKeys.newFriends,
@@ -211,28 +222,89 @@ class NotificationService {
     if (normalizedRecipient.isEmpty || normalizedPostId.isEmpty) return;
 
     final actor = await _actorSummary(senderUid: senderUid);
-    final title = likeCount > 1
-        ? '$likeCount לייקים על הפוסט שלך'
-        : '${actor.name} עשה לך לייק';
-    final body = likeCount > 1
-        ? 'הפוסט שלך צבר $likeCount לייקים'
-        : 'אהבו את הפוסט שלך';
-
-    await createNotification(
-      recipientUid: normalizedRecipient,
-      type: NotificationTypes.postLike,
-      title: title,
-      body: body,
-      actorUid: actor.uid,
-      actorName: actor.name,
-      actorAvatarUrl: actor.avatarUrl,
-      postId: normalizedPostId,
-      postImageUrl: postImageUrl.trim(),
-      extra: <String, dynamic>{
-        'likeCount': likeCount,
-        'updatedAt': FieldValue.serverTimestamp(),
-      },
+    final enabled = await _isNotificationEnabled(
+      uid: normalizedRecipient,
+      settingKey: NotificationSettingKeys.postLikes,
     );
+    if (!enabled) {
+      return;
+    }
+
+    final title = '${actor.name} עשה לך לייק על הפוסט';
+    final body = 'יש לך עכשיו $likeCount לייקים על הפוסט';
+    final notificationsRef =
+        _db.collection('users').doc(normalizedRecipient).collection('notifications');
+    final existingSnapshot = await notificationsRef
+        .where('type', isEqualTo: NotificationTypes.postLike)
+        .where('postId', isEqualTo: normalizedPostId)
+        .limit(1)
+        .get();
+
+    try {
+      await _db.runTransaction((transaction) async {
+        final recentActorUids = <String>[];
+        if (actor.uid.isNotEmpty) {
+          recentActorUids.add(actor.uid);
+        }
+
+        DocumentReference<Map<String, dynamic>>? existingRef;
+        Map<String, dynamic> existingData = <String, dynamic>{};
+        if (existingSnapshot.docs.isNotEmpty) {
+          existingRef = existingSnapshot.docs.first.reference;
+          existingData = existingSnapshot.docs.first.data();
+          final old = (existingData['recentLikeActorUids'] as List<dynamic>? ?? const [])
+              .map((item) => item.toString().trim())
+              .where((item) => item.isNotEmpty)
+              .where((item) => item != actor.uid)
+              .take(2);
+          recentActorUids.addAll(old);
+        }
+
+        final payload = <String, dynamic>{
+          'recipientUid': normalizedRecipient,
+          'type': NotificationTypes.postLike,
+          'title': title,
+          'body': body,
+          'actorUid': actor.uid,
+          'actorName': actor.name,
+          'actorAvatarUrl': actor.avatarUrl,
+          'postId': normalizedPostId,
+          'postImageUrl': postImageUrl.trim(),
+          'isRead': false,
+          'likeCount': likeCount,
+          'recentLikeActorUids': recentActorUids,
+          'updatedAt': FieldValue.serverTimestamp(),
+          'createdAt': FieldValue.serverTimestamp(),
+        };
+
+        if (existingRef != null) {
+          final wasRead = (existingData['isRead'] as bool?) ?? false;
+          transaction.set(existingRef, payload, SetOptions(merge: true));
+          if (wasRead) {
+            transaction.set(
+              _db.collection('users').doc(normalizedRecipient),
+              <String, dynamic>{
+                'unreadNotificationsCount': FieldValue.increment(1),
+              },
+              SetOptions(merge: true),
+            );
+          }
+          return;
+        }
+
+        final newRef = notificationsRef.doc();
+        transaction.set(newRef, payload);
+        transaction.set(
+          _db.collection('users').doc(normalizedRecipient),
+          <String, dynamic>{
+            'unreadNotificationsCount': FieldValue.increment(1),
+          },
+          SetOptions(merge: true),
+        );
+      });
+    } catch (error) {
+      _suspendOnPermissionDenied(error);
+    }
   }
 
   Future<void> sendPostSaveNotification({
@@ -249,8 +321,8 @@ class NotificationService {
     await createNotification(
       recipientUid: normalizedRecipient,
       type: NotificationTypes.postSave,
-      title: '${actor.name} שמר את הפוסט שלך',
-      body: 'שמרו את הפוסט שלך',
+      title: '${actor.name} שמר/ה את הפוסט שלך',
+      body: 'שמר/ה את הפוסט שלך',
       actorUid: actor.uid,
       actorName: actor.name,
       actorAvatarUrl: actor.avatarUrl,
@@ -280,10 +352,8 @@ class NotificationService {
       await createNotification(
         recipientUid: uid,
         type: NotificationTypes.newMessage,
-        title: chatName.trim().isEmpty
-            ? 'הודעות חדשות - ${actor.name}'
-            : 'הודעות חדשות - ${chatName.trim()}',
-        body: messageText.trim(),
+        title: chatName.trim().isEmpty ? actor.name : chatName.trim(),
+        body: '"${messageText.trim()}"',
         actorUid: actor.uid,
         actorName: actor.name,
         actorAvatarUrl: actor.avatarUrl,
@@ -304,8 +374,8 @@ class NotificationService {
     await createNotification(
       recipientUid: recipientUid,
       type: NotificationTypes.postComment,
-      title: '${actor.name} הגיב על הפוסט שלך',
-      body: commentText,
+      title: '"${commentText.trim()}"',
+      body: '${actor.name} הגיב על הפוסט שלך',
       actorUid: actor.uid,
       actorName: actor.name,
       actorAvatarUrl: actor.avatarUrl,
@@ -327,8 +397,8 @@ class NotificationService {
     await createNotification(
       recipientUid: recipientUid,
       type: NotificationTypes.commentReply,
-      title: '${actor.name} הגיב לתגובה שלך',
-      body: replyText,
+      title: '"${replyText.trim()}"',
+      body: '${actor.name} הגיב על תגובה שלך',
       actorUid: actor.uid,
       actorName: actor.name,
       actorAvatarUrl: actor.avatarUrl,
@@ -349,9 +419,9 @@ class NotificationService {
       recipientUid: recipientUid,
       type: NotificationTypes.popJoin,
       title: '${actor.name} הצטרף לפופ שלך',
-      body: groupName.trim().isEmpty
-          ? 'מישהו הצטרף לפופ שיצרת'
-          : '${actor.name} הצטרף דרך הפופ "$groupName"',
+        body: groupName.trim().isEmpty
+          ? '${actor.name} הצטרף לפופ שלך'
+          : '${actor.name} הצטרף לפופ "$groupName"',
       actorUid: actor.uid,
       actorName: actor.name,
       actorAvatarUrl: actor.avatarUrl,
@@ -371,10 +441,10 @@ class NotificationService {
       recipientUid: recipientUid,
       type: NotificationTypes.groupJoin,
       title: groupName.trim().isEmpty
-          ? '${actor.name} הצטרף לקבוצה שלך'
+          ? '${actor.name} הצטרף לקבוצה'
           : '${actor.name} הצטרף לקבוצה "$groupName"',
       body: groupName.trim().isEmpty
-          ? 'משתמש הצטרף לקבוצה שלך'
+          ? '${actor.name} הצטרף לקבוצה'
           : '${actor.name} הצטרף לקבוצה "$groupName"',
       actorUid: actor.uid,
       actorName: actor.name,
@@ -389,22 +459,31 @@ class NotificationService {
     required String groupId,
     required String groupName,
     String? addedByUid,
+    String? addedUserUid,
+    bool requiresApproval = false,
   }) async {
     final actor = await _actorSummary(senderUid: addedByUid);
+    final addedUser = await _actorSummary(senderUid: addedUserUid);
+    final groupLabel = groupName.trim().isEmpty ? 'קבוצה' : '"$groupName"';
+    final body = requiresApproval
+        ? '${actor.name} הוסיף את ${addedUser.name} ל$groupLabel. יש בקשת אישור ממתינה.'
+        : '${actor.name} הוסיף את ${addedUser.name} ל$groupLabel';
     await createNotification(
       recipientUid: recipientUid,
       type: NotificationTypes.addedToGroup,
-      title: groupName.trim().isEmpty
-          ? '${actor.name} הוסיף אותך לקבוצה'
-          : '${actor.name} הוסיף אותך לקבוצה "$groupName"',
-      body: groupName.trim().isEmpty
-          ? 'הצטרפת לקבוצה חדשה'
-          : 'הצטרפת לקבוצה "$groupName"',
+      title: 'הוספת משתמש לקבוצה',
+      body: body,
       actorUid: actor.uid,
       actorName: actor.name,
       actorAvatarUrl: actor.avatarUrl,
       groupId: groupId,
       groupName: groupName,
+      extra: <String, dynamic>{
+        'addedUserUid': addedUser.uid,
+        'addedUserName': addedUser.name,
+        'addedUserAvatarUrl': addedUser.avatarUrl,
+        'requiresApproval': requiresApproval,
+      },
     );
   }
 
@@ -417,21 +496,46 @@ class NotificationService {
         recipientUid: uid,
         type: NotificationTypes.weeklyChallengeUpdated,
         title: 'האתגר השבועי התעדכן',
-        body: challengeLabel.trim(),
+        body: 'אתגר חדש: ${challengeLabel.trim()} | ניקוד כפול',
       );
     }
   }
 
-  Future<void> sendBiDailyDiscoveryReminderToAll() async {
+  Future<void> sendDailyChallengeUpdatedToAll({
+    required String challengeLabel,
+  }) async {
     final allUserIds = await _fetchAllUserIds();
     for (final uid in allUserIds) {
       await createNotification(
         recipientUid: uid,
-        type: NotificationTypes.discoveryReminder,
-        title: 'בא לך לעשות משהו?',
-        body: 'היכנס לראות מה אנשים סביבך מחפשים לעשות.',
+        type: NotificationTypes.dailyChallengeUpdated,
+        title: 'המשימה היומית התעדכנה',
+        body: 'משימה יומית חדשה: ${challengeLabel.trim()}',
       );
     }
+  }
+
+  Future<void> sendSpontaneousReminderNotification({
+    required String recipientUid,
+  }) async {
+    await createNotification(
+      recipientUid: recipientUid,
+      type: NotificationTypes.spontaneousReminder,
+      title: 'בוא נבדוק את הספונטניות שלך',
+      body: 'הגיע הזמן להגריל משימה ולעשות אותה בזמן קצוב.',
+    );
+  }
+
+  Future<void> sendSpontaneousTimeWarningNotification({
+    required String recipientUid,
+    required String warningText,
+  }) async {
+    await createNotification(
+      recipientUid: recipientUid,
+      type: NotificationTypes.spontaneousTimeWarning,
+      title: 'תזכורת למשימה הספונטנית',
+      body: warningText.trim(),
+    );
   }
 
   Future<void> sendWeeklyStarsNotification({
@@ -457,7 +561,8 @@ class NotificationService {
     await createNotification(
       recipientUid: recipientUid,
       type: NotificationTypes.newFollower,
-      title: '${actor.name} התחיל לעקוב אחריך',
+      title: 'עוקב חדש',
+      body: '${actor.name} התחיל לעקוב אחריך',
       actorUid: actor.uid,
       actorName: actor.name,
       actorAvatarUrl: actor.avatarUrl,
@@ -472,7 +577,8 @@ class NotificationService {
     await createNotification(
       recipientUid: recipientUid,
       type: NotificationTypes.newFriend,
-      title: '${actor.name} עכשיו חבר שלך',
+      title: 'חבר חדש',
+      body: '${actor.name} עכשיו חבר שלך',
       actorUid: actor.uid,
       actorName: actor.name,
       actorAvatarUrl: actor.avatarUrl,
