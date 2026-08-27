@@ -78,6 +78,42 @@ List<PostModel> filterFeedPostsForFreshnessAndSeen(
   }).toList(growable: false);
 }
 
+String feedDisplayBatchSignature(List<PostModel> posts) {
+  return posts
+      .map((post) =>
+          '${post.id.trim()}:${post.createdAt?.millisecondsSinceEpoch ?? 0}:${post.category}:${post.subCategory}')
+      .join('|');
+}
+
+bool shouldTriggerExhaustedFeedMessageAfterOverscroll({
+  required int activeFeedIndex,
+  required int feedPostCount,
+  required bool hasMoreUnseenPosts,
+  required double overscroll,
+}) {
+  return overscroll > 0 &&
+      feedPostCount > 0 &&
+      activeFeedIndex >= feedPostCount - 1 &&
+      !hasMoreUnseenPosts;
+}
+
+({String signature, Set<String> seenPostIds}) resolveFeedDisplaySeenSnapshot({
+  required List<PostModel> posts,
+  required Set<String> currentSeenPostIds,
+  required String previousBatchSignature,
+  required Set<String> previousBatchSeenPostIds,
+}) {
+  final signature = feedDisplayBatchSignature(posts);
+  if (signature.isNotEmpty && signature == previousBatchSignature) {
+    return (signature: signature, seenPostIds: previousBatchSeenPostIds);
+  }
+
+  return (
+    signature: signature,
+    seenPostIds: Set<String>.from(currentSeenPostIds),
+  );
+}
+
 class FeedScreen extends StatefulWidget {
   const FeedScreen({
     super.key,
@@ -136,6 +172,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
       <String, Future<List<PostModel>>>{};
   final Map<String, DateTime> _feedSeenHistory = <String, DateTime>{};
   Set<String> _feedSeenIds = <String>{};
+  Set<String> _feedDisplayBatchSeenIds = <String>{};
   bool _hasLoadedSeenFeedHistory = false;
   Offset _heartTapPosition = Offset.zero;
   bool _showDoubleTapHeart = false;
@@ -149,6 +186,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
   late final List<String> categories;
   String _randomizedFeedSignature = '';
   Map<String, int> _randomizedFeedOrder = <String, int>{};
+  String _feedDisplayBatchSignature = '';
   String _lastPrecachedFeedSignature = '';
   bool _didScheduleSpontaneousPrompt = false;
   bool _hasShownExhaustedFeedSheet = false;
@@ -350,11 +388,12 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
         return AnimatedBuilder(
           animation: animation,
           builder: (context, child) {
+            final screenHeight = MediaQuery.of(context).size.height;
             final progress = CurvedAnimation(
               parent: animation,
               curve: Curves.easeOutCubic,
             ).value;
-            final offset = Offset(0, 160 * (1 - progress));
+            final offset = Offset(0, screenHeight * 0.42 * (1 - progress));
             final opacity = progress.clamp(0.0, 1.0);
 
             return Transform.translate(
@@ -3447,8 +3486,34 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
         .toList(growable: false);
   }
 
+  Set<String> _seenIdsForFeedDisplayBatch(List<PostModel> baseFeedPosts) {
+    final snapshot = resolveFeedDisplaySeenSnapshot(
+      posts: baseFeedPosts,
+      currentSeenPostIds: _feedSeenIds,
+      previousBatchSignature: _feedDisplayBatchSignature,
+      previousBatchSeenPostIds: _feedDisplayBatchSeenIds,
+    );
+
+    _feedDisplayBatchSignature = snapshot.signature;
+    _feedDisplayBatchSeenIds = snapshot.seenPostIds;
+    return _feedDisplayBatchSeenIds;
+  }
+
+  void _resetFeedDisplayBatchSnapshot() {
+    _feedDisplayBatchSignature = '';
+    _feedDisplayBatchSeenIds = <String>{};
+  }
+
+  bool _hasMoreUnseenPosts(List<PostModel> baseFeedPosts) {
+    return filterFeedPostsForFreshnessAndSeen(
+      baseFeedPosts,
+      seenPostIds: _feedSeenIds,
+    ).isNotEmpty;
+  }
+
   void _refreshFeedOnScopeSwitch(bool forYouFeed) {
     _hasShownExhaustedFeedSheet = false;
+    _resetFeedDisplayBatchSnapshot();
     setState(() {
       isForYouFeed = forYouFeed;
       _currentFeedPageIndex = 0;
@@ -3759,9 +3824,11 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
 
                     final baseFeedPosts =
                         audienceSnapshot.data ?? const <PostModel>[];
+                    final displaySeenIds =
+                        _seenIdsForFeedDisplayBatch(baseFeedPosts);
                     final feedPosts = filterFeedPostsForFreshnessAndSeen(
                       baseFeedPosts,
-                      seenPostIds: _feedSeenIds,
+                      seenPostIds: displaySeenIds,
                     );
                     final activeFeedIndex = feedPosts.isEmpty
                         ? 0
@@ -3795,43 +3862,53 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                             ? _buildEmptyFeedState(
                                 isForYouFeed: isForYouFeed,
                               )
-                            : PageView.builder(
-                                controller: _pageController,
-                                scrollDirection: Axis.vertical,
-                                allowImplicitScrolling: true,
-                                itemCount: feedPosts.length,
-                                onPageChanged: (index) {
-                                  if (_currentFeedPageIndex == index) return;
+                            : NotificationListener<OverscrollNotification>(
+                                onNotification: (notification) {
+                                  if (notification.metrics.axis !=
+                                      Axis.vertical) {
+                                    return false;
+                                  }
 
-                                  final visiblePost = feedPosts[index];
-                                  _recordSeenFeedPost(visiblePost);
-
-                                  final updatedSeenIds =
-                                      Set<String>.from(_feedSeenIds);
-                                  final remainingAfterSeen =
-                                      filterFeedPostsForFreshnessAndSeen(
-                                    baseFeedPosts,
-                                    seenPostIds: updatedSeenIds,
+                                  final safeIndex = activeFeedIndex.clamp(
+                                      0, feedPosts.length - 1);
+                                  _recordSeenFeedPost(feedPosts[safeIndex]);
+                                  final shouldShow =
+                                      shouldTriggerExhaustedFeedMessageAfterOverscroll(
+                                    activeFeedIndex: safeIndex,
+                                    feedPostCount: feedPosts.length,
+                                    hasMoreUnseenPosts:
+                                        _hasMoreUnseenPosts(baseFeedPosts),
+                                    overscroll: notification.overscroll,
                                   );
-
-                                  setState(() {
-                                    _currentFeedPageIndex = index;
-                                  });
-
-                                  if (index == feedPosts.length - 1 &&
-                                      remainingAfterSeen.isEmpty &&
-                                      !_hasShownExhaustedFeedSheet) {
+                                  if (shouldShow) {
                                     unawaited(_showExhaustedFeedMessage());
                                   }
+                                  return false;
                                 },
-                                itemBuilder: (context, index) {
-                                  final visiblePost = feedPosts[index];
-                                  return _buildPostBlock(
-                                    visiblePost,
-                                    isActive: _isFeedInForeground &&
-                                        index == activeFeedIndex,
-                                  );
-                                },
+                                child: PageView.builder(
+                                  controller: _pageController,
+                                  scrollDirection: Axis.vertical,
+                                  allowImplicitScrolling: true,
+                                  itemCount: feedPosts.length,
+                                  onPageChanged: (index) {
+                                    if (_currentFeedPageIndex == index) return;
+
+                                    final visiblePost = feedPosts[index];
+                                    _recordSeenFeedPost(visiblePost);
+
+                                    setState(() {
+                                      _currentFeedPageIndex = index;
+                                    });
+                                  },
+                                  itemBuilder: (context, index) {
+                                    final visiblePost = feedPosts[index];
+                                    return _buildPostBlock(
+                                      visiblePost,
+                                      isActive: _isFeedInForeground &&
+                                          index == activeFeedIndex,
+                                    );
+                                  },
+                                ),
                               ),
                       ),
                       floatingActionButton:
@@ -5350,6 +5427,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                           final isSelected = selectedCategory == category;
                           return InkWell(
                             onTap: () {
+                              _resetFeedDisplayBatchSnapshot();
                               setState(() {
                                 selectedCategory = category;
                                 selectedSubCategory = _allSubCategoriesLabel;
@@ -5402,6 +5480,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                           final isSelected = selectedSubCategory == subCategory;
                           return InkWell(
                             onTap: () {
+                              _resetFeedDisplayBatchSnapshot();
                               setState(() {
                                 selectedSubCategory = subCategory;
                                 isSubCategoryMenuOpen = false;

@@ -42,6 +42,90 @@ void main() {
     expect(filtered.map((post) => post.id), ['fresh-post']);
   });
 
+  test('keeps current feed batch stable after visible post is marked seen', () {
+    final now = DateTime(2026, 8, 24, 12, 0, 0);
+    final firstPost = PostModel(
+      id: 'first-post',
+      category: 'general',
+      createdAt: now.subtract(const Duration(hours: 1)),
+      colors: const [Color(0xFF8C62FF), Color(0xFF46D3FF)],
+    );
+
+    final initialSnapshot = resolveFeedDisplaySeenSnapshot(
+      posts: [firstPost],
+      currentSeenPostIds: const <String>{},
+      previousBatchSignature: '',
+      previousBatchSeenPostIds: const <String>{},
+    );
+
+    expect(
+      filterFeedPostsForFreshnessAndSeen(
+        [firstPost],
+        seenPostIds: initialSnapshot.seenPostIds,
+        now: now,
+      ).map((post) => post.id),
+      ['first-post'],
+    );
+
+    final afterVisiblePostWasSeen = resolveFeedDisplaySeenSnapshot(
+      posts: [firstPost],
+      currentSeenPostIds: const {'first-post'},
+      previousBatchSignature: initialSnapshot.signature,
+      previousBatchSeenPostIds: initialSnapshot.seenPostIds,
+    );
+
+    expect(
+      filterFeedPostsForFreshnessAndSeen(
+        [firstPost],
+        seenPostIds: afterVisiblePostWasSeen.seenPostIds,
+        now: now,
+      ).map((post) => post.id),
+      ['first-post'],
+    );
+  });
+
+  test('exhausted message triggers only on overscroll past last post', () {
+    expect(
+      shouldTriggerExhaustedFeedMessageAfterOverscroll(
+        activeFeedIndex: 1,
+        feedPostCount: 2,
+        hasMoreUnseenPosts: false,
+        overscroll: 18,
+      ),
+      isTrue,
+    );
+
+    expect(
+      shouldTriggerExhaustedFeedMessageAfterOverscroll(
+        activeFeedIndex: 1,
+        feedPostCount: 2,
+        hasMoreUnseenPosts: false,
+        overscroll: 0,
+      ),
+      isFalse,
+    );
+
+    expect(
+      shouldTriggerExhaustedFeedMessageAfterOverscroll(
+        activeFeedIndex: 0,
+        feedPostCount: 2,
+        hasMoreUnseenPosts: false,
+        overscroll: 18,
+      ),
+      isFalse,
+    );
+
+    expect(
+      shouldTriggerExhaustedFeedMessageAfterOverscroll(
+        activeFeedIndex: 1,
+        feedPostCount: 2,
+        hasMoreUnseenPosts: true,
+        overscroll: 18,
+      ),
+      isFalse,
+    );
+  });
+
   test('drops expired public groups from chats display', () {
     final now = DateTime(2026, 8, 24, 12, 0, 0);
 
@@ -56,7 +140,8 @@ void main() {
     expect(isPublicGroupStillActive(expired, now: now), isFalse);
   });
 
-  test('upcoming public groups exclude same-day events that already started', () {
+  test('upcoming public groups exclude same-day events that already started',
+      () {
     final now = DateTime(2026, 8, 24, 18, 0, 0);
     final start = DateTime(2026, 8, 24, 0, 0, 0);
     final endExclusive = start.add(const Duration(days: 7));
@@ -91,7 +176,8 @@ void main() {
     );
   });
 
-  test('search text matches user and group names across real field aliases', () {
+  test('search text matches user and group names across real field aliases',
+      () {
     final userData = {
       'displayName': 'דיכבר',
       'username': '@dichbar',
