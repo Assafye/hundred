@@ -17,14 +17,14 @@ const String privacyPolicyText = '''מדיניות פרטיות
 אנו עשויים לאסוף ולעבד את סוגי המידע הבאים:
 פרטי חשבון וזהות משתמש: כתובת דוא"ל, שם משתמש, שם פרטי, שם משפחה, שם תצוגה, מספר טלפון, תאריך לידה.
 נתוני פרופיל ותוכן: תמונות פרופיל, ביוגרפיה, מוטו, פוסטים, תגובות, הודעות, מדיה (תמונות/וידאו/אודיו), אינטראקציות (לייקים, שמירות, שיתופים).
-נתוני מיקום: נתוני מיקום מדויקים (לרבות קואורדינטות), חותמות זמן ועדכוני מיקום לצורך תפקוד תכונות ליבה מבוססות קרבה.
+נתוני מיקום: נתוני מיקום מדויקים (לרבות קואורדינטות), חותמות זמן ועדכוני מיקום. המיקום המדויק משמש להצגת משתמשים, פופים ופעילויות בקרבת המשתמש ולדירוגם לפי קרבה.
 נתוני נוכחות ופעילות: סטטוס אונליין/אופליין, זמן נראה לאחרונה, שימוש בתכונות בתוך האפליקציה.
 נתוני התראות: העדפות התראות, התראות בתוך האפליקציה והתראות Push למכשיר.
 מידע טכני ואבטחתי: מזהים טכניים, לוגים תפעוליים, נתוני אמינות ואבטחה הנאספים או מעובדים באמצעות ספקי תשתית.
 
 הרשאות מכשיר
 האפליקציה עשויה לבקש הרשאות למיקום, מצלמה, מיקרופון וגלריה/תמונות.
-מיקום: נדרש לתפקוד מיטבי ומהותי של תכונות האפליקציה. ללא הרשאת מיקום, חלקים מרכזיים בשירות עלולים שלא לפעול.
+מיקום: נדרש להצגת משתמשים, פופים ופעילויות בקרבתך ולדירוגם לפי קרבה. ללא הרשאת מיקום, פיצ'ר הפופים אינו זמין.
 מצלמה/גלריה: לצילום ובחירת מדיה עבור פרופיל, פוסטים וצ'אטים.
 מיקרופון: להקלטת אודיו בעת יצירת תוכן או שליחת הודעות קוליות.
 התראות: התראות בתוך האפליקציה וכן Push Notifications לתקשורת תפעולית ושירותית.
@@ -58,6 +58,11 @@ const String privacyPolicyText = '''מדיניות פרטיות
 נתונים ציבוריים ופרטיות בתוך האפליקציה
 חלק מהמידע נועד להצגה למשתמשים אחרים לפי אופי השירות (כגון פרופיל ציבורי, תוכן שפורסם ואינטראקציות מסוימות).
 באחריות המשתמש לשקול היטב איזה מידע לפרסם או לשתף עם אחרים.
+
+מיקום ופופים
+האפליקציה משתמשת במיקום המדויק של המשתמש לצורך חישוב קרבה, אך אינה מציגה למשתמשים אחרים את מיקומו המדויק, קואורדינטות GPS או מרחק מדויק.
+כאשר משתמש בוחר לפרסם פופ, משתמשים אחרים עשויים לראות רק טווח מרחק כללי ביחס אליו, כגון פחות מקילומטר או 1-3 קילומטרים.
+טווח המרחק מוצג רק ביחס לפופ שפורסם. לאחר 24 שעות מפרסום הפופ, משתמשים אחרים אינם יכולים עוד לראות את טווח המרחק הקשור לאותו פופ.
 
 מחיקת חשבון ומשמעותה בפועל
 בעת מחיקת חשבון, אנו מיישמים את המנגנון הבא:
@@ -106,14 +111,14 @@ Data We Collect
 We may collect and process:
 Account and identity data: email, username, first name, last name, display name, phone number, date of birth.
 Profile and content data: profile photos, bio, motto, posts, comments, messages, media (images/video/audio), interactions (likes, saves, shares).
-Location data: precise location data (including coordinates), timestamps, and location updates for core proximity-based features.
+Location data: precise location data (including coordinates), timestamps, and location updates. Exact location is used to show and rank nearby users, Pops, and activities.
 Presence and activity data: online/offline status, last seen, in-app feature usage.
 Notification data: notification preferences, in-app notifications, and push notifications.
 Technical/security data: technical identifiers, operational logs, reliability and security-related data processed through infrastructure providers.
 
 Device Permissions
 The App may request location, camera, microphone, and photo/gallery permissions.
-Location: required for optimal and core service functionality. Without location permission, key features may not work properly.
+Location: required to show and rank nearby users, Pops, and activities. Without location permission, the Pop feature is unavailable.
 Camera/Photos: for capturing and selecting media for profile, posts, and chats.
 Microphone: for audio capture and voice messages.
 Notifications: in-app notifications and push notifications for operational/service communication.
@@ -147,6 +152,11 @@ Data may be processed outside Israel depending on infrastructure architecture. I
 Public Data in the App
 Some data is intended to be visible to other users as part of the service design (for example, public profile elements, published content, certain interactions).
 Users are responsible for what they choose to publish or share.
+
+Location and Pops
+The App uses a user's exact location to calculate proximity, but does not show other users the person's exact location, GPS coordinates, or an exact distance.
+When a user chooses to publish a Pop, other users may see only a general distance range in relation to that user, such as under 1 km or 1-3 km.
+The distance range is shown only in connection with a published Pop. After 24 hours from publication, other users can no longer see the distance range associated with that Pop.
 
 Account Deletion and Actual Effect
 When account deletion is initiated, we currently apply the following:

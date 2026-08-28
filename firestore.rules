@@ -552,6 +552,12 @@ service cloud.firestore {
         request.resource.data.linkedGroupId != '';
     }
 
+    function hasNoExactLocationFields(data) {
+      return !('geo' in data) &&
+        !('latitude' in data) &&
+        !('longitude' in data);
+    }
+
     function isPopGroupCreateForAuthorAdmin() {
       return isSignedIn() &&
         request.resource.data.originType == 'pop' &&
@@ -648,9 +654,12 @@ service cloud.firestore {
 
     match /meet_now_posts/{postId} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn() && request.resource.data.authorUid == request.auth.uid;
-      allow update: if (isSignedIn() && resource.data.authorUid == request.auth.uid) ||
-        isMeetNowLinkingUpdate();
+      allow create: if isSignedIn() &&
+        request.resource.data.authorUid == request.auth.uid &&
+        hasNoExactLocationFields(request.resource.data);
+      allow update: if hasNoExactLocationFields(request.resource.data) &&
+        ((isSignedIn() && resource.data.authorUid == request.auth.uid) ||
+          isMeetNowLinkingUpdate());
       allow delete: if isSignedIn() && resource.data.authorUid == request.auth.uid;
     }
 
@@ -666,7 +675,23 @@ service cloud.firestore {
 
     match /users/{document} {
       allow read, list: if request.auth != null;
-      allow create, update, delete: if isSelf(document);
+      allow create: if isSelf(document) &&
+        hasNoExactLocationFields(request.resource.data);
+      allow update: if isSelf(document) &&
+        hasNoExactLocationFields(request.resource.data);
+      allow delete: if isSelf(document);
+
+      match /private/location {
+        allow read, create, update, delete: if isSelf(document);
+      }
+
+      match /hidden_meet_now_posts/{postId} {
+        allow read: if isSelf(document);
+        allow create: if isSelf(document) &&
+          request.resource.data.keys().hasOnly(['postId', 'reportedAt']) &&
+          request.resource.data.postId == postId;
+        allow update, delete: if false;
+      }
 
       match /blocked_users/{blockedUid} {
         allow read: if isSelf(document) || (
@@ -731,7 +756,7 @@ service cloud.firestore {
           'createdAt',
           'updatedAt'
         ]) &&
-        request.resource.data.targetType in ['user', 'post', 'comment'] &&
+        request.resource.data.targetType in ['user', 'post', 'comment', 'meet_now_post'] &&
         request.resource.data.targetUserUid is string &&
         request.resource.data.targetPostId is string &&
         request.resource.data.targetCommentId is string &&

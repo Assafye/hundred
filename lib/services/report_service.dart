@@ -97,6 +97,72 @@ class ReportService {
     });
   }
 
+  Stream<Set<String>> streamReportedMeetNowPostIds() {
+    final reporterUid = _auth.currentUser?.uid.trim() ?? '';
+    if (reporterUid.isEmpty) {
+      return Stream<Set<String>>.value(const <String>{});
+    }
+
+    return _db
+        .collection('users')
+        .doc(reporterUid)
+        .collection('hidden_meet_now_posts')
+        .snapshots()
+        .map(
+          (snapshot) => snapshot.docs
+              .map((document) => document.id.trim())
+              .where((postId) => postId.isNotEmpty)
+              .toSet(),
+        );
+  }
+
+  Future<void> submitMeetNowPostReport({
+    required String targetPostId,
+    required String targetUserUid,
+    required ReportReasonOption reason,
+    required String details,
+  }) async {
+    final reporterUid = _requireCurrentUid();
+    final normalizedPostId = targetPostId.trim();
+    final normalizedTargetUserUid = targetUserUid.trim();
+    final normalizedDetails = details.trim();
+    if (normalizedPostId.isEmpty ||
+        normalizedTargetUserUid.isEmpty ||
+        normalizedDetails.isEmpty) {
+      throw ArgumentError('Missing required report fields.');
+    }
+
+    final batch = _db.batch();
+    batch.set(
+      _db.collection('reports').doc(),
+      <String, dynamic>{
+        'reporterUid': reporterUid,
+        'targetType': 'meet_now_post',
+        'targetUserUid': normalizedTargetUserUid,
+        'targetPostId': normalizedPostId,
+        'targetCommentId': '',
+        'reasonKey': reason.key,
+        'reasonLabel': reason.label,
+        'details': normalizedDetails,
+        'status': 'open',
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+    );
+    batch.set(
+      _db
+          .collection('users')
+          .doc(reporterUid)
+          .collection('hidden_meet_now_posts')
+          .doc(normalizedPostId),
+      <String, dynamic>{
+        'postId': normalizedPostId,
+        'reportedAt': FieldValue.serverTimestamp(),
+      },
+    );
+    await batch.commit();
+  }
+
   Future<void> submitCommentReport({
     required String targetPostId,
     required String targetCommentId,

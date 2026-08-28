@@ -9,6 +9,7 @@ import 'geohash_utils.dart';
 
 class LocationService with WidgetsBindingObserver {
   static const Duration _activeMeetNowPostLifetime = Duration(hours: 24);
+  static const int _meetNowDiscoveryPrecision = 5;
 
   LocationService({
     FirebaseAuth? auth,
@@ -35,7 +36,14 @@ class LocationService with WidgetsBindingObserver {
     }
 
     final now = DateTime.now();
-    final geohash = GeoHashUtils.encodeGeoPoint(geoPoint);
+    final discoveryGeo = GeoHashUtils.snapToCellCenter(
+      geoPoint,
+      precision: _meetNowDiscoveryPrecision,
+    );
+    final geohash = GeoHashUtils.encodeGeoPoint(
+      discoveryGeo,
+      precision: _meetNowDiscoveryPrecision,
+    );
     WriteBatch? batch;
     var writesInBatch = 0;
 
@@ -73,7 +81,10 @@ class LocationService with WidgetsBindingObserver {
 
       batch ??= _firestore.batch();
       batch!.set(doc.reference, {
-        'geo': geoPoint,
+        'geo': FieldValue.delete(),
+        'latitude': FieldValue.delete(),
+        'longitude': FieldValue.delete(),
+        'discoveryGeo': discoveryGeo,
         'geohash': geohash,
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
@@ -167,7 +178,7 @@ class LocationService with WidgetsBindingObserver {
       _lastSyncAt = DateTime.now();
       final geoPoint = GeoPoint(position.latitude, position.longitude);
 
-      final payload = <String, dynamic>{
+      final exactLocationPayload = <String, dynamic>{
         'geo': geoPoint,
         'latitude': position.latitude,
         'longitude': position.longitude,
@@ -178,7 +189,18 @@ class LocationService with WidgetsBindingObserver {
         _firestore
             .collection('users')
             .doc(uid)
-            .set(payload, SetOptions(merge: true)),
+            .set({
+          'geo': FieldValue.delete(),
+          'latitude': FieldValue.delete(),
+          'longitude': FieldValue.delete(),
+          'locationUpdatedAt': FieldValue.delete(),
+        }, SetOptions(merge: true)),
+        _firestore
+            .collection('users')
+            .doc(uid)
+            .collection('private')
+            .doc('location')
+            .set(exactLocationPayload, SetOptions(merge: true)),
         _firestore.collection('users_public').doc(uid).set(
           {
             'geo': FieldValue.delete(),

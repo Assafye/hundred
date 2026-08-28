@@ -12,6 +12,7 @@ import 'package:video_player/video_player.dart';
 import 'group_details_screen.dart';
 import 'post_media_utils.dart';
 import 'post_detail_view.dart';
+import 'services/camera_permission_service.dart';
 import 'services/chat_service.dart';
 import 'services/keyboard_dismiss_controller.dart';
 import 'services/share_flow_log_service.dart';
@@ -525,6 +526,11 @@ class _ChatRoomScreenState extends State<ChatRoomScreen>
     try {
       FocusManager.instance.primaryFocus?.unfocus();
       await Future<void>.delayed(const Duration(milliseconds: 80));
+
+      if (!mounted ||
+          !await CameraPermissionService.ensureCameraAccess(context)) {
+        return;
+      }
 
       final image = await _imagePicker.pickImage(source: ImageSource.camera);
       if (image == null) return;

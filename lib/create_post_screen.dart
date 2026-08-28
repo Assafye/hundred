@@ -10,6 +10,7 @@ import 'package:video_player/video_player.dart';
 import 'models/post_media_item.dart';
 import 'post_edit_screen.dart';
 import 'profile_screen.dart';
+import 'services/camera_permission_service.dart';
 import 'widgets/swipe_back_wrapper.dart';
 import 'video_preview_utils.dart';
 
@@ -69,7 +70,6 @@ class _CreatePostScreenState extends State<CreatePostScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _logCamera('initState -> adding lifecycle observer');
-    unawaited(_initializeCamera());
   }
 
   @override
@@ -107,10 +107,7 @@ class _CreatePostScreenState extends State<CreatePostScreen>
       return;
     }
 
-    if (state == AppLifecycleState.resumed && mounted && !hasActiveController) {
-      _logCamera('lifecycle -> app resumed, re-initializing camera');
-      unawaited(_initializeCamera());
-    }
+    if (state == AppLifecycleState.resumed && !hasActiveController) return;
   }
 
   void _detachCameraState({bool resetReadyState = true}) {
@@ -472,17 +469,20 @@ class _CreatePostScreenState extends State<CreatePostScreen>
   }
 
   Future<void> _capturePhoto() async {
-    final controller = _cameraController;
-    if (controller == null ||
-        !controller.value.isInitialized ||
-        _isProcessingCapture ||
-        _isRecordingVideo) {
+    if (_isProcessingCapture || _isRecordingVideo) {
       return;
     }
     if (!_canAddMoreMedia) {
       _showLimitReachedSnackBar();
       return;
     }
+
+    if (!await CameraPermissionService.ensureCameraAccess(context)) return;
+    if (_cameraController == null || !_cameraController!.value.isInitialized) {
+      await _initializeCamera();
+    }
+    final controller = _cameraController;
+    if (controller == null || !controller.value.isInitialized) return;
 
     setState(() {
       _isProcessingCapture = true;
@@ -544,17 +544,20 @@ class _CreatePostScreenState extends State<CreatePostScreen>
   }
 
   Future<void> _startVideoRecording() async {
-    final controller = _cameraController;
-    if (controller == null ||
-        !controller.value.isInitialized ||
-        _isProcessingCapture ||
-        _isRecordingVideo) {
+    if (_isProcessingCapture || _isRecordingVideo) {
       return;
     }
     if (!_canAddMoreMedia) {
       _showLimitReachedSnackBar();
       return;
     }
+
+    if (!await CameraPermissionService.ensureCameraAccess(context)) return;
+    if (_cameraController == null || !_cameraController!.value.isInitialized) {
+      await _initializeCamera();
+    }
+    final controller = _cameraController;
+    if (controller == null || !controller.value.isInitialized) return;
 
     try {
       if (_flashEnabled) {

@@ -59,6 +59,7 @@ class PendingRegistrationState {
 
 enum LoginPreflightGate {
   allow,
+  ageRestricted,
   pendingVerification,
   pendingProfile,
   expired,
@@ -78,6 +79,7 @@ class AuthService {
   static const String onboardingStepExpired = 'expired';
   static const String emailNotVerifiedCode = 'email-not-verified';
   static const String registrationIncompleteCode = 'registration-incomplete';
+  static const String ageRestrictedCode = 'age-restricted';
 
   final NotificationService _notificationService = NotificationService();
 
@@ -98,7 +100,6 @@ class AuthService {
   Future<void> savePendingRegistrationDraft({
     required String firstName,
     required String lastName,
-    required String birthDate,
     required String phone,
   }) async {
     final currentUser = _auth.currentUser;
@@ -112,12 +113,10 @@ class AuthService {
     final payload = {
       'firstName': firstName.trim(),
       'lastName': lastName.trim(),
-      'birthDate': birthDate.trim(),
       'phone': phone.trim(),
       'pendingRegistrationDraft': <String, dynamic>{
         'firstName': firstName.trim(),
         'lastName': lastName.trim(),
-        'birthDate': birthDate.trim(),
         'phone': phone.trim(),
         'updatedAt': FieldValue.serverTimestamp(),
       },
@@ -452,6 +451,9 @@ class AuthService {
       }
 
       final data = snapshot.docs.first.data();
+      if (_isAgeRestrictedUserData(data)) {
+        return LoginPreflightGate.ageRestricted;
+      }
       final step = OnboardingStep.fromFirestore(
         data[onboardingStepField] as String?,
       );
@@ -599,6 +601,17 @@ class AuthService {
         phone.isNotEmpty &&
         profilePictureUrl.isNotEmpty &&
         profileImages.isNotEmpty;
+  }
+
+  bool _isAgeRestrictedUserData(Map<String, dynamic> data) {
+    if (data['isAgeRestricted'] == true) {
+      return true;
+    }
+
+    final birthDate = parseStoredBirthDate(
+      (data['birthDate'] as String? ?? '').trim(),
+    );
+    return birthDate != null && !isAtLeastMinimumAge(birthDate);
   }
 
   Future<User?> _createOrResumeRegistrationUser({
@@ -834,7 +847,6 @@ class AuthService {
     required String password,
     String? firstName,
     String? lastName,
-    String? birthDate,
     String? phone,
   }) async {
     registrationFlowInProgress.value = true;
@@ -889,6 +901,16 @@ class AuthService {
 
       final onboardingStep =
           await _resolveOnboardingStepForUid(refreshedUser.uid);
+      final userData =
+          (await _db.collection('users').doc(refreshedUser.uid).get()).data() ??
+              <String, dynamic>{};
+      if (_isAgeRestrictedUserData(userData)) {
+        await _auth.signOut();
+        throw FirebaseAuthException(
+          code: ageRestrictedCode,
+          message: 'האפליקציה מיועדת לגילאי $minimumUserAge ומעלה בלבד.',
+        );
+      }
       if (hasCompletedProfile && onboardingStep == OnboardingStep.active) {
         throw FirebaseAuthException(
           code: 'email-already-in-use',
@@ -905,16 +927,13 @@ class AuthService {
 
       final normalizedFirstName = firstName?.trim() ?? '';
       final normalizedLastName = lastName?.trim() ?? '';
-      final normalizedBirthDate = birthDate?.trim() ?? '';
       final normalizedPhone = phone?.trim() ?? '';
       if (normalizedFirstName.isNotEmpty &&
           normalizedLastName.isNotEmpty &&
-          normalizedBirthDate.isNotEmpty &&
           normalizedPhone.isNotEmpty) {
         await savePendingRegistrationDraft(
           firstName: normalizedFirstName,
           lastName: normalizedLastName,
-          birthDate: normalizedBirthDate,
           phone: normalizedPhone,
         );
       }
@@ -1038,7 +1057,22 @@ class AuthService {
     final onboardingStep =
         await _resolveOnboardingStepForUid(refreshedUser.uid);
     if (onboardingStep == OnboardingStep.active) {
-      return refreshedUser;
+      final snapshot = await _db.collection('users').doc(refreshedUser.uid).get();
+      final data = snapshot.data() ?? <String, dynamic>{};
+      if (!_isAgeRestrictedUserData(data)) {
+        return refreshedUser;
+      }
+
+      if (queueUiMessageOnFailure) {
+        setPendingAuthUiMessage(
+          'הכניסה לאפליקציה זמינה מגיל $minimumUserAge ומעלה בלבד.',
+        );
+      }
+      await _auth.signOut();
+      throw FirebaseAuthException(
+        code: ageRestrictedCode,
+        message: 'הכניסה לאפליקציה זמינה מגיל $minimumUserAge ומעלה בלבד.',
+      );
     }
 
     if (queueUiMessageOnFailure) {
@@ -1175,6 +1209,8 @@ class AuthService {
       final normalizedLifeMotto = lifeMotto.trim();
       final normalizedPhone = phone.trim();
       final normalizedBirthDate = birthDate.trim();
+      final parsedBirthDate = parseStoredBirthDate(normalizedBirthDate)!;
+      final isAgeRestricted = !isAtLeastMinimumAge(parsedBirthDate);
 
       final userRef = _db.collection('users').doc(user.uid);
       final userPublicRef = _db.collection('users_public').doc(user.uid);
@@ -1190,6 +1226,7 @@ class AuthService {
         'displayName': normalizedDisplayName,
         'phone': normalizedPhone,
         'birthDate': normalizedBirthDate,
+        'isAgeRestricted': isAgeRestricted,
         'lifeMotto': normalizedLifeMotto,
         'bio': normalizedBio,
         'profilePictureUrl': defaultProfilePictureUrl,
@@ -1284,6 +1321,15 @@ class AuthService {
     final resolvedEmail = _normalizeEmail(email);
     if (resolvedEmail.isNotEmpty) {
       final preflight = await preflightLoginGate(resolvedEmail);
+      if (preflight == LoginPreflightGate.ageRestricted) {
+        if (_auth.currentUser != null) {
+          await _auth.signOut();
+        }
+        throw FirebaseAuthException(
+          code: ageRestrictedCode,
+          message: 'האפליקציה מיועדת לגילאי $minimumUserAge ומעלה בלבד.',
+        );
+      }
       if (preflight == LoginPreflightGate.pendingVerification) {
         if (_auth.currentUser != null) {
           await _auth.signOut();
@@ -1440,6 +1486,15 @@ class AuthService {
     }
 
     final preflight = await preflightLoginGate(email);
+    if (preflight == LoginPreflightGate.ageRestricted) {
+      if (_auth.currentUser != null) {
+        await _auth.signOut();
+      }
+      throw FirebaseAuthException(
+        code: ageRestrictedCode,
+        message: 'האפליקציה מיועדת לגילאי $minimumUserAge ומעלה בלבד.',
+      );
+    }
     if (preflight == LoginPreflightGate.pendingVerification) {
       if (_auth.currentUser != null) {
         await _auth.signOut();
@@ -1878,12 +1933,6 @@ class AuthService {
       throw FirebaseAuthException(
         code: 'invalid-birth-date',
         message: 'תאריך הלידה אינו תקין.',
-      );
-    }
-    if (!isAtLeastMinimumAge(birthDate)) {
-      throw FirebaseAuthException(
-        code: 'minimum-age-not-met',
-        message: 'ההרשמה מיועדת לגילאי $minimumUserAge ומעלה.',
       );
     }
   }

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -72,6 +73,14 @@ Future<void> main() async {
       options: DefaultFirebaseOptions.currentPlatform,
     );
     await ShareFlowLogService.log('FIREBASE_INITIALIZED');
+    if (!kIsWeb) {
+      await FirebaseAppCheck.instance.activate(
+        providerAndroid: const AndroidPlayIntegrityProvider(),
+        providerApple:
+            const AppleAppAttestWithDeviceCheckFallbackProvider(),
+      );
+    }
+    await ShareFlowLogService.log('APP_CHECK_ACTIVATED');
 
     FirebaseFirestore.instance.settings =
         const Settings(persistenceEnabled: true);

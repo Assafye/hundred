@@ -275,6 +275,8 @@ class _LoginScreenState extends State<LoginScreen>
           return 'האימייל עדיין לא אומת. / Your email has not been verified yet. Please verify it and try again.';
         case 'registration-incomplete':
           return 'החשבון עדיין לא הושלם. / Your account is not complete yet. Please finish the registration steps and try again.';
+        case AuthService.ageRestrictedCode:
+          return 'הכניסה לאפליקציה זמינה מגיל 13 ומעלה בלבד. / The app is available to users aged 13 and over only.';
         case 'session-expired':
           return 'הסשן פג תוקף. / Your login session has expired. Please sign in again.';
         case 'account-exists-with-different-credential':
@@ -336,13 +338,10 @@ class _LoginScreenState extends State<LoginScreen>
     }
 
     try {
-      final userCredential =
-          await FirebaseAuth.instance.signInWithEmailAndPassword(
-        email: resolvedEmail,
-        password: password,
+      final user = await _authService.loginWithEmailOrUsername(
+        emailOrUsername,
+        password,
       );
-
-      final user = userCredential.user;
       if (user == null) {
         return;
       }

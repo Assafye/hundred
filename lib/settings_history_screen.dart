@@ -453,8 +453,6 @@ class _SettingsHistoryScreenState extends State<SettingsHistoryScreen>
         text:
             (data['details'] as String? ?? data['description'] as String? ?? '')
                 .trim());
-    final locationController = TextEditingController(
-        text: (data['meetingLocation'] as String? ?? '').trim());
     final participantsController = TextEditingController(
       text: (data['desiredParticipants'] as num?)?.toInt().toString() ?? '',
     );
@@ -509,14 +507,6 @@ class _SettingsHistoryScreenState extends State<SettingsHistoryScreen>
                         textAlign: TextAlign.right,
                         maxLines: 3,
                         decoration: const InputDecoration(hintText: 'תיאור'),
-                      ),
-                      const SizedBox(height: 10),
-                      TextField(
-                        controller: locationController,
-                        onTapOutside: (_) {},
-                        textAlign: TextAlign.right,
-                        decoration:
-                            const InputDecoration(hintText: 'מיקום מפגש'),
                       ),
                       const SizedBox(height: 10),
                       TextField(
@@ -657,7 +647,7 @@ class _SettingsHistoryScreenState extends State<SettingsHistoryScreen>
       final payload = <String, dynamic>{
         'title': titleController.text.trim(),
         'details': detailsController.text.trim(),
-        'meetingLocation': locationController.text.trim(),
+        'meetingLocation': FieldValue.delete(),
         'category': (selectedCategory ?? '').trim(),
         'subCategory': (selectedSubCategory ?? '').trim(),
         'desiredParticipants': desiredParticipants,
@@ -666,7 +656,7 @@ class _SettingsHistoryScreenState extends State<SettingsHistoryScreen>
         'maxAge': useAgeRange ? ageRange.end.round() : null,
         'updatedAt': FieldValue.serverTimestamp(),
       };
-      final existingGeo = data['geo'];
+      final existingGeo = data['discoveryGeo'];
       if (existingGeo is GeoPoint) {
         payload['geohash'] = GeoHashUtils.encodeGeoPoint(
           existingGeo,
@@ -681,7 +671,6 @@ class _SettingsHistoryScreenState extends State<SettingsHistoryScreen>
 
     titleController.dispose();
     detailsController.dispose();
-    locationController.dispose();
     participantsController.dispose();
   }
 

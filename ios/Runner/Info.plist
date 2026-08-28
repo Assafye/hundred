@@ -34,11 +34,7 @@
 		<string>remote-notification</string>
 	</array>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>המיקום משמש כדי להציג אנשים וקבוצות קרובים אליך בזמן אמת.</string>
-	<key>NSLocationWhenInUseUsageDescription</key>
-    <string>אנו זקוקים למיקום שלך כדי להציג לך תוכן רלוונטי בסביבתך.</string>
-    <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-    <string>אנו זקוקים למיקום שלך כדי להציג לך תוכן רלוונטי בסביבתך.</string>
+	<string>המיקום שלך משמש להצגת פופים ופעילויות קרובים ולדירוגם לפי קרבה. משתמשים אחרים רואים רק טווח מרחק כללי, ולא את מיקומך המדויק. הטווח הכללי מוצג רק כאשר בוחרים לפרסם פופ.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>המצלמה משמשת לצילום תמונות וסרטונים לפוסטים, צ׳אטים ותמונות קבוצה.</string>
 	<key>NSMicrophoneUsageDescription</key>

@@ -726,7 +726,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     final selected = await showDatePicker(
       context: context,
       firstDate: DateTime(1930),
-      lastDate: latestEligibleBirthDate(now),
+      lastDate: now,
       initialDate: _birthDate ?? DateTime(now.year - 18, now.month, now.day),
       builder: (context, child) {
         return Theme(
@@ -1024,16 +1024,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
       return;
     }
 
-    final parsedBirthDate = _parseDdMmYyyy(_birthDateController.text);
-    if (parsedBirthDate == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('יש להזין תאריך בפורמט DD/MM/YYYY.')),
-      );
-      return;
-    }
-
-    _birthDate = parsedBirthDate;
-
     setState(() {
       _isRegistering = true;
     });
@@ -1072,7 +1062,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
         password: _passwordController.text.trim(),
         firstName: _firstNameController.text,
         lastName: _lastNameController.text,
-        birthDate: _birthDateController.text,
         phone: _phoneController.text,
       );
 
@@ -1237,6 +1226,89 @@ class _RegisterScreenState extends State<RegisterScreen> {
       await _authService.endPendingRegistrationFlow(signOut: true);
 
       if (!mounted) return;
+
+      if (!isAtLeastMinimumAge(birthDateForRegistration)) {
+        await showDialog<void>(
+          context: context,
+          barrierDismissible: false,
+          barrierColor: Colors.black.withValues(alpha: 0.7),
+          builder: (dialogContext) {
+            return PopScope(
+              canPop: false,
+              child: Dialog(
+                backgroundColor: Colors.transparent,
+                insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Container(
+                  constraints: const BoxConstraints(maxWidth: 420),
+                  padding: const EdgeInsets.fromLTRB(22, 28, 22, 22),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(24),
+                    color: const Color(0xFF101827),
+                    border: Border.all(
+                      color: Colors.redAccent.withValues(alpha: 0.45),
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.4),
+                        blurRadius: 30,
+                        offset: const Offset(0, 18),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.lock_outline_rounded,
+                        color: Colors.redAccent,
+                        size: 42,
+                      ),
+                      const SizedBox(height: 18),
+                      const Text(
+                        'האפליקציה מיועדת לגילאי 13+',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: _textPrimary,
+                          fontSize: 22,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 22),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: () => Navigator.of(dialogContext).pop(),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _primary,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            elevation: 0,
+                          ),
+                          child: const Text(
+                            'סיום',
+                            style: TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+
+        if (!mounted) return;
+        if (widget.onExitToLogin != null) {
+          widget.onExitToLogin!();
+        } else {
+          Navigator.of(context).pop();
+        }
+        return;
+      }
 
       final shouldContinue = await showDialog<bool>(
         context: context,
@@ -1705,48 +1777,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
             label: 'שם משפחה',
             validator: _nameValidator,
           ),
-          Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: TextFormField(
-              controller: _birthDateController,
-              onTapOutside: (_) {},
-              keyboardType: TextInputType.datetime,
-              textDirection: TextDirection.rtl,
-              textAlign: TextAlign.right,
-              style: const TextStyle(
-                  color: _textPrimary, fontWeight: FontWeight.w600),
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'[0-9/]')),
-                LengthLimitingTextInputFormatter(10),
-              ],
-              onChanged: (value) {
-                final formatted = _autoFormatBirthDateInput(value);
-                if (formatted == value) return;
-                _birthDateController.value = TextEditingValue(
-                  text: formatted,
-                  selection: TextSelection.collapsed(offset: formatted.length),
-                );
-              },
-              decoration: _inputDecoration('תאריך לידה (DD/MM/YYYY)').copyWith(
-                suffixIcon: IconButton(
-                  onPressed: _pickBirthDate,
-                  icon:
-                      const Icon(Icons.calendar_month_rounded, color: _primary),
-                ),
-              ),
-              validator: (v) {
-                if (v == null || v.trim().isEmpty) return 'שדה חובה';
-                final birthDate = _parseDdMmYyyy(v);
-                if (birthDate == null) {
-                  return 'פורמט לא תקין, יש להזין DD/MM/YYYY';
-                }
-                if (!isAtLeastMinimumAge(birthDate)) {
-                  return 'ההרשמה מיועדת לגילאי $minimumUserAge ומעלה';
-                }
-                return null;
-              },
-            ),
-          ),
           _buildField(
             controller: _phoneController,
             label: 'מספר טלפון',
@@ -1996,6 +2026,57 @@ class _RegisterScreenState extends State<RegisterScreen> {
               }
               return null;
             },
+          ),
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: TextFormField(
+              controller: _birthDateController,
+              onTapOutside: (_) {},
+              keyboardType: TextInputType.datetime,
+              textDirection: TextDirection.rtl,
+              textAlign: TextAlign.right,
+              style: const TextStyle(
+                  color: _textPrimary, fontWeight: FontWeight.w600),
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(RegExp(r'[0-9/]')),
+                LengthLimitingTextInputFormatter(10),
+              ],
+              onChanged: (value) {
+                final formatted = _autoFormatBirthDateInput(value);
+                if (formatted == value) return;
+                _birthDateController.value = TextEditingValue(
+                  text: formatted,
+                  selection: TextSelection.collapsed(offset: formatted.length),
+                );
+              },
+              decoration: _inputDecoration('תאריך לידה (DD/MM/YYYY)').copyWith(
+                suffixIcon: IconButton(
+                  onPressed: _pickBirthDate,
+                  icon:
+                      const Icon(Icons.calendar_month_rounded, color: _primary),
+                ),
+              ),
+              validator: (v) {
+                if (v == null || v.trim().isEmpty) return 'שדה חובה';
+                final birthDate = _parseDdMmYyyy(v);
+                if (birthDate == null) {
+                  return 'פורמט לא תקין, יש להזין DD/MM/YYYY';
+                }
+                return null;
+              },
+            ),
+          ),
+          const Padding(
+            padding: EdgeInsets.only(bottom: 12, right: 4),
+            child: Text(
+              'תאריך הלידה נדרש לצורך עמידה בתנאי הקהילה',
+              textAlign: TextAlign.right,
+              style: TextStyle(
+                color: _textSecondary,
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
           ),
         ],
       ),

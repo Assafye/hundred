@@ -8,6 +8,7 @@ import 'package:image_picker/image_picker.dart';
 
 import 'age_restrictions.dart';
 import 'app_categories.dart';
+import 'services/camera_permission_service.dart';
 import 'services/group_service.dart';
 import 'services/keyboard_dismiss_controller.dart';
 import 'services/public_user_profile_service.dart';
@@ -155,6 +156,12 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
     if (source == null) return;
 
     try {
+      if (source == ImageSource.camera) {
+        if (!mounted) return;
+        final hasCameraAccess =
+            await CameraPermissionService.ensureCameraAccess(context);
+        if (!mounted || !hasCameraAccess) return;
+      }
       final file = await _picker.pickImage(source: source);
       if (file == null) return;
       final bytes = await file.readAsBytes();
@@ -1243,6 +1250,17 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                                         ? Colors.white.withValues(alpha: 0.62)
                                         : const Color(0xFF1E2632),
                                     border: InputBorder.none),
+                              ),
+                              const Padding(
+                                padding: EdgeInsets.only(top: 6, right: 4),
+                                child: Text(
+                                  'אין לציין כתובת מדויקת! רק אזור כללי כמו שכונה, עיר או מקום ציבורי',
+                                  textAlign: TextAlign.right,
+                                  style: TextStyle(
+                                    color: Color(0xFF9AB0FF),
+                                    fontSize: 12,
+                                  ),
+                                ),
                               ),
                               const SizedBox(height: 8),
                               TextField(

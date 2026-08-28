@@ -66,6 +66,20 @@ class GeoHashUtils {
     );
   }
 
+  static GeoPoint snapToCellCenter(
+    GeoPoint point, {
+    required int precision,
+  }) {
+    final latitudeStep = _latitudeSpanForPrecision(precision);
+    final longitudeStep = _longitudeSpanForPrecision(precision);
+    final latitudeIndex = ((point.latitude + 90) / latitudeStep).floor();
+    final longitudeIndex = ((point.longitude + 180) / longitudeStep).floor();
+    return GeoPoint(
+      _clampLatitude(-90 + ((latitudeIndex + 0.5) * latitudeStep)),
+      _normalizeLongitude(-180 + ((longitudeIndex + 0.5) * longitudeStep)),
+    );
+  }
+
   static Set<String> nearbyPrefixes({
     required GeoPoint center,
     required int precision,

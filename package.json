@@ -7,6 +7,8 @@
     "migrate:chat-senders": "DRY_RUN=false node scripts/migrate-chat-message-sender-profile.js",
     "sync:users-public:dry": "node scripts/sync-users-public-from-users.js",
     "sync:users-public": "DRY_RUN=false node scripts/sync-users-public-from-users.js",
+    "migrate:location-privacy:dry": "node scripts/migrate-location-privacy.js",
+    "migrate:location-privacy": "DRY_RUN=false node scripts/migrate-location-privacy.js",
     "sync:user-scores:dry": "node scripts/sync-user-scores-from-posts.js",
     "sync:user-scores": "DRY_RUN=false node scripts/sync-user-scores-from-posts.js",
     "secure-actions:dry": "node scripts/process-secure-actions.js",

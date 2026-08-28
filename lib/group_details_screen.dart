@@ -11,6 +11,7 @@ import 'create_post_screen.dart';
 import 'group_settings_screen.dart';
 import 'post_detail_view.dart';
 import 'post_media_utils.dart';
+import 'services/camera_permission_service.dart';
 import 'services/group_service.dart';
 import 'services/keyboard_dismiss_controller.dart';
 import 'services/public_user_profile_service.dart';
@@ -402,6 +403,17 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
                     ),
                   ),
                 ),
+                const Padding(
+                  padding: EdgeInsets.only(top: 6, right: 4),
+                  child: Text(
+                    'אין לציין כתובת מדויקת! רק אזור כללי כמו שכונה, עיר או מקום ציבורי',
+                    textAlign: TextAlign.right,
+                    style: TextStyle(
+                      color: Color(0xFF9AB0FF),
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
                 const SizedBox(height: 12),
                 StatefulBuilder(
                   builder: (context, setLocalState) {
@@ -502,6 +514,12 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
     XFile? picked;
     Uint8List bytes;
     try {
+      if (source == ImageSource.camera) {
+        if (!mounted) return;
+        final hasCameraAccess =
+            await CameraPermissionService.ensureCameraAccess(context);
+        if (!mounted || !hasCameraAccess) return;
+      }
       picked = await _imagePicker.pickImage(source: source);
       if (picked == null) return;
       bytes = await picked.readAsBytes();

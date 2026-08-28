@@ -7,6 +7,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:geolocator/geolocator.dart';
 
 import 'age_restrictions.dart';
 import 'app_categories.dart';
@@ -19,9 +20,11 @@ import 'services/block_user_service.dart';
 import 'services/chat_service.dart';
 import 'services/group_service.dart';
 import 'services/keyboard_dismiss_controller.dart';
+import 'services/report_service.dart';
 import 'services/weekly_challenge_service.dart';
 import 'stars_screen.dart' show StarsScreen;
 import 'user_profile_screen.dart';
+import 'widgets/report_dialogs.dart';
 
 class OnlineScreen extends StatefulWidget {
   const OnlineScreen({super.key});
@@ -50,6 +53,7 @@ class _OnlineScreenState extends State<OnlineScreen>
   final GroupService _groupService = GroupService();
   final ChatService _chatService = ChatService();
   final BlockUserService _blockUserService = BlockUserService();
+  final ReportService _reportService = ReportService();
 
   late final AnimationController _spaceUsersController;
   late final ScrollController _mainScrollController;
@@ -61,9 +65,10 @@ class _OnlineScreenState extends State<OnlineScreen>
   late final Stream<List<HomeFriendEntry>> _connectedFriendsStream;
   late final Stream<DateTime?> _forcedOnlineUntilStream;
   late final Stream<List<HomePublicGroupEntry>> _upcomingGroupsStream;
+  late final Stream<Set<String>> _reportedMeetNowPostIdsStream;
   late Stream<List<MeetNowPostEntry>> _meetNowPostsStream;
 
-  Timer? _meetNowRefreshTimer;
+  Timer? _forceOnlineRefreshTimer;
   StreamSubscription<Set<String>>? _joinedMeetPostsSub;
   Set<String> _joinedMeetPostIds = <String>{};
   final Set<String> _locallyHiddenMeetPostIds = <String>{};
@@ -93,6 +98,7 @@ class _OnlineScreenState extends State<OnlineScreen>
   int _visibleMeetNowPostCount = _initialMeetNowVisibleCount;
   int _latestMeetNowFilteredCount = 0;
   int? _lastMeetNowQueryTargetCount;
+  int _meetNowStreamGeneration = 0;
   DateTime _lastMeetNowLoadMoreAt =
       DateTime.fromMillisecondsSinceEpoch(0);
   DateTime? _meetNowQueryStartedAt;
@@ -101,6 +107,7 @@ class _OnlineScreenState extends State<OnlineScreen>
   int _sampledFrames = 0;
   DateTime _lastFrameTelemetryAt = DateTime.now();
   List<MeetNowPostEntry> _cachedMeetNowEntries = const <MeetNowPostEntry>[];
+  bool _isMeetNowRefreshing = false;
 
   int get _meetNowQueryTargetCount {
     return _visibleMeetNowPostCount;
@@ -173,9 +180,11 @@ class _OnlineScreenState extends State<OnlineScreen>
     _forcedOnlineUntilStream = _homeService.streamMyForcedOnlineUntil();
     _upcomingGroupsStream =
         _homeService.streamUpcomingPublicGroups(withinDays: 7);
+    _reportedMeetNowPostIdsStream =
+      _reportService.streamReportedMeetNowPostIds();
     _configureMeetNowPostsStream();
     WidgetsBinding.instance.addTimingsCallback(_onFrameTimings);
-    _meetNowRefreshTimer = Timer.periodic(_meetNowRefreshInterval, (_) {
+    _forceOnlineRefreshTimer = Timer.periodic(_meetNowRefreshInterval, (_) {
       if (!mounted) {
         return;
       }
@@ -196,7 +205,7 @@ class _OnlineScreenState extends State<OnlineScreen>
   @override
   void dispose() {
     KeyboardDismissController.resume();
-    _meetNowRefreshTimer?.cancel();
+    _forceOnlineRefreshTimer?.cancel();
     _joinedMeetPostsSub?.cancel();
     WidgetsBinding.instance.removeTimingsCallback(_onFrameTimings);
     _mainScrollController.removeListener(_handleMainScroll);
@@ -232,18 +241,38 @@ class _OnlineScreenState extends State<OnlineScreen>
     _visibleMeetNowPostCount = _initialMeetNowVisibleCount;
   }
 
-  void _configureMeetNowPostsStream() {
+  void _configureMeetNowPostsStream({bool force = false}) {
     final targetCount = _meetNowQueryTargetCount;
-    if (_lastMeetNowQueryTargetCount == targetCount) {
+    if (!force && _lastMeetNowQueryTargetCount == targetCount) {
       return;
     }
     _lastMeetNowQueryTargetCount = targetCount;
+    final streamGeneration = ++_meetNowStreamGeneration;
     _meetNowQueryStartedAt = DateTime.now();
     _hasLoggedMeetNowFirstPaint = false;
     _meetNowPostsStream = _homeService.streamMeetNowPosts(
       candidateLimit: targetCount,
       onTelemetry: _onMeetNowTelemetry,
+      onExactDistanceRefreshStateChanged: (isRefreshing) {
+        if (!mounted || streamGeneration != _meetNowStreamGeneration) {
+          return;
+        }
+        setState(() {
+          _isMeetNowRefreshing = isRefreshing;
+        });
+      },
     );
+  }
+
+  void _refreshMeetNowPosts() {
+    if (_isMeetNowRefreshing) {
+      return;
+    }
+    setState(() {
+      _isMeetNowRefreshing = true;
+      _resetMeetNowVisibleCount();
+      _configureMeetNowPostsStream(force: true);
+    });
   }
 
   void _handleMainScroll() {
@@ -1788,7 +1817,124 @@ class _OnlineScreenState extends State<OnlineScreen>
     );
   }
 
+  Future<bool> _hasLocationAccessForMeetNow() async {
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      return false;
+    }
+
+    final permission = await Geolocator.checkPermission();
+    return permission == LocationPermission.always ||
+        permission == LocationPermission.whileInUse;
+  }
+
+  Future<void> _showMeetNowLocationAccessDialog() async {
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 26),
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 380),
+            padding: const EdgeInsets.fromLTRB(22, 24, 22, 20),
+            decoration: BoxDecoration(
+              color: isLight ? Colors.white : const Color(0xFF101826),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: _cyan.withValues(alpha: isLight ? 0.45 : 0.35),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.28),
+                  blurRadius: 24,
+                  offset: const Offset(0, 12),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 54,
+                  height: 54,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: _cyan.withValues(alpha: isLight ? 0.16 : 0.22),
+                  ),
+                  child: const Icon(
+                    Icons.location_on_outlined,
+                    color: _cyanSoft,
+                    size: 29,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'נדרשת גישה למיקום',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: isLight ? const Color(0xFF1E2D49) : Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  'כדי להשתמש בפופים, יש להפעיל גישה למיקום בהגדרות. כך הפופ שלך יוצג לאנשים שבסביבה, וגם יוצגו לך פופים קרובים.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: isLight ? const Color(0xFF52637F) : Colors.white70,
+                    fontSize: 14,
+                    height: 1.45,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextButton(
+                        onPressed: () => Navigator.of(dialogContext).pop(),
+                        child: const Text('לא עכשיו'),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () async {
+                          Navigator.of(dialogContext).pop();
+                          await Geolocator.openAppSettings();
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _purple,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: const Text('להגדרות'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _openMeetComposerSheet() async {
+    if (!await _hasLocationAccessForMeetNow()) {
+      if (mounted) {
+        await _showMeetNowLocationAccessDialog();
+      }
+      return;
+    }
+
     final canPublish = await _homeService.canPublishMeetNowPost();
     if (!mounted) {
       return;
@@ -2406,10 +2552,70 @@ class _OnlineScreenState extends State<OnlineScreen>
           initialIndex: initialIndex,
           onJoinPressed: _handleMeetJoinTap,
           onOpenProfilePressed: _openProfile,
+          onReportPressed: _reportMeetNowPost,
           relativeTimeBuilder: _formatRelativeTime,
         ),
       ),
     );
+  }
+
+  Future<bool> _reportMeetNowPost(MeetNowPostEntry entry) async {
+    final currentUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    final authorUid = entry.authorUid.trim();
+    final postId = entry.id.trim();
+    if (currentUid.isEmpty || authorUid.isEmpty || postId.isEmpty) {
+      return false;
+    }
+    if (authorUid == currentUid) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('לא ניתן לדווח על הפופ של עצמך.')),
+      );
+      return false;
+    }
+
+    final shouldReport = await showReportConfirmationDialog(
+      context,
+      targetLabel: 'פופ',
+    );
+    if (!shouldReport || !mounted) return false;
+
+    final reason = await showReportReasonPicker(
+      context,
+      targetLabel: 'פופ',
+    );
+    if (reason == null || !mounted) return false;
+
+    final details = await showReportDetailsDialog(
+      context,
+      reason: reason,
+      targetLabel: 'פופ',
+    );
+    if (details == null || details.trim().isEmpty || !mounted) return false;
+
+    try {
+      await _reportService.submitMeetNowPostReport(
+        targetPostId: postId,
+        targetUserUid: authorUid,
+        reason: reason,
+        details: details,
+      );
+      if (!mounted) return false;
+      setState(() {
+        _locallyHiddenMeetPostIds.add(postId);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('הדיווח נשלח. הפופ לא יוצג לך יותר.'),
+        ),
+      );
+      return true;
+    } catch (error) {
+      if (!mounted) return false;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('שליחת הדיווח נכשלה: $error')),
+      );
+      return false;
+    }
   }
 
   Future<bool> _handleMeetJoinTap(MeetNowPostEntry entry) async {
@@ -3979,6 +4185,26 @@ class _OnlineScreenState extends State<OnlineScreen>
               ),
             ),
             const Spacer(),
+            IconButton(
+              onPressed:
+                  _isMeetNowRefreshing ? null : _refreshMeetNowPosts,
+              tooltip: 'רענון פופים',
+              icon: _isMeetNowRefreshing
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.refresh_rounded),
+              color: Colors.white,
+              style: IconButton.styleFrom(
+                backgroundColor: _purple.withValues(alpha: 0.38),
+              ),
+            ),
+            const SizedBox(width: 8),
             DecoratedBox(
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(12),
@@ -4145,13 +4371,22 @@ class _OnlineScreenState extends State<OnlineScreen>
           stream: _blockUserService.streamBlockedConnections(),
           builder: (context, blockedSnapshot) {
             final blockedUserIds = blockedSnapshot.data ?? const <String>{};
-            final visibleEntries = allEntries
-                .where((entry) => !blockedUserIds.contains(entry.authorUid.trim()))
-                .toList(growable: false);
+            return StreamBuilder<Set<String>>(
+              stream: _reportedMeetNowPostIdsStream,
+              builder: (context, reportedSnapshot) {
+                final reportedPostIds =
+                    reportedSnapshot.data ?? const <String>{};
+                final visibleEntries = allEntries
+                    .where(
+                      (entry) =>
+                          !blockedUserIds.contains(entry.authorUid.trim()) &&
+                          !reportedPostIds.contains(entry.id.trim()),
+                    )
+                    .toList(growable: false);
 
-            return ValueListenableBuilder<int>(
-              valueListenable: _sectionRefreshTick,
-              builder: (context, _, __) {
+                return ValueListenableBuilder<int>(
+                  valueListenable: _sectionRefreshTick,
+                  builder: (context, _, __) {
                 final entries = _applyMeetFilters(visibleEntries);
                 _latestMeetNowFilteredCount = entries.length;
                 final pagedEntries = entries
@@ -4359,6 +4594,8 @@ class _OnlineScreenState extends State<OnlineScreen>
                       ),
                     ),
                   ],
+                );
+                  },
                 );
               },
             );
@@ -5383,6 +5620,7 @@ class _MeetNowPostsViewer extends StatefulWidget {
     required this.initialIndex,
     required this.onJoinPressed,
     required this.onOpenProfilePressed,
+    required this.onReportPressed,
     required this.relativeTimeBuilder,
   });
 
@@ -5390,6 +5628,7 @@ class _MeetNowPostsViewer extends StatefulWidget {
   final int initialIndex;
   final Future<bool> Function(MeetNowPostEntry entry) onJoinPressed;
   final Future<void> Function(String uid) onOpenProfilePressed;
+  final Future<bool> Function(MeetNowPostEntry entry) onReportPressed;
   final String Function(DateTime createdAt) relativeTimeBuilder;
 
   @override
@@ -6020,6 +6259,27 @@ class _MeetNowPostsViewerState extends State<_MeetNowPostsViewer> {
                                           ),
                                         ),
                                       ],
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: TextButton.icon(
+                                    onPressed: () async {
+                                      final reported =
+                                          await widget.onReportPressed(entry);
+                                      if (reported && mounted) {
+                                        Navigator.of(context).pop();
+                                      }
+                                    },
+                                    icon: const Icon(Icons.flag_outlined),
+                                    label: const Text('דווח'),
+                                    style: TextButton.styleFrom(
+                                      foregroundColor: Colors.redAccent,
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 10,
+                                      ),
                                     ),
                                   ),
                                 ),

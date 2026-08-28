@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 
@@ -8,7 +9,6 @@ import '../age_restrictions.dart';
 import '../models/public_user_profile.dart';
 import 'block_user_service.dart';
 import 'geohash_utils.dart';
-import 'location_service.dart';
 import 'public_user_profile_service.dart';
 
 class HomeFriendEntry {
@@ -99,6 +99,7 @@ class MeetNowPostEntry {
   final bool linkedGroupIsPublic;
   final List<String> participantProfileImageUrls;
   final double? distanceMetersFromCurrentUser;
+  final int distanceSortOrder;
 
   const MeetNowPostEntry({
     required this.id,
@@ -126,7 +127,18 @@ class MeetNowPostEntry {
     required this.linkedGroupIsPublic,
     required this.participantProfileImageUrls,
     required this.distanceMetersFromCurrentUser,
+    this.distanceSortOrder = 1 << 30,
   });
+}
+
+class _MeetNowDistanceRank {
+  const _MeetNowDistanceRank({
+    required this.displayDistanceMeters,
+    required this.sortOrder,
+  });
+
+  final double displayDistanceMeters;
+  final int sortOrder;
 }
 
 class HomeGroupMemberEntry {
@@ -166,27 +178,59 @@ class MeetNowStreamTelemetry {
 }
 
 class AppHomeService {
-  static const int meetNowGeoHashPrecision = GeoHashUtils.defaultPrecision;
-  static const List<int> _meetNowQueryPrecisions = <int>[7, 6, 5, 4, 3];
+  static const int meetNowGeoHashPrecision = 5;
+  static const List<int> _meetNowQueryPrecisions = <int>[5, 4, 3];
   static const int _minimumMeetNowCandidateLimit = 60;
   static const int _maximumMeetNowCandidateLimit = 360;
+  static const String _functionsRegion = 'europe-west3';
 
   AppHomeService({
     FirebaseFirestore? firestore,
     FirebaseAuth? auth,
     PublicUserProfileService? publicUserProfileService,
-    LocationService? locationService,
   })  : _db = firestore ?? FirebaseFirestore.instance,
         _auth = auth ?? FirebaseAuth.instance,
-        _publicUserProfileService =
-            publicUserProfileService ?? PublicUserProfileService(),
-        _locationService = locationService ?? LocationService();
+      _publicUserProfileService =
+        publicUserProfileService ?? PublicUserProfileService();
 
   final FirebaseFirestore _db;
   final FirebaseAuth _auth;
   final PublicUserProfileService _publicUserProfileService;
-  final LocationService _locationService;
   final BlockUserService _blockUserService = BlockUserService();
+
+  Future<Map<String, _MeetNowDistanceRank>> _fetchExactMeetNowDistances({
+    required int candidateLimit,
+  }) async {
+    final response = await FirebaseFunctions.instanceFor(
+      region: _functionsRegion,
+    ).httpsCallable('rankMeetNowPosts').call(<String, dynamic>{
+      'limit': candidateLimit,
+    });
+    final payload = response.data;
+    if (payload is! Map) return const <String, _MeetNowDistanceRank>{};
+    final rawPosts = payload['posts'];
+    if (rawPosts is! List) return const <String, _MeetNowDistanceRank>{};
+
+    final distances = <String, _MeetNowDistanceRank>{};
+    for (final rawPost in rawPosts) {
+      if (rawPost is! Map) continue;
+      final postId = (rawPost['id'] ?? '').toString().trim();
+      final distance = rawPost['distanceMeters'];
+      final sortOrder = rawPost['sortOrder'];
+      if (postId.isEmpty ||
+          distance is! num ||
+          distance < 0 ||
+          sortOrder is! num ||
+          sortOrder < 0) {
+        continue;
+      }
+      distances[postId] = _MeetNowDistanceRank(
+        displayDistanceMeters: distance.toDouble(),
+        sortOrder: sortOrder.toInt(),
+      );
+    }
+    return distances;
+  }
 
   String? get currentUid => _auth.currentUser?.uid;
 
@@ -200,6 +244,9 @@ class AppHomeService {
       _db.collection('groups');
   CollectionReference<Map<String, dynamic>> get _meetNowPosts =>
       _db.collection('meet_now_posts');
+
+    DocumentReference<Map<String, dynamic>> _privateLocationRef(String uid) =>
+      _users.doc(uid).collection('private').doc('location');
 
   Future<int> meetNowPostsPublishedInLastHour() async {
     final uid = currentUid;
@@ -764,8 +811,8 @@ class AppHomeService {
       return null;
     }
 
-    final userDoc = await _users.doc(uid).get();
-    return _geoPointFromData(userDoc.data() ?? <String, dynamic>{});
+    final locationDoc = await _privateLocationRef(uid).get();
+    return _geoPointFromData(locationDoc.data() ?? <String, dynamic>{});
   }
 
   int locationRank(
@@ -802,6 +849,7 @@ class AppHomeService {
   Stream<List<MeetNowPostEntry>> streamMeetNowPosts({
     int candidateLimit = _minimumMeetNowCandidateLimit,
     ValueChanged<MeetNowStreamTelemetry>? onTelemetry,
+    ValueChanged<bool>? onExactDistanceRefreshStateChanged,
   }) {
     final uid = currentUid;
     if (uid == null || uid.isEmpty) {
@@ -814,7 +862,9 @@ class AppHomeService {
 
     return Stream.multi((controller) {
       DocumentSnapshot<Map<String, dynamic>>? currentUserSnapshot;
+      GeoPoint? currentUserGeo;
       StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? userSub;
+      StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? locationSub;
       StreamSubscription<Set<String>>? blockedUsersSub;
       final loggedPermissionDeniedPostIds = <String>{};
       final profileFutureByUid = <String, Future<PublicUserProfile?>>{};
@@ -833,6 +883,10 @@ class AppHomeService {
       var emitInProgress = false;
       var emitQueued = false;
       var blockedUserIds = <String>{};
+      var exactDistanceMetersByPostId = <String, _MeetNowDistanceRank>{};
+      var hasExactDistanceRanking = false;
+      var isExactDistanceRefreshInFlight = false;
+      DateTime? lastExactDistanceRefreshAt;
 
       List<QueryDocumentSnapshot<Map<String, dynamic>>> nearbyPostDocs() {
         final merged = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
@@ -897,11 +951,17 @@ class AppHomeService {
 
         final userData = currentUserSnapshot!.data() ?? <String, dynamic>{};
         final userLocation = _userLocationFromData(userData);
-        final userGeo = _geoPointFromData(userData);
+        if (!hasExactDistanceRanking) {
+          return;
+        }
         final docs = nearbyPostDocs();
         final entries = <MeetNowPostEntry>[];
         final buildFutures = docs.map((doc) async {
           try {
+            final distanceRank = exactDistanceMetersByPostId[doc.id];
+            if (!hasExactDistanceRanking || distanceRank == null) {
+              return null;
+            }
             final data = doc.data();
             final status =
                 (data['status'] as String? ?? 'active').trim().toLowerCase();
@@ -967,15 +1027,6 @@ class AppHomeService {
               }
               }
             }
-            double? distanceMetersFromCurrentUser;
-
-            final geoForDistance =
-                _geoPointFromData(data) ?? _geoPointFromData(profileMap);
-            distanceMetersFromCurrentUser = _locationService.distanceInMeters(
-              from: userGeo,
-              to: geoForDistance,
-            );
-
             return MeetNowPostEntry(
                 id: doc.id,
                 authorUid: authorUid,
@@ -986,14 +1037,14 @@ class AppHomeService {
                     profileImageUrls.toList(growable: false),
                 authorScore: profile?.score ?? 0,
                 authorLocation: _userLocationFromData(profileMap),
-                authorGeo: _geoPointFromData(profileMap),
+                authorGeo: null,
                 title: _textValue(data, const ['title']),
                 details: _textValue(data, const ['details', 'description']),
                 category: _textValue(data, const ['category', 'mainCategory']),
                 subCategory: _textValue(data, const ['subCategory']),
                 meetingLocation: _textValue(data,
                     const ['meetingLocation', 'location', 'meetingRegion']),
-                meetingGeo: _geoPointFromData(data),
+                meetingGeo: null,
                 desiredParticipants: data['desiredParticipants'] is num
                     ? (data['desiredParticipants'] as num).toInt()
                     : int.tryParse(
@@ -1012,7 +1063,9 @@ class AppHomeService {
                 linkedGroupIsPublic: linkedGroupIsPublic,
                 participantProfileImageUrls:
                   participantImageUrls.toList(growable: false),
-                distanceMetersFromCurrentUser: distanceMetersFromCurrentUser,
+                distanceMetersFromCurrentUser:
+                  distanceRank.displayDistanceMeters,
+                distanceSortOrder: distanceRank.sortOrder,
             );
           } catch (error) {
             if (error is FirebaseException && error.code == 'permission-denied') {
@@ -1035,22 +1088,10 @@ class AppHomeService {
 
         final sortStopwatch = Stopwatch()..start();
         entries.sort((a, b) {
-          final geoA = a.meetingGeo ?? a.authorGeo;
-          final geoB = b.meetingGeo ?? b.authorGeo;
-          final distanceA = a.distanceMetersFromCurrentUser ??
-              _locationService.distanceInMeters(from: userGeo, to: geoA);
-          final distanceB = b.distanceMetersFromCurrentUser ??
-              _locationService.distanceInMeters(from: userGeo, to: geoB);
-
-          if (distanceA != null && distanceB != null) {
-            final compare = distanceA.compareTo(distanceB);
-            if (compare != 0) {
-              return compare;
-            }
-          } else if (distanceA != null) {
-            return -1;
-          } else if (distanceB != null) {
-            return 1;
+          final distanceOrderCompare =
+              a.distanceSortOrder.compareTo(b.distanceSortOrder);
+          if (distanceOrderCompare != 0) {
+            return distanceOrderCompare;
           }
 
           final rankA = locationRank(
@@ -1106,6 +1147,37 @@ class AppHomeService {
         }
       }
 
+      Future<void> refreshExactDistanceRanking() async {
+        if (isExactDistanceRefreshInFlight) {
+          return;
+        }
+        final lastRefreshAt = lastExactDistanceRefreshAt;
+        if (lastRefreshAt != null &&
+            DateTime.now().difference(lastRefreshAt) <
+                const Duration(seconds: 10)) {
+          return;
+        }
+
+        isExactDistanceRefreshInFlight = true;
+        onExactDistanceRefreshStateChanged?.call(true);
+        try {
+          final distances = await _fetchExactMeetNowDistances(
+            candidateLimit: effectiveCandidateLimit,
+          );
+          exactDistanceMetersByPostId = distances;
+          hasExactDistanceRanking = true;
+          lastExactDistanceRefreshAt = DateTime.now();
+          await scheduleEmit();
+        } catch (error) {
+          debugPrint(
+            '[AppHomeService][streamMeetNowPosts] exact distance ranking failed: $error',
+          );
+        } finally {
+          isExactDistanceRefreshInFlight = false;
+          onExactDistanceRefreshStateChanged?.call(false);
+        }
+      }
+
       Future<void> resubscribeNearbyPosts() async {
         final existingSubs = postSubs.toList(growable: false);
         postSubs.clear();
@@ -1117,8 +1189,7 @@ class AppHomeService {
         initializedQueryKeys.clear();
         activeQueryKeys.clear();
 
-        final userData = currentUserSnapshot?.data() ?? <String, dynamic>{};
-        final userGeo = _geoPointFromData(userData);
+        final userGeo = currentUserGeo;
         if (userGeo == null) {
           activeGeoPrecision = -1;
           const fallbackKey = 'fallback';
@@ -1126,7 +1197,6 @@ class AppHomeService {
           final fallbackSub = _meetNowPosts
               .where('status', isEqualTo: 'active')
               .orderBy('createdAt', descending: true)
-              .limit(effectiveCandidateLimit)
               .snapshots()
               .listen((snapshot) {
             postDocsByQueryKey[fallbackKey] = {
@@ -1154,7 +1224,6 @@ class AppHomeService {
               .orderBy('geohash')
               .startAt([prefix])
               .endAt(['$prefix\uf8ff'])
-              .limit(effectiveCandidateLimit)
               .snapshots()
               .listen((snapshot) {
             postDocsByQueryKey[prefix] = {
@@ -1177,12 +1246,11 @@ class AppHomeService {
         }
       }
 
-      userSub = _users.doc(uid).snapshots().listen((snapshot) {
-        final data = snapshot.data() ?? <String, dynamic>{};
-        final geo = _geoPointFromData(data);
+      void refreshMeetNowQueries() {
+        final data = currentUserSnapshot?.data() ?? <String, dynamic>{};
         final location = _userLocationFromData(data).trim().toLowerCase();
-        final latKey = geo?.latitude.toStringAsFixed(5) ?? '';
-        final lngKey = geo?.longitude.toStringAsFixed(5) ?? '';
+        final latKey = currentUserGeo?.latitude.toStringAsFixed(5) ?? '';
+        final lngKey = currentUserGeo?.longitude.toStringAsFixed(5) ?? '';
         final nextSortKey = '$latKey|$lngKey|$location';
 
         // Presence/status writes can update the user doc frequently; only
@@ -1192,11 +1260,29 @@ class AppHomeService {
         }
 
         lastMeetUserSortKey = nextSortKey;
-        currentUserSnapshot = snapshot;
         activeGeoQueryPrecisionIndex = 0;
         unawaited(resubscribeNearbyPosts());
+        if (currentUserGeo != null) {
+          unawaited(refreshExactDistanceRanking());
+        }
         unawaited(scheduleEmit());
+      }
+
+      userSub = _users.doc(uid).snapshots().listen((snapshot) {
+        currentUserSnapshot = snapshot;
+        refreshMeetNowQueries();
       }, onError: controller.addError);
+
+      locationSub = _privateLocationRef(uid).snapshots().listen((snapshot) {
+        currentUserGeo = _geoPointFromData(snapshot.data() ?? <String, dynamic>{});
+        if (currentUserGeo == null) {
+          onExactDistanceRefreshStateChanged?.call(false);
+        }
+        refreshMeetNowQueries();
+      }, onError: (error, stackTrace) {
+        onExactDistanceRefreshStateChanged?.call(false);
+        controller.addError(error, stackTrace);
+      });
 
       blockedUsersSub = _blockUserService.streamBlockedConnections().listen(
         (ids) {
@@ -1214,6 +1300,7 @@ class AppHomeService {
         for (final sub in postSubs) {
           await sub.cancel();
         }
+        await locationSub?.cancel();
         await blockedUsersSub?.cancel();
       };
     });
@@ -1342,9 +1429,10 @@ class AppHomeService {
       );
     }
 
-    final userDoc = await _users.doc(uid).get();
-    final userData = userDoc.data() ?? <String, dynamic>{};
-    final userGeo = _geoPointFromData(userData);
+    final locationDoc = await _privateLocationRef(uid).get();
+    final userGeo = _geoPointFromData(
+      locationDoc.data() ?? <String, dynamic>{},
+    );
     final normalizedDetails = details.trim();
 
     final payload = <String, dynamic>{
@@ -1364,9 +1452,13 @@ class AppHomeService {
       'updatedAt': FieldValue.serverTimestamp(),
     };
     if (userGeo != null) {
-      payload['geo'] = userGeo;
-      payload['geohash'] = GeoHashUtils.encodeGeoPoint(
+      final discoveryGeo = GeoHashUtils.snapToCellCenter(
         userGeo,
+        precision: meetNowGeoHashPrecision,
+      );
+      payload['discoveryGeo'] = discoveryGeo;
+      payload['geohash'] = GeoHashUtils.encodeGeoPoint(
+        discoveryGeo,
         precision: meetNowGeoHashPrecision,
       );
     }
