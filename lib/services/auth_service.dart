@@ -80,6 +80,10 @@ class AuthService {
   static const String emailNotVerifiedCode = 'email-not-verified';
   static const String registrationIncompleteCode = 'registration-incomplete';
   static const String ageRestrictedCode = 'age-restricted';
+  static const String phoneAuthDomain = 'hundred.com';
+  static const String onboardingStageField = 'onboardingStage';
+  static const String privacyAcceptedAtField = 'privacyAcceptedAt';
+  static const String privacyPolicyVersionField = 'privacyPolicyVersion';
 
   final NotificationService _notificationService = NotificationService();
 
@@ -281,6 +285,46 @@ class AuthService {
 
   String _normalizeEmail(String email) => email.trim().toLowerCase();
 
+  String normalizePhoneNumber(String phone) {
+    final trimmed = phone.trim();
+    final digits = trimmed.replaceAll(RegExp(r'\D'), '');
+    if (trimmed.startsWith('+')) {
+      return '+$digits';
+    }
+    // The app currently targets Israeli numbers; accept the common local form
+    // while always sending Firebase an E.164 number.
+    if (digits.startsWith('0') && digits.length >= 9) {
+      return '+972${digits.substring(1)}';
+    }
+    if (digits.startsWith('972')) {
+      return '+$digits';
+    }
+    return digits;
+  }
+
+  String phoneAuthEmail(String phone) {
+    final normalized = normalizePhoneNumber(phone);
+    if (normalized.isEmpty) return '';
+    final localPart = normalized.replaceAll(RegExp(r'\D'), '');
+    return '$localPart@$phoneAuthDomain';
+  }
+
+  bool isPhoneLoginInput(String input) {
+    final trimmed = input.trim();
+    return trimmed.isNotEmpty && !trimmed.contains('@');
+  }
+
+  Future<bool> isRegisteredPhone(String phone) async {
+    final normalizedPhone = normalizePhoneNumber(phone);
+    if (normalizedPhone.isEmpty) return false;
+    final snapshot = await _db
+        .collection('users')
+        .where('phone', isEqualTo: normalizedPhone)
+        .limit(1)
+        .get();
+    return snapshot.docs.isNotEmpty;
+  }
+
   void logAuthFailure(String source, Object error, [StackTrace? stackTrace]) {
     final details = <String>[
       '[AuthService][$source] FirebaseAuth failure',
@@ -426,13 +470,7 @@ class AuthService {
     }
 
     final isEmail = RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(input);
-    String email = input;
-    if (!isEmail) {
-      email = await resolveEmailForUsername(input);
-      if (email.isEmpty) {
-        return LoginPreflightGate.allow;
-      }
-    }
+    final email = isEmail ? input : phoneAuthEmail(input);
 
     final normalizedEmail = _normalizeEmail(email);
     if (normalizedEmail.isEmpty) {
@@ -442,7 +480,10 @@ class AuthService {
     try {
       final snapshot = await _db
           .collection('users')
-          .where('email', isEqualTo: normalizedEmail)
+          .where(
+            isEmail ? 'email' : 'phoneAuthEmail',
+            isEqualTo: normalizedEmail,
+          )
           .limit(1)
           .get();
 
@@ -460,11 +501,11 @@ class AuthService {
 
       switch (step) {
         case OnboardingStep.pendingVerification:
-          return LoginPreflightGate.pendingVerification;
+          return LoginPreflightGate.pendingProfile;
         case OnboardingStep.pendingProfile:
           return LoginPreflightGate.pendingProfile;
         case OnboardingStep.expired:
-          return LoginPreflightGate.expired;
+          return LoginPreflightGate.pendingProfile;
         case OnboardingStep.active:
           return LoginPreflightGate.allow;
       }
@@ -842,6 +883,164 @@ class AuthService {
     }
   }
 
+  Future<User> finishPhoneVerificationAndCreateAuthAccount({
+    required AuthCredential phoneCredential,
+    required String phone,
+    required String password,
+    required String firstName,
+    required String lastName,
+  }) async {
+    final normalizedPhone = normalizePhoneNumber(phone);
+    final internalEmail = phoneAuthEmail(normalizedPhone);
+    if (normalizedPhone.isEmpty || internalEmail.isEmpty) {
+      throw FirebaseAuthException(
+        code: 'invalid-phone-number',
+        message: 'מספר הטלפון אינו תקין.',
+      );
+    }
+
+    User? user = _auth.currentUser;
+    if (user == null) {
+      final phoneResult = await _auth.signInWithCredential(phoneCredential);
+      user = phoneResult.user;
+    }
+    if (user == null) {
+      throw FirebaseAuthException(
+        code: 'user-not-found',
+        message: 'לא הצלחנו ליצור חשבון למספר הטלפון הזה.',
+      );
+    }
+
+    final hasPasswordProvider = user.providerData.any(
+      (provider) => provider.providerId == 'password',
+    );
+    if (!hasPasswordProvider) {
+      final credential = EmailAuthProvider.credential(
+        email: internalEmail,
+        password: password,
+      );
+      final linked = await user.linkWithCredential(credential);
+      user = linked.user ?? user;
+    }
+
+    await _db.collection('users').doc(user.uid).set(
+      {
+        'uid': user.uid,
+        'phone': normalizedPhone,
+        'email': internalEmail,
+        'phoneAuthEmail': internalEmail,
+        'displayName': '${firstName.trim()} ${lastName.trim()}'.trim(),
+        'firstName': firstName.trim(),
+        'lastName': lastName.trim(),
+        'pendingRegistrationDraft': {
+          'firstName': firstName.trim(),
+          'lastName': lastName.trim(),
+          'phone': normalizedPhone,
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        onboardingStepField: OnboardingStep.pendingProfile.firestoreValue,
+        onboardingStageField: 'credentials',
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
+    return user;
+  }
+
+  Future<void> saveOnboardingCheckpoint(
+    String uid, {
+    required String stage,
+    Map<String, dynamic> data = const <String, dynamic>{},
+  }) async {
+    await _db.collection('users').doc(uid).set(
+      {
+        ...data,
+        onboardingStepField: OnboardingStep.pendingProfile.firestoreValue,
+        onboardingStageField: stage,
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
+  }
+
+  Future<String> currentUserOnboardingStage() async {
+    final user = _auth.currentUser;
+    if (user == null) return 'credentials';
+    final snapshot = await _db.collection('users').doc(user.uid).get();
+    return (snapshot.data()?[onboardingStageField] as String?) ?? 'credentials';
+  }
+
+  Future<void> linkBackupEmailCredential({
+    required String email,
+    required String password,
+  }) async {
+    final user = _auth.currentUser;
+    final normalizedEmail = _normalizeEmail(email);
+    if (user == null) {
+      throw FirebaseAuthException(
+        code: 'session-expired',
+        message: 'יש להתחבר מחדש כדי להוסיף מייל.',
+      );
+    }
+    if (normalizedEmail.isEmpty ||
+        normalizedEmail.endsWith('@$phoneAuthDomain')) {
+      throw FirebaseAuthException(
+        code: 'invalid-email',
+        message: 'יש להזין מייל אמיתי.',
+      );
+    }
+
+    final hasPasswordProvider = user.providerData.any(
+      (provider) => provider.providerId == 'password',
+    );
+    if (hasPasswordProvider &&
+        !_normalizeEmail(user.email ?? '').endsWith('@$phoneAuthDomain')) {
+      throw FirebaseAuthException(
+        code: 'email-already-in-use',
+        message: 'כבר קיים מייל מקושר לחשבון.',
+      );
+    }
+
+    final credential = EmailAuthProvider.credential(
+      email: normalizedEmail,
+      password: password,
+    );
+    final linkedUser = (await user.linkWithCredential(credential)).user ?? user;
+    await linkedUser.sendEmailVerification();
+    await _db.collection('users').doc(linkedUser.uid).set(
+      {
+        'pendingBackupEmail': normalizedEmail,
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
+  }
+
+  Future<bool> confirmBackupEmail() async {
+    final user = _auth.currentUser;
+    if (user == null) return false;
+    await user.reload();
+    final refreshedUser = _auth.currentUser ?? user;
+    final email = _normalizeEmail(refreshedUser.email ?? '');
+    if (!refreshedUser.emailVerified ||
+        email.isEmpty ||
+        email.endsWith('@$phoneAuthDomain')) {
+      return false;
+    }
+    await _db.collection('users').doc(refreshedUser.uid).set(
+      {
+        'email': email,
+        'backupEmail': email,
+        'backupEmailVerified': true,
+        'pendingBackupEmail': FieldValue.delete(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
+    return true;
+  }
+
   Future<PendingRegistrationState> beginEmailVerificationRegistration({
     required String email,
     required String password,
@@ -1024,40 +1223,17 @@ class AuthService {
     }
   }
 
-  Future<User> _requireVerifiedEmail(
+  Future<User> requireCompletedRegistration(
     User user, {
     bool queueUiMessageOnFailure = true,
   }) async {
     await user.reload();
     final refreshedUser = _auth.currentUser ?? user;
-    if (refreshedUser.emailVerified) {
-      return refreshedUser;
-    }
-
-    if (queueUiMessageOnFailure) {
-      setPendingAuthUiMessage(
-        'האימייל שלך עדיין לא אומת. נא לאשר את המייל ולהתחבר שוב.',
-      );
-    }
-    await _auth.signOut();
-    throw FirebaseAuthException(
-      code: emailNotVerifiedCode,
-      message: 'יש לאמת את כתובת המייל לפני התחברות לאפליקציה.',
-    );
-  }
-
-  Future<User> requireCompletedRegistration(
-    User user, {
-    bool queueUiMessageOnFailure = true,
-  }) async {
-    final refreshedUser = await _requireVerifiedEmail(
-      user,
-      queueUiMessageOnFailure: queueUiMessageOnFailure,
-    );
     final onboardingStep =
         await _resolveOnboardingStepForUid(refreshedUser.uid);
     if (onboardingStep == OnboardingStep.active) {
-      final snapshot = await _db.collection('users').doc(refreshedUser.uid).get();
+      final snapshot =
+          await _db.collection('users').doc(refreshedUser.uid).get();
       final data = snapshot.data() ?? <String, dynamic>{};
       if (!_isAgeRestrictedUserData(data)) {
         return refreshedUser;
@@ -1142,6 +1318,7 @@ class AuthService {
     required String lifeMotto,
     required String bio,
     required List<XFile> profileImages,
+    bool privacyAccepted = false,
   }) async {
     registrationFlowInProgress.value = true;
     try {
@@ -1155,10 +1332,8 @@ class AuthService {
         );
       }
 
-      final user = await _requireVerifiedEmail(
-        currentUser,
-        queueUiMessageOnFailure: false,
-      );
+      await currentUser.reload();
+      final user = _auth.currentUser ?? currentUser;
       final hasCompletedProfile = await _hasCompletedPrivateProfile(user.uid);
       if (hasCompletedProfile &&
           (await _resolveOnboardingStepForUid(user.uid)) ==
@@ -1219,6 +1394,7 @@ class AuthService {
       batch.set(userRef, {
         'uid': user.uid,
         'email': (user.email ?? '').trim(),
+        'phoneAuthEmail': phoneAuthEmail(normalizedPhone),
         'username': normalizedUsername,
         'usernameLowercase': normalizedUsername,
         'firstName': normalizedFirstName,
@@ -1239,6 +1415,10 @@ class AuthService {
         'friendsCount': 0,
         'isPrivate': false,
         'score': 0,
+        if (privacyAccepted) ...{
+          privacyAcceptedAtField: FieldValue.serverTimestamp(),
+          privacyPolicyVersionField: '2026-08-06',
+        },
         'createdAt': FieldValue.serverTimestamp(),
       });
 
@@ -1319,6 +1499,8 @@ class AuthService {
   // פונקציית התחברות (Login)
   Future<User?> loginWithEmailAndPassword(String email, String password) async {
     final resolvedEmail = _normalizeEmail(email);
+    final isRealEmailLogin = resolvedEmail.isNotEmpty &&
+        !resolvedEmail.endsWith('@$phoneAuthDomain');
     if (resolvedEmail.isNotEmpty) {
       final preflight = await preflightLoginGate(resolvedEmail);
       if (preflight == LoginPreflightGate.ageRestricted) {
@@ -1369,19 +1551,11 @@ class AuthService {
         return null;
       }
 
-      if (!user.emailVerified) {
-        await _sendEmailVerificationWithLogging(
-          user,
-          source: 'loginWithEmailAndPassword',
-        );
-        await _ensureUserOnboardingState(
-          user,
-          step: OnboardingStep.pendingVerification,
-        );
+      if (isRealEmailLogin && !user.emailVerified) {
         await _auth.signOut();
         throw FirebaseAuthException(
           code: emailNotVerifiedCode,
-          message: 'האימייל שלך עדיין לא אומת. שלחנו קישור/קוד אימות שוב.',
+          message: 'יש לאמת את מייל הגיבוי לפני התחברות באמצעותו.',
         );
       }
 
@@ -1394,13 +1568,9 @@ class AuthService {
           user.uid,
           step: OnboardingStep.pendingVerification,
         );
-        await _sendEmailVerificationWithLogging(
-          user,
-          source: 'loginWithEmailAndPassword.expiredPendingFlow',
-        );
         throw FirebaseAuthException(
-          code: emailNotVerifiedCode,
-          message: 'תהליך ההרשמה פג תוקפו. שלחנו מייל אימות חדש כדי להמשיך.',
+          code: registrationIncompleteCode,
+          message: 'תהליך ההרשמה פג תוקפו. יש להמשיך את השלמת הפרופיל.',
         );
       }
 
@@ -1443,46 +1613,14 @@ class AuthService {
     }
 
     final isEmail = RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(input);
-    String email = input;
-
-    if (!isEmail) {
-      try {
-        final normalizedUsername = _normalizeUsername(input);
-        final lowerSnapshot = await _db
-            .collection('users')
-            .where('usernameLowercase', isEqualTo: normalizedUsername)
-            .limit(1)
-            .get();
-
-        final snapshot = lowerSnapshot.docs.isNotEmpty
-            ? lowerSnapshot
-            : await _db
-                .collection('users')
-                .where('username', isEqualTo: normalizedUsername)
-                .limit(1)
-                .get();
-
-        if (snapshot.docs.isEmpty) {
-          throw FirebaseAuthException(
-            code: 'user-not-found',
-            message: 'האימייל או שם המשתמש לא קיימים.',
-          );
-        }
-
-        email = (snapshot.docs.first.data()['email'] as String? ?? '').trim();
-        if (email.isEmpty) {
-          throw FirebaseAuthException(
-            code: 'user-not-found',
-            message: 'לא נמצאה כתובת אימייל למשתמש.',
-          );
-        }
-      } on FirebaseAuthException {
-        rethrow;
-      } catch (error, stackTrace) {
-        logAuthFailure(
-            'loginWithEmailOrUsername.userLookup', error, stackTrace);
-        rethrow;
-      }
+    final email = isEmail ? input : phoneAuthEmail(input);
+    final isRealEmailLogin =
+        isEmail && !_normalizeEmail(email).endsWith('@$phoneAuthDomain');
+    if (email.isEmpty) {
+      throw FirebaseAuthException(
+        code: 'invalid-phone-number',
+        message: 'יש להזין מספר טלפון או כתובת מייל תקינים.',
+      );
     }
 
     final preflight = await preflightLoginGate(email);
@@ -1533,19 +1671,11 @@ class AuthService {
         return null;
       }
 
-      if (!user.emailVerified) {
-        await _sendEmailVerificationWithLogging(
-          user,
-          source: 'loginWithEmailOrUsername',
-        );
-        await _ensureUserOnboardingState(
-          user,
-          step: OnboardingStep.pendingVerification,
-        );
+      if (isRealEmailLogin && !user.emailVerified) {
         await _auth.signOut();
         throw FirebaseAuthException(
           code: emailNotVerifiedCode,
-          message: 'האימייל שלך עדיין לא אומת. שלחנו קישור/קוד אימות שוב.',
+          message: 'יש לאמת את מייל הגיבוי לפני התחברות באמצעותו.',
         );
       }
 
@@ -1558,13 +1688,9 @@ class AuthService {
           user.uid,
           step: OnboardingStep.pendingVerification,
         );
-        await _sendEmailVerificationWithLogging(
-          user,
-          source: 'loginWithEmailOrUsername.expiredPendingFlow',
-        );
         throw FirebaseAuthException(
-          code: emailNotVerifiedCode,
-          message: 'תהליך ההרשמה פג תוקפו. שלחנו מייל אימות חדש כדי להמשיך.',
+          code: registrationIncompleteCode,
+          message: 'תהליך ההרשמה פג תוקפו. יש להמשיך את השלמת הפרופיל.',
         );
       }
 
@@ -1608,33 +1734,13 @@ class AuthService {
     }
 
     final isEmail = RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(input);
-    String email = input;
-
     if (!isEmail) {
-      final normalizedUsername = _normalizeUsername(input);
-      final lowerSnapshot = await _db
-          .collection('users')
-          .where('usernameLowercase', isEqualTo: normalizedUsername)
-          .limit(1)
-          .get();
-
-      final snapshot = lowerSnapshot.docs.isNotEmpty
-          ? lowerSnapshot
-          : await _db
-              .collection('users')
-              .where('username', isEqualTo: normalizedUsername)
-              .limit(1)
-              .get();
-
-      if (snapshot.docs.isEmpty) {
-        return;
-      }
-
-      email = (snapshot.docs.first.data()['email'] as String? ?? '').trim();
-      if (email.isEmpty) {
-        return;
-      }
+      throw FirebaseAuthException(
+        code: 'invalid-email',
+        message: 'איפוס סיסמה באמצעות טלפון מתבצע בקוד SMS.',
+      );
     }
+    final email = _normalizeEmail(input);
 
     try {
       debugPrint(

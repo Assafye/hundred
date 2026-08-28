@@ -82,6 +82,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Timer? _usernameDebounce;
 
   int _currentStep = 0;
+  int _profileStage = 0;
 
   @override
   void initState() {
@@ -105,16 +106,30 @@ class _RegisterScreenState extends State<RegisterScreen> {
       if (widget.prefilledEmail != null &&
           widget.prefilledEmail!.trim().isNotEmpty) {
         await _restorePendingRegistrationDraft();
-      }
-
-      if (widget.prefilledEmail != null &&
-          widget.prefilledEmail!.trim().isNotEmpty &&
-          widget.prefilledPassword != null &&
-          widget.prefilledPassword!.trim().isNotEmpty &&
-          _currentStep >= 1) {
-        await _resumePendingVerificationGate();
+        final stage = await _authService.currentUserOnboardingStage();
+        if (mounted) {
+          setState(() {
+            _profileStage = _profileStageFromName(stage);
+          });
+        }
       }
     });
+  }
+
+  int _profileStageFromName(String stage) {
+    switch (stage) {
+      case 'username':
+        return 0;
+      case 'images':
+        return 1;
+      case 'birth_date':
+        return 2;
+      case 'bio':
+      case 'profile_summary':
+        return 3;
+      default:
+        return 0;
+    }
   }
 
   Future<void> _restorePendingRegistrationDraft() async {
@@ -141,6 +156,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       if (lastName.isNotEmpty) {
         _lastNameController.text = lastName;
       }
+      _displayNameController.text = _normalizedName('$firstName $lastName');
       if (birthDate.isNotEmpty) {
         _birthDateController.text = birthDate;
         final parsed = _parseDdMmYyyy(birthDate);
@@ -203,62 +219,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
       return DateTime(year, month, day);
     } catch (_) {
       return null;
-    }
-  }
-
-  Future<void> _resumePendingVerificationGate() async {
-    final email = (widget.prefilledEmail ?? _emailController.text).trim();
-    final password =
-        (widget.prefilledPassword ?? _passwordController.text).trim();
-    if (email.isEmpty || password.isEmpty) {
-      return;
-    }
-
-    try {
-      final verificationState =
-          await _authService.beginEmailVerificationRegistration(
-        email: email,
-        password: password,
-      );
-
-      if (!mounted) return;
-
-      final isVerified = verificationState.isVerified
-          ? await _authService.refreshPendingEmailVerificationStatus()
-          : false;
-
-      if (isVerified) {
-        setState(() {
-          _currentStep = 1;
-        });
-        return;
-      }
-
-      final confirmed =
-          await _showEmailVerificationDialog(state: verificationState);
-      if (!mounted) return;
-
-      if (confirmed) {
-        setState(() {
-          _currentStep = 1;
-        });
-        return;
-      }
-
-      await _authService.endPendingRegistrationFlow(signOut: true);
-      if (mounted) {
-        Navigator.of(context).pop();
-      }
-    } catch (error) {
-      debugPrint(
-          '[RegisterScreen][_resumePendingVerificationGate] error: $error');
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(_registrationErrorMessage(error)),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
     }
   }
 
@@ -1106,19 +1066,187 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
   }
 
+  Future<bool> _showProfileSummary({required DateTime birthDate}) async {
+    var accepted = false;
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              backgroundColor: const Color(0xFF1A2435),
+              title: const Text('בדיקת הפרטים',
+                  textAlign: TextAlign.right,
+                  style: TextStyle(color: _textPrimary)),
+              content: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text('שם: ${_displayNameController.text.trim()}',
+                        textAlign: TextAlign.right,
+                        style: const TextStyle(color: _textPrimary)),
+                    Text('יוזר: @${_handleController.text.trim()}',
+                        textAlign: TextAlign.right,
+                        style: const TextStyle(color: _textPrimary)),
+                    Text('תמונות: ${_profileImages.length}',
+                        textAlign: TextAlign.right,
+                        style: const TextStyle(color: _textPrimary)),
+                    Text('תאריך לידה: ${_formatDate(birthDate)}',
+                        textAlign: TextAlign.right,
+                        style: const TextStyle(color: _textPrimary)),
+                    if (_lifeMottoController.text.trim().isNotEmpty)
+                      Text('כותרת: ${_lifeMottoController.text.trim()}',
+                          textAlign: TextAlign.right,
+                          style: const TextStyle(color: _textPrimary)),
+                    if (_bioController.text.trim().isNotEmpty)
+                      Text('תיאור: ${_bioController.text.trim()}',
+                          textAlign: TextAlign.right,
+                          style: const TextStyle(color: _textPrimary)),
+                    const SizedBox(height: 12),
+                    CheckboxListTile(
+                      value: accepted,
+                      onChanged: (value) => setDialogState(
+                        () => accepted = value ?? false,
+                      ),
+                      controlAffinity: ListTileControlAffinity.leading,
+                      title: const Text(
+                        'אני מאשר/ת את תנאי השימוש ומדיניות הפרטיות',
+                        textAlign: TextAlign.right,
+                        style: TextStyle(color: _textSecondary, fontSize: 13),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(false),
+                  child: const Text('חזרה'),
+                ),
+                ElevatedButton(
+                  onPressed: accepted
+                      ? () => Navigator.of(dialogContext).pop(true)
+                      : null,
+                  child: const Text('צור חשבון'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+    return result == true;
+  }
+
+  Future<void> _offerBackupEmail() async {
+    final emailController = TextEditingController();
+    final wantsEmail = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: const Color(0xFF1A2435),
+        title: const Text('הוספת מייל גיבוי',
+            textAlign: TextAlign.right, style: TextStyle(color: _textPrimary)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'מייל גיבוי יאפשר התחברות ושחזור חשבון גם אם אין גישה למספר הטלפון.',
+              textAlign: TextAlign.right,
+              style: TextStyle(color: _textSecondary),
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: emailController,
+              keyboardType: TextInputType.emailAddress,
+              textDirection: TextDirection.rtl,
+              decoration: _inputDecoration('מייל גיבוי'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('לא עכשיו'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('הוספת מייל'),
+          ),
+        ],
+      ),
+    );
+    final email = emailController.text.trim();
+    emailController.dispose();
+    if (!mounted || wantsEmail != true || email.isEmpty) return;
+
+    try {
+      await _authService.linkBackupEmailCredential(
+        email: email,
+        password: _passwordController.text.trim(),
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('שלחנו מייל אימות. ניתן להשלים את האימות דרך ההגדרות.'),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('לא הצלחנו להוסיף מייל גיבוי: $error')),
+      );
+    }
+  }
+
+  Future<void> _continueProfileStage() async {
+    final formState = _profileFormKey.currentState;
+    if (formState == null || !formState.validate()) return;
+    if (_profileStage == 1 && _profileImages.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('יש לבחור לפחות תמונת פרופיל אחת.')),
+      );
+      return;
+    }
+    if (_profileStage == 2 && _resolvedBirthDate() == null) return;
+
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    final stages = const <String>['username', 'images', 'birth_date', 'bio'];
+    final data = <String, dynamic>{
+      if (_handleController.text.trim().isNotEmpty)
+        'username': '@${_handleController.text.trim()}',
+      if (_displayNameController.text.trim().isNotEmpty)
+        'displayName': _displayNameController.text.trim(),
+      if (_resolvedBirthDate() != null)
+        'birthDate': _formatDate(_resolvedBirthDate()!),
+      'lifeMotto': _lifeMottoController.text.trim(),
+      'bio': _bioController.text.trim(),
+    };
+    setState(() => _isRegistering = true);
+    try {
+      await _authService.saveOnboardingCheckpoint(
+        user.uid,
+        stage: stages[_profileStage + 1],
+        data: data,
+      );
+      if (!mounted) return;
+      setState(() => _profileStage += 1);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(_registrationErrorMessage(error))),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isRegistering = false);
+    }
+  }
+
   Future<void> _onRegisterPressed() async {
     final formState = _profileFormKey.currentState;
     if (formState == null || !formState.validate()) {
-      return;
-    }
-
-    if (!_hasAcceptedPrivacyPolicy) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content:
-              Text('יש לאשר את מדיניות הפרטיות ותנאי השימוש כדי להשלים הרשמה.'),
-        ),
-      );
       return;
     }
 
@@ -1142,24 +1270,35 @@ class _RegisterScreenState extends State<RegisterScreen> {
       return;
     }
 
+    final accepted = await _showProfileSummary(
+      birthDate: birthDateForRegistration,
+    );
+    if (!mounted || !accepted) return;
+
     setState(() {
       _isRegistering = true;
     });
 
     try {
       await _ensureAuthenticatedForRegistration();
+      final checkpointUser = FirebaseAuth.instance.currentUser;
+      if (checkpointUser != null) {
+        await _authService.saveOnboardingCheckpoint(
+          checkpointUser.uid,
+          stage: 'profile_summary',
+          data: {
+            'displayName': _displayNameController.text.trim(),
+            'username': usernameForStorage,
+            'usernameLowercase': usernameForStorage.toLowerCase(),
+            'birthDate': _formatDate(birthDateForRegistration),
+            'lifeMotto': _lifeMottoController.text.trim(),
+            'bio': _bioController.text.trim(),
+          },
+        );
+      }
 
       Future<bool> checkUsernameTakenWithRecovery() async {
-        try {
-          return await _authService.isUsernameTaken(usernameForStorage);
-        } catch (error) {
-          final recovered =
-              await _recoverPendingRegistrationSessionIfNeeded(error);
-          if (!recovered) {
-            rethrow;
-          }
-          return _authService.isUsernameTaken(usernameForStorage);
-        }
+        return _authService.isUsernameTaken(usernameForStorage);
       }
 
       final isTaken = await checkUsernameTakenWithRecovery();
@@ -1197,29 +1336,16 @@ class _RegisterScreenState extends State<RegisterScreen> {
             lifeMotto: _lifeMottoController.text.trim(),
             bio: _bioController.text.trim(),
             profileImages: _profileImages,
+            privacyAccepted: true,
           );
         } catch (error) {
-          final recovered =
-              await _recoverPendingRegistrationSessionIfNeeded(error);
-          if (!recovered) {
-            rethrow;
-          }
-          await _authService.completeVerifiedRegistration(
-            password: _passwordController.text.trim(),
-            username: usernameForStorage,
-            firstName: _firstNameController.text.trim(),
-            lastName: _lastNameController.text.trim(),
-            displayName: _displayNameController.text.trim(),
-            phone: _phoneController.text.trim(),
-            birthDate: _formatDate(birthDateForRegistration),
-            lifeMotto: _lifeMottoController.text.trim(),
-            bio: _bioController.text.trim(),
-            profileImages: _profileImages,
-          );
+          rethrow;
         }
       }
 
       await completeRegistrationWithRecovery();
+
+      await _offerBackupEmail();
 
       // Firebase Auth signs in automatically on account creation.
       // Sign out so the user returns to login instead of being routed to feed.
@@ -1456,43 +1582,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
           _isRegistering = false;
         });
       }
-    }
-  }
-
-  bool _isRecoverableRegistrationSessionError(Object error) {
-    if (error is FirebaseAuthException) {
-      return error.code == 'session-expired' ||
-          error.code == 'permission-denied';
-    }
-
-    if (error is FirebaseException) {
-      return error.code == 'permission-denied';
-    }
-
-    return false;
-  }
-
-  Future<bool> _recoverPendingRegistrationSessionIfNeeded(Object error) async {
-    if (!_isRecoverableRegistrationSessionError(error)) {
-      return false;
-    }
-
-    try {
-      final verificationState =
-          await _authService.beginEmailVerificationRegistration(
-        email: _emailController.text.trim(),
-        password: _passwordController.text.trim(),
-      );
-
-      if (!mounted) return false;
-
-      if (verificationState.isVerified) {
-        return true;
-      }
-
-      return await _showEmailVerificationDialog(state: verificationState);
-    } catch (_) {
-      return false;
     }
   }
 
@@ -1847,237 +1936,243 @@ class _RegisterScreenState extends State<RegisterScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _buildField(
-            controller: _displayNameController,
-            label: 'שם משתמש',
-            validator: (v) =>
-                (v == null || v.trim().isEmpty) ? 'שדה חובה' : null,
-          ),
-          Padding(
-            padding: const EdgeInsets.only(bottom: 6),
-            child: TextFormField(
-              controller: _handleController,
-              onTapOutside: (_) {},
-              keyboardType: TextInputType.name,
-              textDirection: TextDirection.rtl,
-              textAlign: TextAlign.right,
-              onChanged: _onHandleChanged,
-              inputFormatters: [
-                FilteringTextInputFormatter.deny(RegExp(r'@')),
-                FilteringTextInputFormatter.deny(RegExp(r'\s')),
-              ],
-              style: const TextStyle(
-                color: _textPrimary,
-                fontWeight: FontWeight.w600,
-              ),
-              decoration: _inputDecoration('יוזר').copyWith(
-                prefixText: '@',
-                prefixStyle: const TextStyle(
-                  color: _textSecondary,
-                  fontWeight: FontWeight.w700,
-                ),
-                suffixIcon: _isCheckingUsername
-                    ? const Padding(
-                        padding: EdgeInsets.all(12),
-                        child: SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(_accent),
-                          ),
-                        ),
-                      )
-                    : null,
-              ),
-              validator: (v) {
-                if (v == null || v.trim().isEmpty) return 'שדה חובה';
-                final clean = v.trim();
-                if (clean.contains(' ')) {
-                  return 'היוזר לא יכול להכיל רווחים';
-                }
-                if (clean.length < 3) {
-                  return 'לפחות 3 תווים';
-                }
-                if (_isUsernameTaken) {
-                  return 'היוזר תפוס';
-                }
-                return null;
-              },
-            ),
-          ),
-          if (_usernameAvailabilityError != null)
+          if (_profileStage == 0) ...[
+            const SizedBox.shrink(),
             Padding(
-              padding: const EdgeInsets.only(bottom: 10, right: 4),
-              child: Text(
-                _usernameAvailabilityError!,
+              padding: const EdgeInsets.only(bottom: 6),
+              child: TextFormField(
+                controller: _handleController,
+                onTapOutside: (_) {},
+                keyboardType: TextInputType.name,
+                textDirection: TextDirection.rtl,
                 textAlign: TextAlign.right,
+                onChanged: _onHandleChanged,
+                inputFormatters: [
+                  FilteringTextInputFormatter.deny(RegExp(r'@')),
+                  FilteringTextInputFormatter.deny(RegExp(r'\s')),
+                ],
                 style: const TextStyle(
-                  color: Colors.redAccent,
-                  fontSize: 12.5,
+                  color: _textPrimary,
                   fontWeight: FontWeight.w600,
                 ),
+                decoration: _inputDecoration('יוזר').copyWith(
+                  prefixText: '@',
+                  prefixStyle: const TextStyle(
+                    color: _textSecondary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                  suffixIcon: _isCheckingUsername
+                      ? const Padding(
+                          padding: EdgeInsets.all(12),
+                          child: SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor:
+                                  AlwaysStoppedAnimation<Color>(_accent),
+                            ),
+                          ),
+                        )
+                      : null,
+                ),
+                validator: (v) {
+                  if (v == null || v.trim().isEmpty) return 'שדה חובה';
+                  final clean = v.trim();
+                  if (clean.contains(' ')) {
+                    return 'היוזר לא יכול להכיל רווחים';
+                  }
+                  if (clean.length < 3) {
+                    return 'לפחות 3 תווים';
+                  }
+                  if (_isUsernameTaken) {
+                    return 'היוזר תפוס';
+                  }
+                  return null;
+                },
               ),
             ),
-          const SizedBox(height: 6),
-          const Text(
-            'אלו התמונות שיופיעו בפרופיל שלך.',
-            textAlign: TextAlign.right,
-            style: TextStyle(color: _textSecondary, fontSize: 12.5),
-          ),
-          const SizedBox(height: 10),
-          GridView.builder(
-            itemCount: _profileImages.length + 1,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 3,
-              mainAxisSpacing: 9,
-              crossAxisSpacing: 9,
-              childAspectRatio: 1,
+            if (_usernameAvailabilityError != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10, right: 4),
+                child: Text(
+                  _usernameAvailabilityError!,
+                  textAlign: TextAlign.right,
+                  style: const TextStyle(
+                    color: Colors.redAccent,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+          ],
+          if (_profileStage == 1) ...[
+            const SizedBox(height: 6),
+            const Text(
+              'אלו התמונות שיופיעו בפרופיל שלך.',
+              textAlign: TextAlign.right,
+              style: TextStyle(color: _textSecondary, fontSize: 12.5),
             ),
-            itemBuilder: (context, index) {
-              if (index < _profileImages.length) {
-                return _buildProfileImageTile(index);
-              }
+            const SizedBox(height: 10),
+            GridView.builder(
+              itemCount: _profileImages.length + 1,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 3,
+                mainAxisSpacing: 9,
+                crossAxisSpacing: 9,
+                childAspectRatio: 1,
+              ),
+              itemBuilder: (context, index) {
+                if (index < _profileImages.length) {
+                  return _buildProfileImageTile(index);
+                }
 
-              final isDisabled = _profileImages.length >= _maxProfileImages ||
-                  _isPickingProfileImages;
+                final isDisabled = _profileImages.length >= _maxProfileImages ||
+                    _isPickingProfileImages;
 
-              return InkWell(
-                onTap: isDisabled ? null : _pickProfileImages,
-                borderRadius: BorderRadius.circular(14),
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF121A2A),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: isDisabled
-                          ? _accent.withValues(alpha: 0.12)
-                          : _primary.withValues(alpha: 0.44),
-                      width: 0.9,
+                return InkWell(
+                  onTap: isDisabled ? null : _pickProfileImages,
+                  borderRadius: BorderRadius.circular(14),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF121A2A),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: isDisabled
+                            ? _accent.withValues(alpha: 0.12)
+                            : _primary.withValues(alpha: 0.44),
+                        width: 0.9,
+                      ),
+                    ),
+                    child: Center(
+                      child: _isPickingProfileImages
+                          ? const SizedBox(
+                              width: 24,
+                              height: 24,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.2,
+                                valueColor:
+                                    AlwaysStoppedAnimation<Color>(_primary),
+                              ),
+                            )
+                          : const Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.add_photo_alternate_rounded,
+                                    color: _accent, size: 26),
+                                SizedBox(height: 4),
+                                Text(
+                                  'הוספה',
+                                  style: TextStyle(
+                                    color: _textSecondary,
+                                    fontWeight: FontWeight.w500,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                              ],
+                            ),
                     ),
                   ),
-                  child: Center(
-                    child: _isPickingProfileImages
-                        ? const SizedBox(
-                            width: 24,
-                            height: 24,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2.2,
-                              valueColor:
-                                  AlwaysStoppedAnimation<Color>(_primary),
-                            ),
-                          )
-                        : const Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.add_photo_alternate_rounded,
-                                  color: _accent, size: 26),
-                              SizedBox(height: 4),
-                              Text(
-                                'הוספה',
-                                style: TextStyle(
-                                  color: _textSecondary,
-                                  fontWeight: FontWeight.w500,
-                                  fontSize: 11,
-                                ),
-                              ),
-                            ],
-                          ),
-                  ),
-                ),
-              );
-            },
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'נבחרו ${_profileImages.length}/$_maxProfileImages תמונות.',
-            textAlign: TextAlign.right,
-            style: const TextStyle(color: _textSecondary, fontSize: 12),
-          ),
-          const SizedBox(height: 14),
-          _buildField(
-            controller: _lifeMottoController,
-            label: 'משפט מפתח לחיים (אופציונלי)',
-            validator: (v) {
-              if (v != null && v.trim().length > 90) {
-                return 'עד 90 תווים';
-              }
-              return null;
-            },
-          ),
-          const Padding(
-            padding: EdgeInsets.only(bottom: 12, right: 4),
-            child: Text(
-              'דוגמאות "פסטה רוזה זה החיים / מי בא צניחה חופשית"',
-              textAlign: TextAlign.right,
-              style: TextStyle(color: _textSecondary, fontSize: 12),
-            ),
-          ),
-          _buildField(
-            controller: _bioController,
-            label: 'כמה מילים שיעזרו לאנשים ללמוד עליך',
-            maxLines: 4,
-            minLines: 3,
-            validator: (v) {
-              if (v != null && v.trim().length > 350) {
-                return 'עד 350 תווים';
-              }
-              return null;
-            },
-          ),
-          Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: TextFormField(
-              controller: _birthDateController,
-              onTapOutside: (_) {},
-              keyboardType: TextInputType.datetime,
-              textDirection: TextDirection.rtl,
-              textAlign: TextAlign.right,
-              style: const TextStyle(
-                  color: _textPrimary, fontWeight: FontWeight.w600),
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'[0-9/]')),
-                LengthLimitingTextInputFormatter(10),
-              ],
-              onChanged: (value) {
-                final formatted = _autoFormatBirthDateInput(value);
-                if (formatted == value) return;
-                _birthDateController.value = TextEditingValue(
-                  text: formatted,
-                  selection: TextSelection.collapsed(offset: formatted.length),
                 );
               },
-              decoration: _inputDecoration('תאריך לידה (DD/MM/YYYY)').copyWith(
-                suffixIcon: IconButton(
-                  onPressed: _pickBirthDate,
-                  icon:
-                      const Icon(Icons.calendar_month_rounded, color: _primary),
-                ),
-              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'נבחרו ${_profileImages.length}/$_maxProfileImages תמונות.',
+              textAlign: TextAlign.right,
+              style: const TextStyle(color: _textSecondary, fontSize: 12),
+            ),
+          ],
+          if (_profileStage == 3) ...[
+            const SizedBox(height: 14),
+            _buildField(
+              controller: _lifeMottoController,
+              label: 'משפט מפתח לחיים (אופציונלי)',
               validator: (v) {
-                if (v == null || v.trim().isEmpty) return 'שדה חובה';
-                final birthDate = _parseDdMmYyyy(v);
-                if (birthDate == null) {
-                  return 'פורמט לא תקין, יש להזין DD/MM/YYYY';
+                if (v != null && v.trim().length > 90) {
+                  return 'עד 90 תווים';
                 }
                 return null;
               },
             ),
-          ),
-          const Padding(
-            padding: EdgeInsets.only(bottom: 12, right: 4),
-            child: Text(
-              'תאריך הלידה נדרש לצורך עמידה בתנאי הקהילה',
-              textAlign: TextAlign.right,
-              style: TextStyle(
-                color: _textSecondary,
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
+            const Padding(
+              padding: EdgeInsets.only(bottom: 12, right: 4),
+              child: Text(
+                'דוגמאות "פסטה רוזה זה החיים / מי בא צניחה חופשית"',
+                textAlign: TextAlign.right,
+                style: TextStyle(color: _textSecondary, fontSize: 12),
               ),
             ),
-          ),
+            _buildField(
+              controller: _bioController,
+              label: 'כמה מילים שיעזרו לאנשים ללמוד עליך',
+              maxLines: 4,
+              minLines: 3,
+              validator: (v) {
+                if (v != null && v.trim().length > 350) {
+                  return 'עד 350 תווים';
+                }
+                return null;
+              },
+            ),
+          ],
+          if (_profileStage == 2) ...[
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: TextFormField(
+                controller: _birthDateController,
+                onTapOutside: (_) {},
+                keyboardType: TextInputType.datetime,
+                textDirection: TextDirection.rtl,
+                textAlign: TextAlign.right,
+                style: const TextStyle(
+                    color: _textPrimary, fontWeight: FontWeight.w600),
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(RegExp(r'[0-9/]')),
+                  LengthLimitingTextInputFormatter(10),
+                ],
+                onChanged: (value) {
+                  final formatted = _autoFormatBirthDateInput(value);
+                  if (formatted == value) return;
+                  _birthDateController.value = TextEditingValue(
+                    text: formatted,
+                    selection:
+                        TextSelection.collapsed(offset: formatted.length),
+                  );
+                },
+                decoration:
+                    _inputDecoration('תאריך לידה (DD/MM/YYYY)').copyWith(
+                  suffixIcon: IconButton(
+                    onPressed: _pickBirthDate,
+                    icon: const Icon(Icons.calendar_month_rounded,
+                        color: _primary),
+                  ),
+                ),
+                validator: (v) {
+                  if (v == null || v.trim().isEmpty) return 'שדה חובה';
+                  final birthDate = _parseDdMmYyyy(v);
+                  if (birthDate == null) {
+                    return 'פורמט לא תקין, יש להזין DD/MM/YYYY';
+                  }
+                  return null;
+                },
+              ),
+            ),
+            const Padding(
+              padding: EdgeInsets.only(bottom: 12, right: 4),
+              child: Text(
+                'תאריך הלידה נדרש לצורך עמידה בתנאי הקהילה',
+                textAlign: TextAlign.right,
+                style: TextStyle(
+                  color: _textSecondary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -2096,192 +2191,201 @@ class _RegisterScreenState extends State<RegisterScreen> {
             behavior: HitTestBehavior.translucent,
             onPointerDown: _dismissKeyboardOnBackgroundTap,
             child: Stack(
-            children: [
-              Positioned.fill(
-                child: AnimatedContainer(
+              children: [
+                Positioned.fill(
+                  child: AnimatedContainer(
+                    duration: const Duration(seconds: 8),
+                    curve: Curves.easeInOut,
+                    onEnd: _toggleBgAnimation,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin:
+                            _animateBg ? Alignment.topLeft : Alignment.topRight,
+                        end: _animateBg
+                            ? Alignment.bottomRight
+                            : Alignment.bottomLeft,
+                        colors: const [_bgTop, Color(0xFF0E1627), _bgBottom],
+                      ),
+                    ),
+                  ),
+                ),
+                AnimatedPositioned(
                   duration: const Duration(seconds: 8),
                   curve: Curves.easeInOut,
-                  onEnd: _toggleBgAnimation,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin:
-                          _animateBg ? Alignment.topLeft : Alignment.topRight,
-                      end: _animateBg
-                          ? Alignment.bottomRight
-                          : Alignment.bottomLeft,
-                      colors: const [_bgTop, Color(0xFF0E1627), _bgBottom],
+                  top: _animateBg ? -130 : -95,
+                  left: _animateBg ? -95 : -55,
+                  child: Container(
+                    width: orbSizeA,
+                    height: orbSizeA,
+                    decoration: const BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: RadialGradient(
+                        colors: [Color(0x3853D9FF), Color(0x0053D9FF)],
+                      ),
                     ),
                   ),
                 ),
-              ),
-              AnimatedPositioned(
-                duration: const Duration(seconds: 8),
-                curve: Curves.easeInOut,
-                top: _animateBg ? -130 : -95,
-                left: _animateBg ? -95 : -55,
-                child: Container(
-                  width: orbSizeA,
-                  height: orbSizeA,
-                  decoration: const BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: RadialGradient(
-                      colors: [Color(0x3853D9FF), Color(0x0053D9FF)],
+                AnimatedPositioned(
+                  duration: const Duration(seconds: 8),
+                  curve: Curves.easeInOut,
+                  bottom: _animateBg ? -155 : -115,
+                  right: _animateBg ? -110 : -65,
+                  child: Container(
+                    width: orbSizeB,
+                    height: orbSizeB,
+                    decoration: const BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: RadialGradient(
+                        colors: [Color(0x3B7B79FF), Color(0x007B79FF)],
+                      ),
                     ),
                   ),
                 ),
-              ),
-              AnimatedPositioned(
-                duration: const Duration(seconds: 8),
-                curve: Curves.easeInOut,
-                bottom: _animateBg ? -155 : -115,
-                right: _animateBg ? -110 : -65,
-                child: Container(
-                  width: orbSizeB,
-                  height: orbSizeB,
-                  decoration: const BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: RadialGradient(
-                      colors: [Color(0x3B7B79FF), Color(0x007B79FF)],
-                    ),
-                  ),
-                ),
-              ),
-              ListView(
-                padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
-                children: [
-                  Container(
-                    padding: const EdgeInsets.fromLTRB(18, 22, 18, 20),
-                    decoration: BoxDecoration(
-                      color: const Color(0xD0121A2B),
-                      borderRadius: BorderRadius.circular(30),
-                      border: Border.all(
-                          color: _accent.withValues(alpha: 0.12), width: 0.8),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.24),
-                          blurRadius: 28,
-                          offset: const Offset(0, 14),
-                        ),
-                      ],
-                    ),
-                    child: Column(
-                      children: [
-                        const Text(
-                          'הרשמה',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: _textPrimary,
-                            fontSize: 30,
-                            fontWeight: FontWeight.w700,
+                ListView(
+                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.fromLTRB(18, 22, 18, 20),
+                      decoration: BoxDecoration(
+                        color: const Color(0xD0121A2B),
+                        borderRadius: BorderRadius.circular(30),
+                        border: Border.all(
+                            color: _accent.withValues(alpha: 0.12), width: 0.8),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.24),
+                            blurRadius: 28,
+                            offset: const Offset(0, 14),
                           ),
-                        ),
-                        const SizedBox(height: 10),
-                        if (_currentStep == 0)
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              const Text(
-                                'אם כבר יש לך משתמש - ',
-                                style: TextStyle(
-                                    color: _textSecondary,
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w400),
-                              ),
-                              InkWell(
-                                onTap: () => Navigator.of(context).pop(),
-                                child: const Text(
-                                  'התחבר',
+                        ],
+                      ),
+                      child: Column(
+                        children: [
+                          const Text(
+                            'הרשמה',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: _textPrimary,
+                              fontSize: 30,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          if (_currentStep == 0)
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Text(
+                                  'אם כבר יש לך משתמש - ',
                                   style: TextStyle(
-                                    color: _accent,
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w700,
+                                      color: _textSecondary,
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w400),
+                                ),
+                                InkWell(
+                                  onTap: () => Navigator.of(context).pop(),
+                                  child: const Text(
+                                    'התחבר',
+                                    style: TextStyle(
+                                      color: _accent,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w700,
+                                    ),
                                   ),
                                 ),
-                              ),
-                            ],
-                          ),
-                        const SizedBox(height: 14),
-                        _buildStepHeader(),
-                        if (_currentStep == 0)
-                          _buildDetailsStep()
-                        else
-                          _buildProfileStep(),
-                        if (_currentStep == 1) _buildPrivacyPolicyAcceptance(),
-                        const SizedBox(height: 8),
-                        SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton(
-                            onPressed: _isRegistering
-                                ? null
-                                : (_currentStep == 0
-                                    ? _continueFromDetailsStep
-                                    : _onRegisterPressed),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: _primary,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(vertical: 16),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(20),
-                              ),
-                              elevation: 0,
+                              ],
                             ),
-                            child: _isRegistering
-                                ? const SizedBox(
-                                    width: 20,
-                                    height: 20,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      valueColor: AlwaysStoppedAnimation<Color>(
-                                          Colors.white),
-                                    ),
-                                  )
-                                : Text(
-                                    _currentStep == 0 ? 'המשך' : 'סיום הרשמה',
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 16,
-                                    ),
-                                  ),
-                          ),
-                        ),
-                        if (_currentStep == 1)
-                          if (widget.onExitToLogin == null)
-                            TextButton(
+                          const SizedBox(height: 14),
+                          _buildStepHeader(),
+                          if (_currentStep == 0)
+                            _buildDetailsStep()
+                          else
+                            _buildProfileStep(),
+                          if (_currentStep == 1 && _profileStage == 3)
+                            _buildPrivacyPolicyAcceptance(),
+                          const SizedBox(height: 8),
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton(
                               onPressed: _isRegistering
                                   ? null
-                                  : () {
-                                      setState(() {
-                                        _currentStep = 0;
-                                      });
-                                    },
-                              child: const Text(
-                                'חזרה לשלב הקודם',
-                                style: TextStyle(color: _textSecondary),
+                                  : (_currentStep == 0
+                                      ? _continueFromDetailsStep
+                                      : (_profileStage < 3
+                                          ? _continueProfileStage
+                                          : _onRegisterPressed)),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: _primary,
+                                foregroundColor: Colors.white,
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 16),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                elevation: 0,
                               ),
+                              child: _isRegistering
+                                  ? const SizedBox(
+                                      width: 20,
+                                      height: 20,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        valueColor:
+                                            AlwaysStoppedAnimation<Color>(
+                                                Colors.white),
+                                      ),
+                                    )
+                                  : Text(
+                                      _currentStep == 0
+                                          ? 'המשך'
+                                          : (_profileStage < 3
+                                              ? 'המשך'
+                                              : 'צור חשבון'),
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 16,
+                                      ),
+                                    ),
                             ),
-                      ],
+                          ),
+                          if (_currentStep == 1)
+                            if (widget.onExitToLogin == null)
+                              TextButton(
+                                onPressed: _isRegistering
+                                    ? null
+                                    : () {
+                                        setState(() {
+                                          _currentStep = 0;
+                                        });
+                                      },
+                                child: const Text(
+                                  'חזרה לשלב הקודם',
+                                  style: TextStyle(color: _textSecondary),
+                                ),
+                              ),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
-              ),
-              Positioned(
-                top: 2,
-                right: 6,
-                child: Material(
-                  color: Colors.transparent,
-                  child: IconButton(
-                    onPressed: widget.onExitToLogin ??
-                        () => Navigator.of(context).maybePop(),
-                    icon: const Icon(
-                      Icons.arrow_back_rounded,
-                      color: _textPrimary,
+                  ],
+                ),
+                Positioned(
+                  top: 2,
+                  right: 6,
+                  child: Material(
+                    color: Colors.transparent,
+                    child: IconButton(
+                      onPressed: widget.onExitToLogin ??
+                          () => Navigator.of(context).maybePop(),
+                      icon: const Icon(
+                        Icons.arrow_back_rounded,
+                        color: _textPrimary,
+                      ),
+                      tooltip: 'חזרה',
                     ),
-                    tooltip: 'חזרה',
                   ),
                 ),
-              ),
-            ],
-          ),
+              ],
+            ),
           ),
         ),
       ),

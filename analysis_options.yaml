@@ -14,7 +14,9 @@ analyzer:
     - build/**
     - .dart_tool/**
     - ios/Pods/**
+    - ios/build/**
     - macos/Pods/**
+    - macos/build/**
     - third_party/video_thumbnail/example/**
 
 linter:

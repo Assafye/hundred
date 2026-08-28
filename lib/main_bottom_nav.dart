@@ -7,6 +7,7 @@ import 'chats_screen.dart';
 import 'create_post_screen.dart';
 import 'feed_screen.dart';
 import 'profile_screen.dart';
+import 'services/auth_service.dart';
 
 class MainBottomNav extends StatelessWidget {
   static final ValueNotifier<bool> feedPlaybackPausedByComposer =
@@ -88,9 +89,8 @@ class MainBottomNav extends StatelessWidget {
     final compact = screenWidth < 380;
     final baseSize = compact ? 34.0 : 38.0;
     final activeSize = compact ? 38.0 : 42.0;
-    final iconSize = compact
-        ? (isActive ? 22.0 : 20.0)
-        : (isActive ? 25.0 : 23.0);
+    final iconSize =
+        compact ? (isActive ? 22.0 : 20.0) : (isActive ? 25.0 : 23.0);
     return AnimatedContainer(
       duration: const Duration(milliseconds: 220),
       curve: Curves.easeOutCubic,
@@ -113,7 +113,7 @@ class MainBottomNav extends StatelessWidget {
                   color: (isLight
                           ? const Color(0xFF53C1F9)
                           : const Color(0xFF53C1F9))
-                      .withValues(alpha:  isLight ? 0.22 : 0.18),
+                      .withValues(alpha: isLight ? 0.22 : 0.18),
                   blurRadius: isLight ? 14 : 12,
                   spreadRadius: 0.4,
                 ),
@@ -144,13 +144,13 @@ class MainBottomNav extends StatelessWidget {
         ),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF53C1F9).withValues(alpha:  0.25),
+            color: const Color(0xFF53C1F9).withValues(alpha: 0.25),
             blurRadius: 16,
             spreadRadius: 1.1,
             offset: const Offset(0, 4),
           ),
           BoxShadow(
-            color: const Color(0xFF9E7CFF).withValues(alpha:  0.28),
+            color: const Color(0xFF9E7CFF).withValues(alpha: 0.28),
             blurRadius: 20,
             spreadRadius: 0.6,
             offset: const Offset(0, 6),
@@ -161,13 +161,13 @@ class MainBottomNav extends StatelessWidget {
         child: Container(
           width: compact ? 38 : 41,
           height: compact ? 38 : 41,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
             color: isLight
-                ? const Color(0xFFFFFFFF).withValues(alpha:  0.36)
-                : const Color(0xFF101827).withValues(alpha:  0.22),
-            border:
-                Border.all(color: Colors.white.withValues(alpha:  0.34), width: 0.9),
+                ? const Color(0xFFFFFFFF).withValues(alpha: 0.36)
+                : const Color(0xFF101827).withValues(alpha: 0.22),
+            border: Border.all(
+                color: Colors.white.withValues(alpha: 0.34), width: 0.9),
           ),
           child: Icon(
             Icons.add_rounded,
@@ -213,16 +213,29 @@ class MainBottomNav extends StatelessWidget {
         }
 
         final userData = userSnapshot.data?.data() ?? const <String, dynamic>{};
-        final lastVisitedAt = _toDateTime(userData['notificationsLastVisitedAt']);
-        final unreadCount = (userData['unreadNotificationsCount'] as num?)?.toInt() ?? 0;
+        final storedEmail = (userData['backupEmail'] as String? ??
+                userData['email'] as String? ??
+                '')
+            .trim();
+        final hasBackupEmail = storedEmail.isNotEmpty &&
+            !storedEmail.endsWith('@${AuthService.phoneAuthDomain}');
+        final lastVisitedAt =
+            _toDateTime(userData['notificationsLastVisitedAt']);
+        final unreadCount =
+            (userData['unreadNotificationsCount'] as num?)?.toInt() ?? 0;
 
         if (lastVisitedAt == null) {
-          return _wrapProfileIconWithDot(baseIcon, showDot: unreadCount > 0);
+          return _wrapProfileIconWithDot(
+            baseIcon,
+            showDot: unreadCount > 0,
+            missingBackupEmail: !hasBackupEmail,
+          );
         }
 
         final notificationsQuery = userRef
             .collection('notifications')
-            .where('createdAt', isGreaterThan: Timestamp.fromDate(lastVisitedAt))
+            .where('createdAt',
+                isGreaterThan: Timestamp.fromDate(lastVisitedAt))
             .limit(1)
             .snapshots();
 
@@ -234,6 +247,7 @@ class MainBottomNav extends StatelessWidget {
             return _wrapProfileIconWithDot(
               baseIcon,
               showDot: hasNewSinceLastVisit,
+              missingBackupEmail: !hasBackupEmail,
             );
           },
         );
@@ -241,8 +255,12 @@ class MainBottomNav extends StatelessWidget {
     );
   }
 
-  Widget _wrapProfileIconWithDot(Widget icon, {required bool showDot}) {
-    if (!showDot) {
+  Widget _wrapProfileIconWithDot(
+    Widget icon, {
+    required bool showDot,
+    bool missingBackupEmail = false,
+  }) {
+    if (!showDot && !missingBackupEmail) {
       return icon;
     }
 
@@ -256,13 +274,9 @@ class MainBottomNav extends StatelessWidget {
           child: Container(
             width: 9,
             height: 9,
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
               shape: BoxShape.circle,
-              gradient: LinearGradient(
-                colors: [Color(0xFF8D74E6), Color(0xFF6DBFE8)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
+              color: missingBackupEmail ? Colors.redAccent : Color(0xFF8D74E6),
               boxShadow: [
                 BoxShadow(
                   color: Color(0xAA8D74E6),
@@ -320,14 +334,14 @@ class MainBottomNav extends StatelessWidget {
         border: Border(
           top: BorderSide(
             color: (isLight ? const Color(0xFFC9B4FF) : const Color(0xFFB39DFF))
-                .withValues(alpha:  isLight ? 0.56 : 0.28),
+                .withValues(alpha: isLight ? 0.56 : 0.28),
             width: 0.9,
           ),
         ),
         boxShadow: [
           BoxShadow(
             color: (isLight ? const Color(0xFF7D8FB2) : const Color(0xFF080611))
-                .withValues(alpha:  isLight ? 0.2 : 0.34),
+                .withValues(alpha: isLight ? 0.2 : 0.34),
             blurRadius: isLight ? 18 : 20,
             offset: Offset(0, isLight ? -5 : -7),
           ),

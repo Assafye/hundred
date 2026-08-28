@@ -75,9 +75,12 @@ Future<void> main() async {
     await ShareFlowLogService.log('FIREBASE_INITIALIZED');
     if (!kIsWeb) {
       await FirebaseAppCheck.instance.activate(
-        providerAndroid: const AndroidPlayIntegrityProvider(),
-        providerApple:
-            const AppleAppAttestWithDeviceCheckFallbackProvider(),
+        providerAndroid: kDebugMode
+            ? const AndroidDebugProvider()
+            : const AndroidPlayIntegrityProvider(),
+        providerApple: kDebugMode
+            ? const AppleDebugProvider()
+            : const AppleAppAttestWithDeviceCheckFallbackProvider(),
       );
     }
     await ShareFlowLogService.log('APP_CHECK_ACTIVATED');
@@ -288,10 +291,10 @@ class _MyAppState extends State<MyApp> {
             color: AppColors.textSecondary, fontWeight: FontWeight.w400),
       ),
       cardTheme: CardThemeData(
-        color: AppColors.backgroundElevated.withValues(alpha:  0.9),
+        color: AppColors.backgroundElevated.withValues(alpha: 0.9),
         elevation: 0,
         margin: EdgeInsets.zero,
-        shadowColor: Colors.black.withValues(alpha:  0.22),
+        shadowColor: Colors.black.withValues(alpha: 0.22),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(26),
         ),
@@ -312,7 +315,8 @@ class _MyAppState extends State<MyApp> {
         style: OutlinedButton.styleFrom(
           foregroundColor: AppColors.textPrimary,
           side: BorderSide(
-              color: AppColors.secondaryBlue.withValues(alpha:  0.35), width: 0.9),
+              color: AppColors.secondaryBlue.withValues(alpha: 0.35),
+              width: 0.9),
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
           textStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
@@ -327,7 +331,7 @@ class _MyAppState extends State<MyApp> {
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: AppColors.tertiaryContainer.withValues(alpha:  0.72),
+        fillColor: AppColors.tertiaryContainer.withValues(alpha: 0.72),
         labelStyle: const TextStyle(color: AppColors.textSecondary),
         hintStyle: const TextStyle(color: AppColors.textSecondary),
         contentPadding:
@@ -343,13 +347,14 @@ class _MyAppState extends State<MyApp> {
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(20),
           borderSide: BorderSide(
-              color: AppColors.secondaryBlue.withValues(alpha:  0.7), width: 1.0),
+              color: AppColors.secondaryBlue.withValues(alpha: 0.7),
+              width: 1.0),
         ),
       ),
       bottomNavigationBarTheme: BottomNavigationBarThemeData(
         backgroundColor: AppColors.backgroundElevated,
         selectedItemColor: AppColors.primaryPurple,
-        unselectedItemColor: AppColors.textSecondary.withValues(alpha:  0.72),
+        unselectedItemColor: AppColors.textSecondary.withValues(alpha: 0.72),
         type: BottomNavigationBarType.fixed,
         elevation: 0,
       ),
@@ -358,19 +363,20 @@ class _MyAppState extends State<MyApp> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       ),
       dividerTheme: DividerThemeData(
-        color: AppColors.textSecondary.withValues(alpha:  0.14),
+        color: AppColors.textSecondary.withValues(alpha: 0.14),
         thickness: 0.7,
         space: 1,
       ),
       chipTheme: ChipThemeData(
-        backgroundColor: AppColors.tertiaryContainer.withValues(alpha:  0.8),
+        backgroundColor: AppColors.tertiaryContainer.withValues(alpha: 0.8),
         selectedColor: AppColors.primaryPurple,
         disabledColor: AppColors.background,
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(24),
           side: BorderSide(
-              color: AppColors.secondaryBlue.withValues(alpha:  0.3), width: 0.8),
+              color: AppColors.secondaryBlue.withValues(alpha: 0.3),
+              width: 0.8),
         ),
         labelStyle: const TextStyle(
             color: AppColors.textPrimary, fontWeight: FontWeight.w600),
@@ -459,7 +465,7 @@ class _MyAppState extends State<MyApp> {
         color: lightSurface,
         elevation: 0,
         margin: EdgeInsets.zero,
-        shadowColor: const Color(0xFF26345A).withValues(alpha:  0.08),
+        shadowColor: const Color(0xFF26345A).withValues(alpha: 0.08),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(26),
         ),
@@ -480,7 +486,8 @@ class _MyAppState extends State<MyApp> {
         style: OutlinedButton.styleFrom(
           foregroundColor: lightText,
           side: BorderSide(
-              color: AppColors.secondaryBlue.withValues(alpha:  0.35), width: 0.9),
+              color: AppColors.secondaryBlue.withValues(alpha: 0.35),
+              width: 0.9),
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
           textStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
@@ -511,7 +518,8 @@ class _MyAppState extends State<MyApp> {
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(20),
           borderSide: BorderSide(
-              color: AppColors.secondaryBlue.withValues(alpha:  0.6), width: 1.0),
+              color: AppColors.secondaryBlue.withValues(alpha: 0.6),
+              width: 1.0),
         ),
       ),
       bottomNavigationBarTheme: const BottomNavigationBarThemeData(
@@ -538,7 +546,8 @@ class _MyAppState extends State<MyApp> {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(24),
           side: BorderSide(
-              color: AppColors.secondaryBlue.withValues(alpha:  0.26), width: 0.8),
+              color: AppColors.secondaryBlue.withValues(alpha: 0.26),
+              width: 0.8),
         ),
         labelStyle:
             const TextStyle(color: lightText, fontWeight: FontWeight.w600),
@@ -607,8 +616,7 @@ bool shouldShowDynamicStartupSplash({
 }) {
   return hasResolvedAuth &&
       user != null &&
-      onboardingStep == OnboardingStep.active &&
-      user.emailVerified;
+      onboardingStep == OnboardingStep.active;
 }
 
 class _StartupGateState extends State<StartupGate> {
@@ -648,9 +656,9 @@ class _StartupGateState extends State<StartupGate> {
           stream: FirebaseAuth.instance.authStateChanges(),
           initialData: FirebaseAuth.instance.currentUser,
           builder: (context, authSnapshot) {
-            final hasResolvedAuth = authSnapshot.connectionState !=
-                    ConnectionState.waiting ||
-                _authResolveTimedOut;
+            final hasResolvedAuth =
+                authSnapshot.connectionState != ConnectionState.waiting ||
+                    _authResolveTimedOut;
             final user = authSnapshot.data;
 
             if (authSnapshot.connectionState != ConnectionState.waiting) {
@@ -663,12 +671,8 @@ class _StartupGateState extends State<StartupGate> {
             }
 
             if (user != null) {
-              if (!user.emailVerified) {
-                return const LoginScreen();
-              }
-
               return KeyedSubtree(
-                key: ValueKey('${user.uid}:${user.emailVerified}'),
+                key: ValueKey(user.uid),
                 child: const VerifiedSessionGate(),
               );
             }
@@ -753,11 +757,11 @@ class _VerifiedSessionGateState extends State<VerifiedSessionGate> {
           return const AnimatedInfinitySplashScreen();
         }
 
-        final onboardingStep = snapshot.data ?? OnboardingStep.pendingVerification;
+        final onboardingStep =
+            snapshot.data ?? OnboardingStep.pendingVerification;
         final currentUser = FirebaseAuth.instance.currentUser;
-        final isReady = onboardingStep == OnboardingStep.active &&
-            currentUser != null &&
-            currentUser.emailVerified;
+        final isReady =
+            onboardingStep == OnboardingStep.active && currentUser != null;
 
         if (isReady) {
           return const AuthenticatedAppShell();

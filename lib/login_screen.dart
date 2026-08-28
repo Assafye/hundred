@@ -8,6 +8,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:hundred_version1/services/auth_service.dart';
 
 import 'feed_screen.dart';
+import 'phone_registration_screen.dart';
 import 'register_screen.dart';
 import 'services/keyboard_dismiss_controller.dart';
 import 'widgets/animated_infinity_splash_screen.dart';
@@ -17,10 +18,7 @@ bool shouldBlockLoginForState({
   required bool isEmailVerified,
   required OnboardingStep onboardingStep,
 }) {
-  return !isEmailVerified ||
-      onboardingStep == OnboardingStep.pendingVerification ||
-      onboardingStep == OnboardingStep.pendingProfile ||
-      onboardingStep == OnboardingStep.expired;
+  return onboardingStep != OnboardingStep.active;
 }
 
 class LoginScreen extends StatefulWidget {
@@ -30,8 +28,7 @@ class LoginScreen extends StatefulWidget {
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen>
-  with WidgetsBindingObserver {
+class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
   static const Color _bgTop = Color(0xFF0B1222);
   static const Color _bgBottom = Color(0xFF070B12);
   static const Color _primary = Color(0xFF7B79FF);
@@ -114,7 +111,8 @@ class _LoginScreenState extends State<LoginScreen>
 
     final keyboardInset = view.viewInsets.bottom / view.devicePixelRatio;
     if (keyboardInset <= 0) {
-      if (_minObservedKeyboardInset != null || _maxObservedKeyboardInset != null) {
+      if (_minObservedKeyboardInset != null ||
+          _maxObservedKeyboardInset != null) {
         setState(() {
           _minObservedKeyboardInset = null;
           _maxObservedKeyboardInset = null;
@@ -134,7 +132,8 @@ class _LoginScreenState extends State<LoginScreen>
             ? _maxObservedKeyboardInset!
             : keyboardInset);
 
-    if (nextMin != _minObservedKeyboardInset || nextMax != _maxObservedKeyboardInset) {
+    if (nextMin != _minObservedKeyboardInset ||
+        nextMax != _maxObservedKeyboardInset) {
       setState(() {
         _minObservedKeyboardInset = nextMin;
         _maxObservedKeyboardInset = nextMax;
@@ -205,53 +204,6 @@ class _LoginScreenState extends State<LoginScreen>
       return;
     }
     FocusManager.instance.primaryFocus?.unfocus();
-  }
-
-  Future<void> _routeToUnverifiedLoginGate({
-    required String email,
-    required String password,
-    User? user,
-  }) async {
-    final rootNavigator = Navigator.of(context, rootNavigator: true);
-    User? userToVerify = user ?? FirebaseAuth.instance.currentUser;
-
-    if (userToVerify != null) {
-      try {
-        await userToVerify.reload();
-        userToVerify = FirebaseAuth.instance.currentUser ?? userToVerify;
-      } catch (_) {
-        // Ignore reload failures and continue with the signed-in user snapshot.
-      }
-    }
-
-    try {
-      if (userToVerify != null && !userToVerify.emailVerified) {
-        await userToVerify.sendEmailVerification();
-        debugPrint(
-          '[LoginScreen][_routeToUnverifiedLoginGate] verification email sent to ${userToVerify.email}',
-        );
-      }
-    } catch (error, stackTrace) {
-      debugPrint(
-        '[LoginScreen][_routeToUnverifiedLoginGate] sendEmailVerification failed: $error',
-      );
-      debugPrint(stackTrace.toString());
-    }
-
-    Navigator.of(context, rootNavigator: true).pushReplacement(
-      MaterialPageRoute(
-        builder: (_) => EmailVerificationGateScreen(
-          email: email,
-          password: password,
-          onExitToLogin: () {
-            rootNavigator.pushAndRemoveUntil(
-              MaterialPageRoute(builder: (_) => const LoginScreen()),
-              (route) => false,
-            );
-          },
-        ),
-      ),
-    );
   }
 
   String _describeLoginFailure(Object error) {
@@ -327,16 +279,6 @@ class _LoginScreenState extends State<LoginScreen>
     final navigator = Navigator.of(context);
     final messenger = ScaffoldMessenger.maybeOf(context);
 
-    String resolvedEmail = emailOrUsername;
-    if (!emailOrUsername.contains('@')) {
-      resolvedEmail =
-          await _authService.resolveEmailForUsername(emailOrUsername);
-    }
-
-    if (resolvedEmail.isEmpty) {
-      resolvedEmail = emailOrUsername;
-    }
-
     try {
       final user = await _authService.loginWithEmailOrUsername(
         emailOrUsername,
@@ -353,10 +295,15 @@ class _LoginScreenState extends State<LoginScreen>
       );
 
       if (shouldBlockLogin) {
-        await _routeToUnverifiedLoginGate(
-          email: resolvedEmail,
-          password: password,
-          user: user,
+        if (!mounted) return;
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => RegisterScreen(
+              initialStep: 1,
+              prefilledEmail: user.email,
+              prefilledPassword: password,
+            ),
+          ),
         );
         return;
       }
@@ -392,14 +339,17 @@ class _LoginScreenState extends State<LoginScreen>
 
       if (!mounted) return;
 
-      final shouldOpenVerificationFlow =
-          e.code == 'email-not-verified' || e.code == 'registration-incomplete';
+      final shouldOpenVerificationFlow = e.code == 'registration-incomplete';
 
       if (shouldOpenVerificationFlow) {
-        await _routeToUnverifiedLoginGate(
-          email: resolvedEmail,
-          password: password,
-          user: FirebaseAuth.instance.currentUser,
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => RegisterScreen(
+              initialStep: 1,
+              prefilledEmail: FirebaseAuth.instance.currentUser?.email,
+              prefilledPassword: password,
+            ),
+          ),
         );
         return;
       }
@@ -448,6 +398,29 @@ class _LoginScreenState extends State<LoginScreen>
   }
 
   Future<void> _onForgotPasswordPressed() async {
+    final recoveryMethod = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('שחזור סיסמה'),
+        content: const Text('באיזו דרך לשחזר את החשבון?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop('phone'),
+            child: const Text('טלפון'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(dialogContext).pop('email'),
+            child: const Text('מייל'),
+          ),
+        ],
+      ),
+    );
+    if (recoveryMethod == 'phone') {
+      await _recoverWithPhone();
+      return;
+    }
+    if (recoveryMethod != 'email') return;
+
     final seedValue = _usernameController.text.trim();
     final controller = TextEditingController(text: seedValue);
     final isLight = _useLightForgotPasswordDialog;
@@ -474,7 +447,8 @@ class _LoginScreenState extends State<LoginScreen>
                 cursorColor: Colors.black,
                 decoration: InputDecoration(
                   hintText: 'אימייל...',
-                  hintStyle: TextStyle(color: Colors.black.withValues(alpha: 0.55)),
+                  hintStyle:
+                      TextStyle(color: Colors.black.withValues(alpha: 0.55)),
                   filled: true,
                   fillColor: Colors.white,
                   border: OutlineInputBorder(
@@ -516,7 +490,8 @@ class _LoginScreenState extends State<LoginScreen>
     try {
       await _authService.sendPasswordResetForEmailOrUsername(input);
       if (!mounted) return;
-      _showLoginSnackBar('אם החשבון קיים, נשלח קישור לאיפוס סיסמה. בדוק גם בספאם.');
+      _showLoginSnackBar(
+          'אם החשבון קיים, נשלח קישור לאיפוס סיסמה. בדוק גם בספאם.');
     } on FirebaseAuthException catch (e, stackTrace) {
       debugPrint(
           '[LoginScreen][_onForgotPasswordPressed] FirebaseAuthException: $e');
@@ -530,13 +505,150 @@ class _LoginScreenState extends State<LoginScreen>
         );
         return;
       }
-      _showLoginSnackBar('לא הצלחנו לשלוח כרגע, נסה שוב בעוד רגע.', error: true);
+      _showLoginSnackBar('לא הצלחנו לשלוח כרגע, נסה שוב בעוד רגע.',
+          error: true);
     } catch (e, stackTrace) {
       debugPrint('[LoginScreen][_onForgotPasswordPressed] error: $e');
       debugPrint(
           '[LoginScreen][_onForgotPasswordPressed] stackTrace: $stackTrace');
       if (!mounted) return;
-      _showLoginSnackBar('לא הצלחנו לשלוח כרגע, נסה שוב בעוד רגע.', error: true);
+      _showLoginSnackBar('לא הצלחנו לשלוח כרגע, נסה שוב בעוד רגע.',
+          error: true);
+    }
+  }
+
+  Future<void> _recoverWithPhone() async {
+    final phone = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) {
+        final controller = TextEditingController();
+        return AlertDialog(
+          title: const Text('שחזור באמצעות טלפון'),
+          content: TextField(
+            controller: controller,
+            keyboardType: TextInputType.phone,
+            decoration: const InputDecoration(labelText: 'מספר טלפון'),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('ביטול'),
+            ),
+            ElevatedButton(
+              onPressed: () =>
+                  Navigator.of(dialogContext).pop(controller.text.trim()),
+              child: const Text('שליחת קוד'),
+            ),
+          ],
+        );
+      },
+    );
+    if (!mounted || phone == null || phone.isEmpty) return;
+    final normalizedPhone = _authService.normalizePhoneNumber(phone);
+    if (!RegExp(r'^\+[1-9]\d{7,14}$').hasMatch(normalizedPhone)) {
+      _showLoginSnackBar('יש להזין מספר טלפון תקין.', error: true);
+      return;
+    }
+
+    try {
+      if (!await _authService.isRegisteredPhone(phone)) {
+        _showLoginSnackBar('לא נמצא חשבון עם מספר הטלפון הזה.', error: true);
+        return;
+      }
+    } catch (_) {
+      _showLoginSnackBar('לא ניתן לבדוק את החשבון כרגע. נסה שוב.', error: true);
+      return;
+    }
+
+    final verificationIdCompleter = Completer<String>();
+    User? autoVerifiedUser;
+    try {
+      await FirebaseAuth.instance.verifyPhoneNumber(
+        phoneNumber: normalizedPhone,
+        verificationCompleted: (credential) async {
+          try {
+            autoVerifiedUser =
+                (await FirebaseAuth.instance.signInWithCredential(credential))
+                    .user;
+          } finally {
+            if (!verificationIdCompleter.isCompleted) {
+              verificationIdCompleter.complete('');
+            }
+          }
+        },
+        verificationFailed: (error) {
+          if (!verificationIdCompleter.isCompleted) {
+            verificationIdCompleter.completeError(error);
+          }
+        },
+        codeSent: (verificationId, _) {
+          if (!verificationIdCompleter.isCompleted) {
+            verificationIdCompleter.complete(verificationId);
+          }
+        },
+        codeAutoRetrievalTimeout: (verificationId) {},
+      );
+      final verificationId = await verificationIdCompleter.future;
+      if (verificationId.isNotEmpty) {
+        final code = await showDialog<String>(
+          context: context,
+          builder: (dialogContext) {
+            final controller = TextEditingController();
+            return AlertDialog(
+              title: const Text('קוד אימות'),
+              content: TextField(
+                controller: controller,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'קוד בן 6 ספרות'),
+              ),
+              actions: [
+                ElevatedButton(
+                  onPressed: () =>
+                      Navigator.of(dialogContext).pop(controller.text.trim()),
+                  child: const Text('אימות'),
+                ),
+              ],
+            );
+          },
+        );
+        if (code == null || code.length != 6) return;
+        autoVerifiedUser = (await FirebaseAuth.instance.signInWithCredential(
+          PhoneAuthProvider.credential(
+            verificationId: verificationId,
+            smsCode: code,
+          ),
+        ))
+            .user;
+      }
+
+      final user = autoVerifiedUser ?? FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+      final canAccess = await _authService.canCurrentUserAccessApp();
+      if (!mounted) return;
+      if (canAccess) {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const FeedScreen()),
+          (route) => false,
+        );
+      } else {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => RegisterScreen(
+              initialStep: 1,
+              prefilledEmail: user.email,
+            ),
+          ),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        _showLoginSnackBar(
+          error is FirebaseAuthException
+              ? (error.message ?? 'לא הצלחנו לאמת את מספר הטלפון.')
+              : 'לא הצלחנו לאמת את מספר הטלפון.',
+          error: true,
+        );
+      }
     }
   }
 
@@ -587,292 +699,306 @@ class _LoginScreenState extends State<LoginScreen>
             behavior: HitTestBehavior.translucent,
             onPointerDown: _dismissKeyboardOnBackgroundTap,
             child: Stack(
-            children: [
-              Positioned.fill(
-                child: AnimatedContainer(
+              children: [
+                Positioned.fill(
+                  child: AnimatedContainer(
+                    duration: const Duration(seconds: 8),
+                    curve: Curves.easeInOut,
+                    onEnd: _toggleBgAnimation,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin:
+                            _animateBg ? Alignment.topLeft : Alignment.topRight,
+                        end: _animateBg
+                            ? Alignment.bottomRight
+                            : Alignment.bottomLeft,
+                        colors: const [_bgTop, Color(0xFF0E1627), _bgBottom],
+                      ),
+                    ),
+                  ),
+                ),
+                AnimatedPositioned(
                   duration: const Duration(seconds: 8),
                   curve: Curves.easeInOut,
-                  onEnd: _toggleBgAnimation,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin:
-                          _animateBg ? Alignment.topLeft : Alignment.topRight,
-                      end: _animateBg
-                          ? Alignment.bottomRight
-                          : Alignment.bottomLeft,
-                      colors: const [_bgTop, Color(0xFF0E1627), _bgBottom],
+                  top: _animateBg ? -130 : -95,
+                  left: _animateBg ? -85 : -45,
+                  child: Container(
+                    width: orbSizeA,
+                    height: orbSizeA,
+                    decoration: const BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: RadialGradient(
+                        colors: [Color(0x3853D9FF), Color(0x0053D9FF)],
+                      ),
                     ),
                   ),
                 ),
-              ),
-              AnimatedPositioned(
-                duration: const Duration(seconds: 8),
-                curve: Curves.easeInOut,
-                top: _animateBg ? -130 : -95,
-                left: _animateBg ? -85 : -45,
-                child: Container(
-                  width: orbSizeA,
-                  height: orbSizeA,
-                  decoration: const BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: RadialGradient(
-                      colors: [Color(0x3853D9FF), Color(0x0053D9FF)],
+                AnimatedPositioned(
+                  duration: const Duration(seconds: 8),
+                  curve: Curves.easeInOut,
+                  bottom: _animateBg ? -145 : -110,
+                  right: _animateBg ? -95 : -55,
+                  child: Container(
+                    width: orbSizeB,
+                    height: orbSizeB,
+                    decoration: const BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: RadialGradient(
+                        colors: [Color(0x3B7B79FF), Color(0x007B79FF)],
+                      ),
                     ),
                   ),
                 ),
-              ),
-              AnimatedPositioned(
-                duration: const Duration(seconds: 8),
-                curve: Curves.easeInOut,
-                bottom: _animateBg ? -145 : -110,
-                right: _animateBg ? -95 : -55,
-                child: Container(
-                  width: orbSizeB,
-                  height: orbSizeB,
-                  decoration: const BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: RadialGradient(
-                      colors: [Color(0x3B7B79FF), Color(0x007B79FF)],
-                    ),
-                  ),
-                ),
-              ),
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  final keyboardInset = mediaQuery.viewInsets.bottom;
-                  final activeKeyboardInset =
-                      _isEditingLoginFields ? keyboardInset : 0.0;
-                  final targetKeyboardInset =
-                      _stableKeyboardInset(activeKeyboardInset);
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final keyboardInset = mediaQuery.viewInsets.bottom;
+                    final activeKeyboardInset =
+                        _isEditingLoginFields ? keyboardInset : 0.0;
+                    final targetKeyboardInset =
+                        _stableKeyboardInset(activeKeyboardInset);
 
-                  return TweenAnimationBuilder<double>(
-                    duration: Duration(
-                      milliseconds: _isEditingLoginFields ? 120 : 280,
-                    ),
-                    curve: Curves.easeOutCubic,
-                    tween: Tween<double>(end: targetKeyboardInset),
-                    builder: (context, animatedKeyboardInset, child) {
-                      final visibleHeight =
-                          (constraints.maxHeight - animatedKeyboardInset)
-                              .clamp(0.0, constraints.maxHeight);
+                    return TweenAnimationBuilder<double>(
+                      duration: Duration(
+                        milliseconds: _isEditingLoginFields ? 120 : 280,
+                      ),
+                      curve: Curves.easeOutCubic,
+                      tween: Tween<double>(end: targetKeyboardInset),
+                      builder: (context, animatedKeyboardInset, child) {
+                        final visibleHeight =
+                            (constraints.maxHeight - animatedKeyboardInset)
+                                .clamp(0.0, constraints.maxHeight);
 
-                      return SingleChildScrollView(
-                        keyboardDismissBehavior:
-                            ScrollViewKeyboardDismissBehavior.onDrag,
-                        padding: EdgeInsets.fromLTRB(
-                          0,
-                          16,
-                          0,
-                          animatedKeyboardInset + 16,
-                        ),
-                        child: ConstrainedBox(
-                          constraints: BoxConstraints(
-                            minHeight: visibleHeight,
+                        return SingleChildScrollView(
+                          keyboardDismissBehavior:
+                              ScrollViewKeyboardDismissBehavior.onDrag,
+                          padding: EdgeInsets.fromLTRB(
+                            0,
+                            16,
+                            0,
+                            animatedKeyboardInset + 16,
                           ),
-                          child: Center(
-                            child: Padding(
-                              padding: EdgeInsets.zero,
-                              child: ConstrainedBox(
-                                constraints: const BoxConstraints(maxWidth: 460),
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 24, vertical: 16),
-                                  child: Container(
-                                    padding:
-                                        const EdgeInsets.fromLTRB(20, 24, 20, 18),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xD0121A2B),
-                                      borderRadius: BorderRadius.circular(30),
-                                      border: Border.all(
-                                          color: _accent.withValues(alpha: 0.12),
-                                          width: 0.8),
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: Colors.black.withValues(alpha: 0.24),
-                                          blurRadius: 28,
-                                          offset: const Offset(0, 14),
-                                        ),
-                                      ],
-                                    ),
-                                    child: Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.stretch,
-                                      children: [
-                                    const Text(
-                                      'התחברות',
-                                      textAlign: TextAlign.center,
-                                      style: TextStyle(
-                                        color: _textPrimary,
-                                        fontSize: 30,
-                                        fontWeight: FontWeight.w700,
-                                        letterSpacing: 0.3,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 8),
-                                    const Text(
-                                      'איזה כיף, חיכינו לך בחזרה',
-                                      textAlign: TextAlign.center,
-                                      style: TextStyle(
-                                        color: _textSecondary,
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w400,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 24),
-                                    TextField(
-                                      controller: _usernameController,
-                                      focusNode: _usernameFocusNode,
-                                      keyboardType: TextInputType.emailAddress,
-                                      textInputAction: TextInputAction.next,
-                                      textDirection: TextDirection.rtl,
-                                      textAlign: TextAlign.right,
-                                      autocorrect: false,
-                                      enableSuggestions: false,
-                                      style: const TextStyle(
-                                          color: _textPrimary,
-                                          fontWeight: FontWeight.w500),
-                                      decoration: _inputDecoration(
-                                          'מייל / Mail או שם משתמש'),
-                                    ),
-                                    const SizedBox(height: 14),
-                                    TextField(
-                                      controller: _passwordController,
-                                      focusNode: _passwordFocusNode,
-                                      obscureText: _hidePassword,
-                                      textDirection: TextDirection.rtl,
-                                      textAlign: TextAlign.right,
-                                      autocorrect: false,
-                                      enableSuggestions: false,
-                                      style: const TextStyle(
-                                          color: _textPrimary,
-                                          fontWeight: FontWeight.w500),
-                                      decoration:
-                                          _inputDecoration('סיסמה / Password')
-                                              .copyWith(
-                                        suffixIcon: IconButton(
-                                          onPressed: () => setState(() =>
-                                              _hidePassword = !_hidePassword),
-                                          icon: Icon(
-                                            _hidePassword
-                                                ? Icons.visibility_off_rounded
-                                                : Icons.visibility_rounded,
-                                            color: _textSecondary,
+                          child: ConstrainedBox(
+                            constraints: BoxConstraints(
+                              minHeight: visibleHeight,
+                            ),
+                            child: Center(
+                              child: Padding(
+                                padding: EdgeInsets.zero,
+                                child: ConstrainedBox(
+                                  constraints:
+                                      const BoxConstraints(maxWidth: 460),
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 24, vertical: 16),
+                                    child: Container(
+                                      padding: const EdgeInsets.fromLTRB(
+                                          20, 24, 20, 18),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xD0121A2B),
+                                        borderRadius: BorderRadius.circular(30),
+                                        border: Border.all(
+                                            color:
+                                                _accent.withValues(alpha: 0.12),
+                                            width: 0.8),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Colors.black
+                                                .withValues(alpha: 0.24),
+                                            blurRadius: 28,
+                                            offset: const Offset(0, 14),
                                           ),
-                                        ),
+                                        ],
                                       ),
-                                    ),
-                                    Align(
-                                      alignment: Alignment.centerLeft,
-                                      child: TextButton(
-                                        onPressed: _onForgotPasswordPressed,
-                                        child: const Text(
-                                          'שכחתי סיסמה',
-                                          style: TextStyle(
-                                            color: _accent,
-                                            fontWeight: FontWeight.w700,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(height: 12),
-                                    Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.center,
-                                      children: [
-                                        const Text(
-                                          'אין לך עדיין חשבון? - ',
-                                          style: TextStyle(
-                                              color: _textSecondary,
-                                              fontSize: 13),
-                                        ),
-                                        InkWell(
-                                          onTap: () {
-                                            Navigator.of(context).push(
-                                              MaterialPageRoute(
-                                                  builder: (_) =>
-                                                      const RegisterScreen()),
-                                            );
-                                          },
-                                          child: const Text(
-                                            'הרשמה',
+                                      child: Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.stretch,
+                                        children: [
+                                          const Text(
+                                            'התחברות',
+                                            textAlign: TextAlign.center,
                                             style: TextStyle(
-                                              color: _accent,
-                                              fontSize: 13,
+                                              color: _textPrimary,
+                                              fontSize: 30,
                                               fontWeight: FontWeight.w700,
+                                              letterSpacing: 0.3,
                                             ),
                                           ),
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 24),
-                                    ElevatedButton(
-                                      onPressed: _onLoginPressed,
-                                      style: ElevatedButton.styleFrom(
-                                        foregroundColor: Colors.white,
-                                        padding: const EdgeInsets.symmetric(
-                                            vertical: 16),
-                                        shape: RoundedRectangleBorder(
-                                            borderRadius:
-                                                BorderRadius.circular(20)),
-                                        elevation: 0,
-                                      ).copyWith(
-                                        backgroundColor:
-                                            WidgetStateProperty.resolveWith(
-                                          (states) => states
-                                                  .contains(WidgetState.pressed)
-                                              ? _primary
-                                              : const Color(0xFF6978FF),
-                                        ),
-                                      ),
-                                      child: const Text(
-                                        'כניסה',
-                                        style: TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 16),
-                                      ),
-                                    ),
-                                    AnimatedSwitcher(
-                                      duration:
-                                          const Duration(milliseconds: 250),
-                                      child: _showError
-                                          ? Padding(
-                                              padding: const EdgeInsets.only(
-                                                  top: 12),
-                                              child: Row(
-                                                mainAxisAlignment:
-                                                    MainAxisAlignment.center,
-                                                children: [
-                                                  Flexible(
-                                                    child: Text(
-                                                      _errorMessage ??
-                                                          'לא הצלחנו להתחבר. נסה שוב.',
-                                                      style: const TextStyle(
-                                                          color:
-                                                              Colors.redAccent,
-                                                          fontSize: 13),
-                                                    ),
-                                                  ),
-                                                ],
+                                          const SizedBox(height: 8),
+                                          const Text(
+                                            'איזה כיף, חיכינו לך בחזרה',
+                                            textAlign: TextAlign.center,
+                                            style: TextStyle(
+                                              color: _textSecondary,
+                                              fontSize: 14,
+                                              fontWeight: FontWeight.w400,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 24),
+                                          TextField(
+                                            controller: _usernameController,
+                                            focusNode: _usernameFocusNode,
+                                            keyboardType:
+                                                TextInputType.emailAddress,
+                                            textInputAction:
+                                                TextInputAction.next,
+                                            textDirection: TextDirection.rtl,
+                                            textAlign: TextAlign.right,
+                                            autocorrect: false,
+                                            enableSuggestions: false,
+                                            style: const TextStyle(
+                                                color: _textPrimary,
+                                                fontWeight: FontWeight.w500),
+                                            decoration: _inputDecoration(
+                                                'מייל / Mail או שם משתמש'),
+                                          ),
+                                          const SizedBox(height: 14),
+                                          TextField(
+                                            controller: _passwordController,
+                                            focusNode: _passwordFocusNode,
+                                            obscureText: _hidePassword,
+                                            textDirection: TextDirection.rtl,
+                                            textAlign: TextAlign.right,
+                                            autocorrect: false,
+                                            enableSuggestions: false,
+                                            style: const TextStyle(
+                                                color: _textPrimary,
+                                                fontWeight: FontWeight.w500),
+                                            decoration: _inputDecoration(
+                                                    'סיסמה / Password')
+                                                .copyWith(
+                                              suffixIcon: IconButton(
+                                                onPressed: () => setState(() =>
+                                                    _hidePassword =
+                                                        !_hidePassword),
+                                                icon: Icon(
+                                                  _hidePassword
+                                                      ? Icons
+                                                          .visibility_off_rounded
+                                                      : Icons
+                                                          .visibility_rounded,
+                                                  color: _textSecondary,
+                                                ),
                                               ),
-                                            )
-                                          : const SizedBox(height: 0),
-                                    ),
-                                      ],
+                                            ),
+                                          ),
+                                          Align(
+                                            alignment: Alignment.centerLeft,
+                                            child: TextButton(
+                                              onPressed:
+                                                  _onForgotPasswordPressed,
+                                              child: const Text(
+                                                'שכחתי סיסמה',
+                                                style: TextStyle(
+                                                  color: _accent,
+                                                  fontWeight: FontWeight.w700,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(height: 12),
+                                          Row(
+                                            mainAxisAlignment:
+                                                MainAxisAlignment.center,
+                                            children: [
+                                              const Text(
+                                                'אין לך עדיין חשבון? - ',
+                                                style: TextStyle(
+                                                    color: _textSecondary,
+                                                    fontSize: 13),
+                                              ),
+                                              InkWell(
+                                                onTap: () {
+                                                  Navigator.of(context).push(
+                                                    MaterialPageRoute(
+                                                        builder: (_) =>
+                                                            const PhoneRegistrationScreen()),
+                                                  );
+                                                },
+                                                child: const Text(
+                                                  'הרשמה',
+                                                  style: TextStyle(
+                                                    color: _accent,
+                                                    fontSize: 13,
+                                                    fontWeight: FontWeight.w700,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 24),
+                                          ElevatedButton(
+                                            onPressed: _onLoginPressed,
+                                            style: ElevatedButton.styleFrom(
+                                              foregroundColor: Colors.white,
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                      vertical: 16),
+                                              shape: RoundedRectangleBorder(
+                                                  borderRadius:
+                                                      BorderRadius.circular(
+                                                          20)),
+                                              elevation: 0,
+                                            ).copyWith(
+                                              backgroundColor:
+                                                  WidgetStateProperty
+                                                      .resolveWith(
+                                                (states) => states.contains(
+                                                        WidgetState.pressed)
+                                                    ? _primary
+                                                    : const Color(0xFF6978FF),
+                                              ),
+                                            ),
+                                            child: const Text(
+                                              'כניסה',
+                                              style: TextStyle(
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 16),
+                                            ),
+                                          ),
+                                          AnimatedSwitcher(
+                                            duration: const Duration(
+                                                milliseconds: 250),
+                                            child: _showError
+                                                ? Padding(
+                                                    padding:
+                                                        const EdgeInsets.only(
+                                                            top: 12),
+                                                    child: Row(
+                                                      mainAxisAlignment:
+                                                          MainAxisAlignment
+                                                              .center,
+                                                      children: [
+                                                        Flexible(
+                                                          child: Text(
+                                                            _errorMessage ??
+                                                                'לא הצלחנו להתחבר. נסה שוב.',
+                                                            style: const TextStyle(
+                                                                color: Colors
+                                                                    .redAccent,
+                                                                fontSize: 13),
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  )
+                                                : const SizedBox(height: 0),
+                                          ),
+                                        ],
+                                      ),
                                     ),
                                   ),
                                 ),
                               ),
                             ),
                           ),
-                        ),
-                      );
-                    },
-                  );
-                },
-              ),
-            ],
-          ),
+                        );
+                      },
+                    );
+                  },
+                ),
+              ],
+            ),
           ),
         ),
       ),

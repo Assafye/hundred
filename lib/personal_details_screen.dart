@@ -25,6 +25,8 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
   final AuthService _authService = AuthService();
   final TextEditingController _phoneController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _emailPasswordController =
+      TextEditingController();
   final TextEditingController _birthDateController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
 
@@ -45,6 +47,7 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
     KeyboardDismissController.resume();
     _phoneController.dispose();
     _emailController.dispose();
+    _emailPasswordController.dispose();
     _birthDateController.dispose();
     super.dispose();
   }
@@ -86,7 +89,11 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
     final phone = (data['phone'] as String? ?? '').trim();
     final authEmail = (user.email ?? '').trim();
     final storedEmail = (data['email'] as String? ?? '').trim();
-    final email = authEmail.isNotEmpty ? authEmail : storedEmail;
+    final isSyntheticEmail =
+        authEmail.endsWith('@${AuthService.phoneAuthDomain}');
+    final email = isSyntheticEmail
+        ? ''
+        : (authEmail.isNotEmpty ? authEmail : storedEmail);
     final birthDateRaw = (data['birthDate'] as String? ?? '').trim();
     DateTime? birthDate;
     if (birthDateRaw.isNotEmpty) {
@@ -217,10 +224,39 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
       final refreshedUser = FirebaseAuth.instance.currentUser ?? user;
       final authEmail = (refreshedUser.email ?? '').trim();
 
+      if (authEmail.isNotEmpty &&
+          !authEmail.endsWith('@${AuthService.phoneAuthDomain}') &&
+          !refreshedUser.emailVerified) {
+        final confirmed = await _authService.confirmBackupEmail();
+        if (!confirmed) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('יש לאמת את המייל לפני שמירתו כפרטי גיבוי.'),
+            ),
+          );
+          return;
+        }
+      }
+
       final didRequestNewEmail = emailValue.isNotEmpty &&
           emailValue != _currentEmail &&
           emailValue != authEmail;
       if (didRequestNewEmail) {
+        if (authEmail.endsWith('@${AuthService.phoneAuthDomain}')) {
+          await _authService.linkBackupEmailCredential(
+            email: emailValue,
+            password: _emailPasswordController.text.trim(),
+          );
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content:
+                  Text('שלחנו מייל אימות. לאחר האימות חזור/י ולחץ/י שמור שוב.'),
+            ),
+          );
+          return;
+        }
         await refreshedUser.verifyBeforeUpdateEmail(emailValue);
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
@@ -351,160 +387,206 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
                   child: _isLoading
                       ? const Center(child: CircularProgressIndicator())
                       : LayoutBuilder(
-                        builder: (context, constraints) {
-                          return SingleChildScrollView(
-                            padding: EdgeInsets.zero,
-                            child: ConstrainedBox(
-                              constraints: BoxConstraints(
-                                  minHeight: constraints.maxHeight),
-                              child: Container(
-                                width: double.infinity,
-                                padding:
-                                    const EdgeInsets.fromLTRB(20, 16, 20, 96),
-                                decoration: const BoxDecoration(),
-                                child: Form(
-                                  key: _formKey,
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.stretch,
-                                    children: [
-                                      Text(
-                                        'טלפון, מייל ותאריך לידה',
-                                        style: TextStyle(
-                                          color: titleColor,
-                                          fontSize: 22,
-                                          fontWeight: FontWeight.w800,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 8),
-                                      Text(
-                                        'שינוי מייל ישלח לאימות לפני עדכון הפרטים.',
-                                        style: TextStyle(
-                                            color: mutedColor,
-                                            fontWeight: FontWeight.w400),
-                                      ),
-                                      const SizedBox(height: 18),
-                                      TextFormField(
-                                        controller: _phoneController,
-                                        onTapOutside: (_) {},
-                                        keyboardType: TextInputType.phone,
-                                        style: TextStyle(color: bodyColor),
-                                        decoration: _fieldDecoration(
-                                          isLight: isLight,
-                                          label: 'מספר טלפון',
-                                        ),
-                                        validator: (value) {
-                                          final text = value?.trim() ?? '';
-                                          if (text.isEmpty) return null;
-                                          if (text.length < 7) {
-                                            return 'מספר טלפון לא תקין';
-                                          }
-                                          return null;
-                                        },
-                                      ),
-                                      const SizedBox(height: 14),
-                                      TextFormField(
-                                        controller: _emailController,
-                                        onTapOutside: (_) {},
-                                        keyboardType:
-                                            TextInputType.emailAddress,
-                                        style: TextStyle(color: bodyColor),
-                                        decoration: _fieldDecoration(
-                                          isLight: isLight,
-                                          label: 'מייל',
-                                        ),
-                                        validator: (value) {
-                                          final text = value?.trim() ?? '';
-                                          if (text.isEmpty) {
-                                            return 'יש להזין מייל';
-                                          }
-                                          if (!RegExp(
-                                                  r'^[^\s@]+@[^\s@]+\.[^\s@]+$')
-                                              .hasMatch(text)) {
-                                            return 'כתובת מייל לא תקינה';
-                                          }
-                                          return null;
-                                        },
-                                      ),
-                                      const SizedBox(height: 14),
-                                      TextFormField(
-                                        controller: _birthDateController,
-                                        onTapOutside: (_) {},
-                                        readOnly: true,
-                                        onTap: _pickBirthDate,
-                                        style: TextStyle(color: bodyColor),
-                                        decoration: _fieldDecoration(
-                                          isLight: isLight,
-                                          label: 'תאריך לידה',
-                                        ),
-                                        validator: (value) {
-                                          final birthDate =
-                                              parseStoredBirthDate(value ?? '');
-                                          if (birthDate == null) {
-                                            return 'יש לבחור תאריך לידה';
-                                          }
-                                          if (!isAtLeastMinimumAge(birthDate)) {
-                                            return 'הגיל המינימלי הוא $minimumUserAge';
-                                          }
-                                          return null;
-                                        },
-                                      ),
-                                      const SizedBox(height: 18),
-                                      ElevatedButton.icon(
-                                        onPressed:
-                                            _isSaving ? null : _saveDetails,
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: isLight
-                                              ? Colors.white
-                                              : _accentPurple,
-                                          foregroundColor: isLight
-                                              ? const Color(0xFFB79BFF)
-                                              : Colors.black,
-                                          side: isLight
-                                              ? const BorderSide(
-                                                  color: Color(0xFFB79BFF),
-                                                  width: 1,
-                                                )
-                                              : BorderSide.none,
-                                          padding: const EdgeInsets.symmetric(
-                                              vertical: 16),
-                                          shape: RoundedRectangleBorder(
-                                            borderRadius:
-                                                BorderRadius.circular(20),
-                                          ),
-                                          elevation: 0,
-                                        ),
-                                        icon: _isSaving
-                                            ? const SizedBox(
-                                                width: 16,
-                                                height: 16,
-                                                child:
-                                                    CircularProgressIndicator(
-                                                  strokeWidth: 2,
-                                                  color: Color(0xFFB79BFF),
-                                                ),
-                                              )
-                                            : const Icon(Icons.save_rounded),
-                                        label: Text(
-                                          _isSaving
-                                              ? 'שומר...'
-                                              : 'שמור שינויים',
+                          builder: (context, constraints) {
+                            return SingleChildScrollView(
+                              padding: EdgeInsets.zero,
+                              child: ConstrainedBox(
+                                constraints: BoxConstraints(
+                                    minHeight: constraints.maxHeight),
+                                child: Container(
+                                  width: double.infinity,
+                                  padding:
+                                      const EdgeInsets.fromLTRB(20, 16, 20, 96),
+                                  decoration: const BoxDecoration(),
+                                  child: Form(
+                                    key: _formKey,
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.stretch,
+                                      children: [
+                                        Text(
+                                          'טלפון, מייל ותאריך לידה',
                                           style: TextStyle(
-                                            color: isLight
-                                                ? const Color(0xFFB79BFF)
-                                                : Colors.black,
+                                            color: titleColor,
+                                            fontSize: 22,
                                             fontWeight: FontWeight.w800,
                                           ),
                                         ),
-                                      ),
-                                    ],
+                                        const SizedBox(height: 8),
+                                        Text(
+                                          'שינוי מייל ישלח לאימות לפני עדכון הפרטים.',
+                                          style: TextStyle(
+                                              color: mutedColor,
+                                              fontWeight: FontWeight.w400),
+                                        ),
+                                        const SizedBox(height: 18),
+                                        TextFormField(
+                                          controller: _phoneController,
+                                          readOnly: true,
+                                          onTapOutside: (_) {},
+                                          keyboardType: TextInputType.phone,
+                                          style: TextStyle(color: bodyColor),
+                                          decoration: _fieldDecoration(
+                                            isLight: isLight,
+                                            label: 'מספר טלפון',
+                                          ),
+                                          validator: (value) {
+                                            final text = value?.trim() ?? '';
+                                            if (text.isEmpty) return null;
+                                            if (text.length < 7) {
+                                              return 'מספר טלפון לא תקין';
+                                            }
+                                            return null;
+                                          },
+                                        ),
+                                        const SizedBox(height: 6),
+                                        Align(
+                                          alignment: Alignment.centerRight,
+                                          child: Text(
+                                            'מספר הטלפון הוא מזהה הכניסה ואינו ניתן לשינוי כאן.',
+                                            textAlign: TextAlign.right,
+                                            style: TextStyle(
+                                              color: mutedColor,
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(height: 14),
+                                        if (FirebaseAuth
+                                                .instance.currentUser?.email
+                                                ?.endsWith(
+                                                    '@${AuthService.phoneAuthDomain}') ??
+                                            false)
+                                          TextFormField(
+                                            controller:
+                                                _emailPasswordController,
+                                            obscureText: true,
+                                            style: TextStyle(color: bodyColor),
+                                            decoration: _fieldDecoration(
+                                              isLight: isLight,
+                                              label: 'סיסמה לקישור המייל',
+                                            ),
+                                            validator: (value) {
+                                              final email =
+                                                  _emailController.text.trim();
+                                              if (email.isNotEmpty &&
+                                                  (value?.trim().isEmpty ??
+                                                      true)) {
+                                                return 'יש להזין סיסמה כדי לקשר את המייל';
+                                              }
+                                              return null;
+                                            },
+                                          ),
+                                        if (FirebaseAuth
+                                                .instance.currentUser?.email
+                                                ?.endsWith(
+                                                    '@${AuthService.phoneAuthDomain}') ??
+                                            false)
+                                          const SizedBox(height: 14),
+                                        TextFormField(
+                                          controller: _emailController,
+                                          onTapOutside: (_) {},
+                                          keyboardType:
+                                              TextInputType.emailAddress,
+                                          style: TextStyle(color: bodyColor),
+                                          decoration: _fieldDecoration(
+                                            isLight: isLight,
+                                            label: 'מייל',
+                                          ),
+                                          validator: (value) {
+                                            final text = value?.trim() ?? '';
+                                            if (text.isEmpty) {
+                                              return 'יש להזין מייל';
+                                            }
+                                            if (!RegExp(
+                                                    r'^[^\s@]+@[^\s@]+\.[^\s@]+$')
+                                                .hasMatch(text)) {
+                                              return 'כתובת מייל לא תקינה';
+                                            }
+                                            return null;
+                                          },
+                                        ),
+                                        const SizedBox(height: 14),
+                                        TextFormField(
+                                          controller: _birthDateController,
+                                          onTapOutside: (_) {},
+                                          readOnly: true,
+                                          onTap: _pickBirthDate,
+                                          style: TextStyle(color: bodyColor),
+                                          decoration: _fieldDecoration(
+                                            isLight: isLight,
+                                            label: 'תאריך לידה',
+                                          ),
+                                          validator: (value) {
+                                            final birthDate =
+                                                parseStoredBirthDate(
+                                                    value ?? '');
+                                            if (birthDate == null) {
+                                              return 'יש לבחור תאריך לידה';
+                                            }
+                                            if (!isAtLeastMinimumAge(
+                                                birthDate)) {
+                                              return 'הגיל המינימלי הוא $minimumUserAge';
+                                            }
+                                            return null;
+                                          },
+                                        ),
+                                        const SizedBox(height: 18),
+                                        ElevatedButton.icon(
+                                          onPressed:
+                                              _isSaving ? null : _saveDetails,
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: isLight
+                                                ? Colors.white
+                                                : _accentPurple,
+                                            foregroundColor: isLight
+                                                ? const Color(0xFFB79BFF)
+                                                : Colors.black,
+                                            side: isLight
+                                                ? const BorderSide(
+                                                    color: Color(0xFFB79BFF),
+                                                    width: 1,
+                                                  )
+                                                : BorderSide.none,
+                                            padding: const EdgeInsets.symmetric(
+                                                vertical: 16),
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(20),
+                                            ),
+                                            elevation: 0,
+                                          ),
+                                          icon: _isSaving
+                                              ? const SizedBox(
+                                                  width: 16,
+                                                  height: 16,
+                                                  child:
+                                                      CircularProgressIndicator(
+                                                    strokeWidth: 2,
+                                                    color: Color(0xFFB79BFF),
+                                                  ),
+                                                )
+                                              : const Icon(Icons.save_rounded),
+                                          label: Text(
+                                            _isSaving
+                                                ? 'שומר...'
+                                                : 'שמור שינויים',
+                                            style: TextStyle(
+                                              color: isLight
+                                                  ? const Color(0xFFB79BFF)
+                                                  : Colors.black,
+                                              fontWeight: FontWeight.w800,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 ),
                               ),
-                            ),
-                          );
-                        },
-                      ),
+                            );
+                          },
+                        ),
                 ),
               ),
             ],

@@ -4,7 +4,7 @@ import 'package:hundred_version1/services/auth_service.dart';
 
 void main() {
   group('LoginScreen login gate', () {
-    test('blocks users until email is verified or onboarding is active', () {
+    test('blocks users until onboarding is active, regardless of email flag', () {
       expect(
         shouldBlockLoginForState(
           isEmailVerified: false,
@@ -24,6 +24,14 @@ void main() {
       expect(
         shouldBlockLoginForState(
           isEmailVerified: true,
+          onboardingStep: OnboardingStep.active,
+        ),
+        isFalse,
+      );
+
+      expect(
+        shouldBlockLoginForState(
+          isEmailVerified: false,
           onboardingStep: OnboardingStep.active,
         ),
         isFalse,

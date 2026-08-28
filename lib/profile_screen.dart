@@ -20,6 +20,7 @@ import 'saved_posts_screen.dart';
 import 'services/block_user_service.dart';
 import 'services/keyboard_dismiss_controller.dart';
 import 'services/social_service.dart';
+import 'services/auth_service.dart';
 import 'services/spontaneous_challenge_service.dart';
 import 'services/post_interaction_overlay_service.dart';
 import 'services/public_user_profile_service.dart';
@@ -4283,14 +4284,45 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                               ]
                             : null,
                       ),
-                      child: IconButton(
-                        icon: Icon(Icons.settings_rounded,
-                            color: isLight ? lightIconColor : Colors.white,
-                            size: 20),
-                        onPressed: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                                builder: (_) => const SettingsScreen())),
+                      child:
+                          StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                        stream: FirebaseFirestore.instance
+                            .collection('users')
+                            .doc(_uid)
+                            .snapshots(),
+                        builder: (context, snapshot) {
+                          final data = snapshot.data?.data() ??
+                              const <String, dynamic>{};
+                          final email = (data['backupEmail'] as String? ??
+                                  data['email'] as String? ??
+                                  '')
+                              .trim();
+                          final missingEmail = email.isEmpty ||
+                              email.endsWith('@${AuthService.phoneAuthDomain}');
+                          return Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              IconButton(
+                                icon: Icon(Icons.settings_rounded,
+                                    color:
+                                        isLight ? lightIconColor : Colors.white,
+                                    size: 20),
+                                onPressed: () => Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                        builder: (_) =>
+                                            const SettingsScreen())),
+                              ),
+                              if (missingEmail)
+                                const Positioned(
+                                  top: 5,
+                                  right: 5,
+                                  child: Icon(Icons.error_rounded,
+                                      color: Colors.redAccent, size: 15),
+                                ),
+                            ],
+                          );
+                        },
                       ),
                     ),
                     const SizedBox(width: 12),

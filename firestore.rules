@@ -9,6 +9,11 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == uid;
     }
 
+    function preservesPrimaryAuthIdentity() {
+      return request.resource.data.get('phone', '') == resource.data.get('phone', '') &&
+        request.resource.data.get('phoneAuthEmail', '') == resource.data.get('phoneAuthEmail', '');
+    }
+
     function userDoc(uid) {
       return /databases/$(database)/documents/users/$(uid);
     }
@@ -678,7 +683,8 @@ service cloud.firestore {
       allow create: if isSelf(document) &&
         hasNoExactLocationFields(request.resource.data);
       allow update: if isSelf(document) &&
-        hasNoExactLocationFields(request.resource.data);
+        hasNoExactLocationFields(request.resource.data) &&
+        preservesPrimaryAuthIdentity();
       allow delete: if isSelf(document);
 
       match /private/location {
