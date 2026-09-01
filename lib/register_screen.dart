@@ -1196,47 +1196,71 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             children: [
                               // Avatar / Images row
                               if (_profileImages.isNotEmpty) ...[
-                                SizedBox(
-                                  height: 84,
-                                  child: Center(
-                                    child: ListView.separated(
-                                      shrinkWrap: true,
-                                      scrollDirection: Axis.horizontal,
-                                      itemCount: _profileImages.length,
-                                      separatorBuilder: (_, __) =>
-                                          const SizedBox(width: 8),
-                                      itemBuilder: (context, index) {
-                                        final isPrimary = index == 0;
-                                        return Container(
-                                          width: isPrimary ? 80 : 64,
-                                          height: isPrimary ? 80 : 64,
-                                          decoration: BoxDecoration(
-                                            shape: BoxShape.circle,
-                                            border: Border.all(
-                                              color: isPrimary
-                                                  ? _accent
-                                                  : _primary.withValues(
-                                                      alpha: 0.5),
-                                              width: isPrimary ? 2.2 : 1.2,
-                                            ),
-                                          ),
-                                          child: ClipOval(
-                                            child: kIsWeb
-                                                ? Image.network(
-                                                    _profileImages[index].path,
-                                                    fit: BoxFit.cover,
-                                                  )
-                                                : Image.file(
-                                                    File(_profileImages[index]
-                                                        .path),
-                                                    fit: BoxFit.cover,
-                                                  ),
-                                          ),
-                                        );
-                                      },
+                                Container(
+                                  width: 80,
+                                  height: 80,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: _accent,
+                                      width: 2.2,
                                     ),
                                   ),
+                                  child: ClipOval(
+                                    child: kIsWeb
+                                        ? Image.network(
+                                            _profileImages.first.path,
+                                            fit: BoxFit.cover,
+                                          )
+                                        : Image.file(
+                                            File(_profileImages.first.path),
+                                            fit: BoxFit.cover,
+                                          ),
+                                  ),
                                 ),
+                                if (_profileImages.length > 1) ...[
+                                  const SizedBox(height: 10),
+                                  SizedBox(
+                                    height: 50,
+                                    child: Center(
+                                      child: ListView.separated(
+                                        shrinkWrap: true,
+                                        scrollDirection: Axis.horizontal,
+                                        itemCount: _profileImages.length - 1,
+                                        separatorBuilder: (_, __) =>
+                                            const SizedBox(width: 8),
+                                        itemBuilder: (context, index) {
+                                          final image =
+                                              _profileImages[index + 1];
+                                          return Container(
+                                            width: 48,
+                                            height: 48,
+                                            decoration: BoxDecoration(
+                                              shape: BoxShape.circle,
+                                              border: Border.all(
+                                                color: _primary.withValues(
+                                                  alpha: 0.55,
+                                                ),
+                                                width: 1.2,
+                                              ),
+                                            ),
+                                            child: ClipOval(
+                                              child: kIsWeb
+                                                  ? Image.network(
+                                                      image.path,
+                                                      fit: BoxFit.cover,
+                                                    )
+                                                  : Image.file(
+                                                      File(image.path),
+                                                      fit: BoxFit.cover,
+                                                    ),
+                                            ),
+                                          );
+                                        },
+                                      ),
+                                    ),
+                                  ),
+                                ],
                                 const SizedBox(height: 12),
                               ],
                               Text(
@@ -1431,158 +1455,434 @@ class _RegisterScreenState extends State<RegisterScreen> {
   /// forced a session re-login (registration must resume after login).
   Future<bool> _offerBackupEmail() async {
     _backupEmailController.clear();
-    final wantsEmail = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) => AlertDialog(
-        backgroundColor: const Color(0xFF1A2435),
-        title: const Text('הוספת מייל גיבוי',
-            textAlign: TextAlign.right, style: TextStyle(color: _textPrimary)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text(
-              'מייל גיבוי יאפשר התחברות ושחזור חשבון גם אם אין גישה למספר הטלפון.',
-              textAlign: TextAlign.right,
-              style: TextStyle(color: _textSecondary),
-            ),
-            const SizedBox(height: 14),
-            TextField(
-              controller: _backupEmailController,
-              keyboardType: TextInputType.emailAddress,
-              textDirection: TextDirection.rtl,
-              decoration: _inputDecoration('מייל גיבוי'),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('לא עכשיו'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('הוספת מייל'),
-          ),
-        ],
-      ),
-    );
-    final email = _backupEmailController.text.trim();
-    if (!mounted || wantsEmail != true || email.isEmpty) return false;
+    var verificationSent = false;
+    var isWorking = false;
+    String? pageError;
 
-    try {
-      await _authService.linkBackupEmailCredential(
-        email: email,
-        password: _passwordController.text.trim(),
-      );
-    } catch (error) {
-      if (!mounted) return false;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('לא הצלחנו להוסיף מייל גיבוי: $error')),
-      );
-      return false;
-    }
+    final requiresRelogin = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (screenContext) {
+          return StatefulBuilder(
+            builder: (context, setPageState) {
+              Future<void> handlePrimaryAction() async {
+                if (isWorking) return;
+                final email = _backupEmailController.text.trim();
+                if (!verificationSent) {
+                  if (!RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(email)) {
+                    setPageState(
+                        () => pageError = 'יש להזין כתובת מייל תקינה.');
+                    return;
+                  }
+                  setPageState(() {
+                    isWorking = true;
+                    pageError = null;
+                  });
+                  try {
+                    await _authService.linkBackupEmailCredential(
+                      email: email,
+                      password: _passwordController.text.trim(),
+                    );
+                    if (!context.mounted) return;
+                    setPageState(() {
+                      verificationSent = true;
+                      isWorking = false;
+                    });
+                  } catch (error) {
+                    if (!context.mounted) return;
+                    setPageState(() {
+                      isWorking = false;
+                      pageError = 'לא הצלחנו לשלוח את האימות. יש לנסות שוב.';
+                    });
+                  }
+                  return;
+                }
 
-    if (!mounted) return false;
-    return _awaitBackupEmailConfirmation(email);
-  }
+                setPageState(() {
+                  isWorking = true;
+                  pageError = null;
+                });
+                try {
+                  final confirmation = await _authService.confirmBackupEmail(
+                    expectedEmail: email,
+                  );
+                  if (!context.mounted) return;
+                  switch (confirmation) {
+                    case BackupEmailConfirmationResult.confirmed:
+                      Navigator.of(screenContext).pop(false);
+                    case BackupEmailConfirmationResult.requiresRelogin:
+                      Navigator.of(screenContext).pop(true);
+                    case BackupEmailConfirmationResult.pending:
+                      setPageState(() {
+                        isWorking = false;
+                        pageError =
+                            'עדיין לא זיהינו את האימות. יש ללחוץ על הקישור במייל ולנסות שוב.';
+                      });
+                  }
+                } catch (_) {
+                  if (!context.mounted) return;
+                  setPageState(() {
+                    isWorking = false;
+                    pageError = 'לא הצלחנו לבדוק את האימות. יש לנסות שוב.';
+                  });
+                }
+              }
 
-  Future<bool> _awaitBackupEmailConfirmation(String email) async {
-    var isChecking = false;
-    String? dialogError;
-
-    final result = await showDialog<String>(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              backgroundColor: const Color(0xFF1A2435),
-              title: const Text('אימות כתובת מייל',
-                  textAlign: TextAlign.right,
-                  style: TextStyle(color: _textPrimary)),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    'בדוק בתיבת הדואר ובספאם בכתובת:\n$email\nיש ללחוץ על הקישור שבמייל ואז ללחוץ "אימתתי".',
-                    textAlign: TextAlign.right,
-                    style: const TextStyle(color: _textSecondary),
-                  ),
-                  if (dialogError != null) ...[
-                    const SizedBox(height: 10),
-                    Text(
-                      dialogError!,
-                      textAlign: TextAlign.right,
-                      style: const TextStyle(
-                          color: Colors.redAccent, fontSize: 12.5),
+              return Scaffold(
+                backgroundColor: _bgBottom,
+                resizeToAvoidBottomInset: false,
+                body: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    const DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [_bgTop, Color(0xFF0E1627), _bgBottom],
+                        ),
+                      ),
                     ),
-                  ],
-                  if (isChecking) ...[
-                    const SizedBox(height: 10),
-                    const Center(
-                      child: SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
+                    Positioned(
+                      top: -90,
+                      right: -100,
+                      child: Container(
+                        width: 270,
+                        height: 270,
+                        decoration: const BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: RadialGradient(
+                            colors: [Color(0x3653D9FF), Color(0x0053D9FF)],
+                          ),
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      bottom: -120,
+                      left: -110,
+                      child: Container(
+                        width: 310,
+                        height: 310,
+                        decoration: const BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: RadialGradient(
+                            colors: [Color(0x3B7B79FF), Color(0x007B79FF)],
+                          ),
+                        ),
+                      ),
+                    ),
+                    SafeArea(
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          final keyboardInset =
+                              MediaQuery.viewInsetsOf(context).bottom;
+                          return Listener(
+                            behavior: HitTestBehavior.translucent,
+                            onPointerDown: _dismissKeyboardOnBackgroundTap,
+                            child: SingleChildScrollView(
+                              keyboardDismissBehavior:
+                                  ScrollViewKeyboardDismissBehavior.onDrag,
+                              padding: EdgeInsets.fromLTRB(
+                                24,
+                                16,
+                                24,
+                                keyboardInset + 28,
+                              ),
+                              child: ConstrainedBox(
+                                constraints: BoxConstraints(
+                                  minHeight: (constraints.maxHeight -
+                                          keyboardInset -
+                                          44)
+                                      .clamp(0.0, double.infinity)
+                                      .toDouble(),
+                                ),
+                                child: Center(
+                                  child: ConstrainedBox(
+                                    constraints:
+                                        const BoxConstraints(maxWidth: 440),
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.stretch,
+                                      children: [
+                                        Align(
+                                          alignment: Alignment.centerRight,
+                                          child: IconButton(
+                                            onPressed: isWorking
+                                                ? null
+                                                : () =>
+                                                    Navigator.of(screenContext)
+                                                        .pop(false),
+                                            icon: const Icon(
+                                              Icons.close_rounded,
+                                              color: _textSecondary,
+                                            ),
+                                            tooltip: 'לא עכשיו',
+                                          ),
+                                        ),
+                                        Center(
+                                          child: Container(
+                                            width: 82,
+                                            height: 82,
+                                            decoration: BoxDecoration(
+                                              borderRadius:
+                                                  BorderRadius.circular(26),
+                                              gradient: const LinearGradient(
+                                                begin: Alignment.topLeft,
+                                                end: Alignment.bottomRight,
+                                                colors: [_accent, _primary],
+                                              ),
+                                              boxShadow: [
+                                                BoxShadow(
+                                                  color: _primary.withValues(
+                                                    alpha: .34,
+                                                  ),
+                                                  blurRadius: 26,
+                                                  offset: const Offset(0, 10),
+                                                ),
+                                              ],
+                                            ),
+                                            child: Icon(
+                                              verificationSent
+                                                  ? Icons
+                                                      .mark_email_read_rounded
+                                                  : Icons
+                                                      .alternate_email_rounded,
+                                              color: Colors.white,
+                                              size: 40,
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(height: 24),
+                                        Text(
+                                          verificationSent
+                                              ? 'אימות מייל הגיבוי'
+                                              : 'הוספת מייל גיבוי',
+                                          textAlign: TextAlign.center,
+                                          style: const TextStyle(
+                                            color: _textPrimary,
+                                            fontSize: 28,
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 10),
+                                        const Text(
+                                          'מייל גיבוי יאפשר התחברות ושחזור חשבון גם אם אין גישה למספר הטלפון.',
+                                          textAlign: TextAlign.center,
+                                          style: TextStyle(
+                                            color: _textSecondary,
+                                            fontSize: 14,
+                                            height: 1.45,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 28),
+                                        TextField(
+                                          controller: _backupEmailController,
+                                          enabled:
+                                              !verificationSent && !isWorking,
+                                          keyboardType:
+                                              TextInputType.emailAddress,
+                                          textInputAction: TextInputAction.done,
+                                          textDirection: TextDirection.ltr,
+                                          textAlign: TextAlign.left,
+                                          autocorrect: false,
+                                          enableSuggestions: false,
+                                          onSubmitted: (_) =>
+                                              handlePrimaryAction(),
+                                          style: const TextStyle(
+                                            color: _textPrimary,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                          decoration: _inputDecoration(
+                                            'מייל גיבוי',
+                                          ).copyWith(
+                                            prefixIcon: const Icon(
+                                              Icons.mail_outline_rounded,
+                                              color: _accent,
+                                            ),
+                                          ),
+                                        ),
+                                        if (verificationSent) ...[
+                                          const SizedBox(height: 18),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 16,
+                                              vertical: 14,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: _accent.withValues(
+                                                  alpha: .09),
+                                              borderRadius:
+                                                  BorderRadius.circular(18),
+                                              border: Border.all(
+                                                color: _accent.withValues(
+                                                    alpha: .24),
+                                              ),
+                                            ),
+                                            child: const Text(
+                                              'יש לבדוק בתיבת הדואר ותיבת הספאם וללחוץ אישור לאחר האימות',
+                                              textAlign: TextAlign.center,
+                                              style: TextStyle(
+                                                color: _textPrimary,
+                                                fontSize: 14,
+                                                fontWeight: FontWeight.w600,
+                                                height: 1.45,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                        if (pageError != null) ...[
+                                          const SizedBox(height: 12),
+                                          Text(
+                                            pageError!,
+                                            textAlign: TextAlign.center,
+                                            style: const TextStyle(
+                                              color: Colors.redAccent,
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                        ],
+                                        const SizedBox(height: 28),
+                                        Center(
+                                          child: AnimatedSwitcher(
+                                            duration: const Duration(
+                                              milliseconds: 220,
+                                            ),
+                                            transitionBuilder:
+                                                (child, animation) {
+                                              return FadeTransition(
+                                                opacity: animation,
+                                                child: ScaleTransition(
+                                                  scale: Tween<double>(
+                                                    begin: .94,
+                                                    end: 1,
+                                                  ).animate(animation),
+                                                  child: child,
+                                                ),
+                                              );
+                                            },
+                                            child: SizedBox(
+                                              key: ValueKey<bool>(
+                                                verificationSent,
+                                              ),
+                                              width:
+                                                  verificationSent ? 176 : 210,
+                                              child: Directionality(
+                                                textDirection:
+                                                    TextDirection.ltr,
+                                                child: ElevatedButton.icon(
+                                                  onPressed: isWorking
+                                                      ? null
+                                                      : handlePrimaryAction,
+                                                  style:
+                                                      ElevatedButton.styleFrom(
+                                                    backgroundColor:
+                                                        verificationSent
+                                                            ? _accent
+                                                            : _primary,
+                                                    foregroundColor:
+                                                        verificationSent
+                                                            ? const Color(
+                                                                0xFF102043,
+                                                              )
+                                                            : Colors.white,
+                                                    minimumSize:
+                                                        const Size(0, 48),
+                                                    elevation: verificationSent
+                                                        ? 7
+                                                        : 2,
+                                                    shadowColor:
+                                                        verificationSent
+                                                            ? _accent
+                                                                .withValues(
+                                                                alpha: .42,
+                                                              )
+                                                            : _primary
+                                                                .withValues(
+                                                                alpha: .28,
+                                                              ),
+                                                    shape:
+                                                        RoundedRectangleBorder(
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                              24),
+                                                    ),
+                                                  ),
+                                                  icon: isWorking
+                                                      ? const SizedBox.shrink()
+                                                      : verificationSent
+                                                          ? const Icon(
+                                                              Icons
+                                                                  .verified_rounded,
+                                                              size: 19,
+                                                            )
+                                                          : const SizedBox
+                                                              .shrink(),
+                                                  label: isWorking
+                                                      ? const SizedBox(
+                                                          width: 20,
+                                                          height: 20,
+                                                          child:
+                                                              CircularProgressIndicator(
+                                                            strokeWidth: 2,
+                                                            color: Colors.white,
+                                                          ),
+                                                        )
+                                                      : Text(
+                                                          verificationSent
+                                                              ? 'אישור'
+                                                              : 'הוספת מייל',
+                                                          style:
+                                                              const TextStyle(
+                                                            fontWeight:
+                                                                FontWeight.w800,
+                                                          ),
+                                                        ),
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(height: 12),
+                                        Center(
+                                          child: TextButton(
+                                            onPressed: isWorking
+                                                ? null
+                                                : () =>
+                                                    Navigator.of(screenContext)
+                                                        .pop(false),
+                                            child: Text(
+                                              verificationSent
+                                                  ? 'דילוג'
+                                                  : 'לא עכשיו',
+                                              style: const TextStyle(
+                                                color: _textSecondary,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          );
+                        },
                       ),
                     ),
                   ],
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: isChecking
-                      ? null
-                      : () => Navigator.of(dialogContext).pop('skip'),
-                  child: const Text('דילוג'),
                 ),
-                ElevatedButton(
-                  onPressed: isChecking
-                      ? null
-                      : () async {
-                          setDialogState(() {
-                            isChecking = true;
-                            dialogError = null;
-                          });
-                          try {
-                            final confirmation = await _authService
-                                .confirmBackupEmail(expectedEmail: email);
-                            if (!context.mounted) return;
-                            switch (confirmation) {
-                              case BackupEmailConfirmationResult.confirmed:
-                                Navigator.of(dialogContext).pop('confirmed');
-                              case BackupEmailConfirmationResult
-                                    .requiresRelogin:
-                                Navigator.of(dialogContext).pop('relogin');
-                              case BackupEmailConfirmationResult.pending:
-                                setDialogState(() {
-                                  isChecking = false;
-                                  dialogError =
-                                      'עדיין לא זיהינו אימות של המייל. יש ללחוץ על הקישור שנשלח אליך ולנסות שוב.';
-                                });
-                            }
-                          } catch (e) {
-                            if (context.mounted) {
-                              setDialogState(() {
-                                isChecking = false;
-                                dialogError = 'אירעה שגיאה בבדיקה: $e';
-                              });
-                            }
-                          }
-                        },
-                  child: const Text('אימתתי'),
-                ),
-              ],
-            );
-          },
-        );
-      },
+              );
+            },
+          );
+        },
+      ),
     );
 
-    return result == 'relogin';
+    return requiresRelogin ?? false;
   }
 
   Future<void> _continueProfileStage() async {
@@ -2053,6 +2353,98 @@ class _RegisterScreenState extends State<RegisterScreen> {
     setState(() => _profileStage = targetStage);
   }
 
+  String get _stageHeading {
+    if (_currentStep == 0) return 'הפרטים שלכם';
+    switch (_profileStage) {
+      case 0:
+        return 'בחרו שם משתמש';
+      case 1:
+        return 'הוסיפו תמונות';
+      case 2:
+        return 'מתי נולדתם?';
+      case 3:
+        return 'ספרו על עצמכם';
+      default:
+        return 'יצירת פרופיל';
+    }
+  }
+
+  IconData get _stageHeadingIcon {
+    if (_currentStep == 0) return Icons.badge_rounded;
+    switch (_profileStage) {
+      case 0:
+        return Icons.alternate_email_rounded;
+      case 1:
+        return Icons.add_photo_alternate_rounded;
+      case 2:
+        return Icons.cake_rounded;
+      case 3:
+        return Icons.auto_awesome_rounded;
+      default:
+        return Icons.person_rounded;
+    }
+  }
+
+  List<Color> get _stageHeadingColors {
+    if (_currentStep == 0) return const [_accent, _primary];
+    switch (_profileStage) {
+      case 0:
+        return const [Color(0xFF53D9FF), Color(0xFF7B79FF)];
+      case 1:
+        return const [Color(0xFFFF7AA8), Color(0xFF8B83FF)];
+      case 2:
+        return const [Color(0xFFFFB65C), Color(0xFFEF6B91)];
+      case 3:
+        return const [Color(0xFF58E0B5), Color(0xFF53A7FF)];
+      default:
+        return const [_accent, _primary];
+    }
+  }
+
+  Widget _buildStageHeading() {
+    return Column(
+      children: [
+        Container(
+          width: 66,
+          height: 66,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(21),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: _stageHeadingColors,
+            ),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: .16),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: _stageHeadingColors.last.withValues(alpha: .32),
+                blurRadius: 22,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: Icon(
+            _stageHeadingIcon,
+            color: Colors.white,
+            size: 33,
+          ),
+        ),
+        const SizedBox(height: 14),
+        Text(
+          _stageHeading,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            color: _textPrimary,
+            fontSize: 27,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildStepHeader() {
     if (_currentStep == 1) {
       const stageTitles = ['יוזר', 'תמונות', 'תאריך לידה', 'אודות'];
@@ -2479,7 +2871,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
             ),
             const SizedBox(height: 10),
             GridView.builder(
-              itemCount: _profileImages.length + 1,
+              itemCount: _profileImages.length +
+                  (_profileImages.length < _maxProfileImages ? 1 : 0),
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
@@ -2493,8 +2886,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   return _buildProfileImageTile(index);
                 }
 
-                final isDisabled = _profileImages.length >= _maxProfileImages ||
-                    _isPickingProfileImages;
+                final isDisabled = _isPickingProfileImages;
 
                 return InkWell(
                   onTap: isDisabled ? null : _pickProfileImages,
@@ -2553,7 +2945,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             const SizedBox(height: 14),
             _buildField(
               controller: _lifeMottoController,
-              label: 'משפט מפתח לחיים (אופציונלי)',
+              label: 'תתארו אתכם במשפט (אופציונאלי)',
               onChanged: (_) => setState(() {}),
               validator: (v) {
                 if (v != null && v.trim().length > 90) {
@@ -2565,14 +2957,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
             const Padding(
               padding: EdgeInsets.only(bottom: 12, right: 4),
               child: Text(
-                'דוגמאות "פסטה רוזה זה החיים / מי בא צניחה חופשית"',
+                'דוגמאות: ״אקסטרים זה החיים / ספונטניות זה שם המשחק״',
                 textAlign: TextAlign.right,
                 style: TextStyle(color: _textSecondary, fontSize: 12),
               ),
             ),
             _buildField(
               controller: _bioController,
-              label: 'כמה מילים שיעזרו לאנשים ללמוד עליך',
+              label: 'מה עוד בא לך שידעו עליך? (אופציונאלי)',
               maxLines: 4,
               minLines: 3,
               onChanged: (_) => setState(() {}),
@@ -2657,6 +3049,108 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
   }
 
+  Widget _buildRegistrationActionButton() {
+    return SizedBox(
+      width: double.infinity,
+      child: ElevatedButton(
+        onPressed: _isRegistering
+            ? null
+            : (_currentStep == 0
+                ? _continueFromDetailsStep
+                : (_profileStage < 3
+                    ? _continueProfileStage
+                    : _onRegisterPressed)),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: _primary,
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          elevation: 0,
+        ),
+        child: _isRegistering
+            ? const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                ),
+              )
+            : Text(
+                _currentStep == 0
+                    ? 'המשך'
+                    : (_profileStage < 3 ? 'המשך' : 'צור חשבון'),
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+      ),
+    );
+  }
+
+  Widget _buildProfileBackSlot() {
+    if (_profileStage == 0) return const SizedBox(height: 4);
+    return TextButton(
+      onPressed:
+          _isRegistering ? null : () => setState(() => _profileStage -= 1),
+      child: const Text(
+        'חזרה לשלב הקודם',
+        style: TextStyle(color: _textSecondary),
+      ),
+    );
+  }
+
+  Widget _buildProfileCardBody() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _buildStepHeader(),
+        TweenAnimationBuilder<double>(
+          key: ValueKey<String>('profile-stage-$_profileStage'),
+          tween: Tween<double>(begin: 0, end: 1),
+          duration: const Duration(milliseconds: 240),
+          curve: Curves.easeOutCubic,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _buildStageHeading(),
+              const SizedBox(height: 14),
+              if (_isRestoringDraft)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 36),
+                  child: SizedBox(
+                    width: 28,
+                    height: 28,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.2,
+                      valueColor: AlwaysStoppedAnimation<Color>(_accent),
+                    ),
+                  ),
+                )
+              else
+                _buildProfileStep(),
+            ],
+          ),
+          builder: (context, progress, child) {
+            return Opacity(
+              opacity: progress,
+              child: Transform.translate(
+                offset: Offset(0, 10 * (1 - progress)),
+                child: child,
+              ),
+            );
+          },
+        ),
+        const SizedBox(height: 10),
+        _buildRegistrationActionButton(),
+        _buildProfileBackSlot(),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
@@ -2677,6 +3171,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       child: SwipeBackWrapper(
         child: Scaffold(
           backgroundColor: _bgBottom,
+          resizeToAvoidBottomInset: false,
           body: SafeArea(
             child: Listener(
               behavior: HitTestBehavior.translucent,
@@ -2733,147 +3228,123 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       ),
                     ),
                   ),
-                  ListView(
-                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.fromLTRB(18, 22, 18, 20),
-                        decoration: BoxDecoration(
-                          color: const Color(0xD0121A2B),
-                          borderRadius: BorderRadius.circular(30),
-                          border: Border.all(
-                              color: _accent.withValues(alpha: 0.12),
-                              width: 0.8),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.24),
-                              blurRadius: 28,
-                              offset: const Offset(0, 14),
-                            ),
-                          ],
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      final keyboardInset =
+                          MediaQuery.viewInsetsOf(context).bottom;
+                      final visibleHeight =
+                          (constraints.maxHeight - keyboardInset)
+                              .clamp(0.0, constraints.maxHeight)
+                              .toDouble();
+
+                      return SingleChildScrollView(
+                        keyboardDismissBehavior:
+                            ScrollViewKeyboardDismissBehavior.onDrag,
+                        padding: EdgeInsets.fromLTRB(
+                          20,
+                          16,
+                          20,
+                          keyboardInset + 16,
                         ),
-                        child: Column(
-                          children: [
-                            const Text(
-                              'הרשמה',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                color: _textPrimary,
-                                fontSize: 30,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            const SizedBox(height: 10),
-                            if (_currentStep == 0)
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  const Text(
-                                    'אם כבר יש לך משתמש - ',
-                                    style: TextStyle(
-                                        color: _textSecondary,
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w400),
-                                  ),
-                                  InkWell(
-                                    onTap: _exitToLogin,
-                                    child: const Text(
-                                      'התחבר',
-                                      style: TextStyle(
-                                        color: _accent,
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w700,
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(
+                            minHeight: (visibleHeight - 32)
+                                .clamp(0.0, double.infinity)
+                                .toDouble(),
+                          ),
+                          child: Center(
+                            child: ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 460),
+                              child: AnimatedSize(
+                                duration: const Duration(milliseconds: 240),
+                                curve: Curves.easeOutCubic,
+                                alignment: Alignment.topCenter,
+                                clipBehavior: Clip.none,
+                                child: Container(
+                                  width: double.infinity,
+                                  padding:
+                                      const EdgeInsets.fromLTRB(18, 22, 18, 20),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xD0121A2B),
+                                    borderRadius: BorderRadius.circular(30),
+                                    border: Border.all(
+                                        color: _accent.withValues(alpha: 0.12),
+                                        width: 0.8),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black
+                                            .withValues(alpha: 0.24),
+                                        blurRadius: 28,
+                                        offset: const Offset(0, 14),
                                       ),
-                                    ),
+                                    ],
                                   ),
-                                ],
-                              ),
-                            const SizedBox(height: 14),
-                            _buildStepHeader(),
-                            if (_isRestoringDraft)
-                              const Padding(
-                                padding: EdgeInsets.symmetric(vertical: 40),
-                                child: Center(
-                                  child: SizedBox(
-                                    width: 28,
-                                    height: 28,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2.2,
-                                      valueColor: AlwaysStoppedAnimation<Color>(
-                                          _accent),
-                                    ),
-                                  ),
-                                ),
-                              )
-                            else ...[
-                              if (_currentStep == 0)
-                                _buildDetailsStep()
-                              else
-                                _buildProfileStep(),
-                              const SizedBox(height: 8),
-                              SizedBox(
-                                width: double.infinity,
-                                child: ElevatedButton(
-                                  onPressed: _isRegistering
-                                      ? null
-                                      : (_currentStep == 0
-                                          ? _continueFromDetailsStep
-                                          : (_profileStage < 3
-                                              ? _continueProfileStage
-                                              : _onRegisterPressed)),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: _primary,
-                                    foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(
-                                        vertical: 16),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(20),
-                                    ),
-                                    elevation: 0,
-                                  ),
-                                  child: _isRegistering
-                                      ? const SizedBox(
-                                          width: 20,
-                                          height: 20,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                            valueColor:
-                                                AlwaysStoppedAnimation<Color>(
-                                                    Colors.white),
-                                          ),
-                                        )
-                                      : Text(
-                                          _currentStep == 0
-                                              ? 'המשך'
-                                              : (_profileStage < 3
-                                                  ? 'המשך'
-                                                  : 'צור חשבון'),
-                                          style: const TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 16,
-                                          ),
+                                  child: _currentStep == 1
+                                      ? _buildProfileCardBody()
+                                      : Column(
+                                          children: [
+                                            _buildStageHeading(),
+                                            const SizedBox(height: 10),
+                                            Row(
+                                              mainAxisAlignment:
+                                                  MainAxisAlignment.center,
+                                              children: [
+                                                const Text(
+                                                  'אם כבר יש לך משתמש - ',
+                                                  style: TextStyle(
+                                                      color: _textSecondary,
+                                                      fontSize: 14,
+                                                      fontWeight:
+                                                          FontWeight.w400),
+                                                ),
+                                                InkWell(
+                                                  onTap: _exitToLogin,
+                                                  child: const Text(
+                                                    'התחבר',
+                                                    style: TextStyle(
+                                                      color: _accent,
+                                                      fontSize: 13,
+                                                      fontWeight:
+                                                          FontWeight.w700,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 14),
+                                            _buildStepHeader(),
+                                            if (_isRestoringDraft)
+                                              const Padding(
+                                                padding: EdgeInsets.symmetric(
+                                                    vertical: 40),
+                                                child: Center(
+                                                  child: SizedBox(
+                                                    width: 28,
+                                                    height: 28,
+                                                    child:
+                                                        CircularProgressIndicator(
+                                                      strokeWidth: 2.2,
+                                                      valueColor:
+                                                          AlwaysStoppedAnimation<
+                                                              Color>(_accent),
+                                                    ),
+                                                  ),
+                                                ),
+                                              )
+                                            else ...[
+                                              _buildDetailsStep(),
+                                              const SizedBox(height: 8),
+                                              _buildRegistrationActionButton(),
+                                            ],
+                                          ],
                                         ),
                                 ),
                               ),
-                              if (_currentStep == 1 && _profileStage > 0)
-                                TextButton(
-                                  onPressed: _isRegistering
-                                      ? null
-                                      : () {
-                                          setState(() {
-                                            _profileStage -= 1;
-                                          });
-                                        },
-                                  child: const Text(
-                                    'חזרה לשלב הקודם',
-                                    style: TextStyle(color: _textSecondary),
-                                  ),
-                                ),
-                            ],
-                          ],
+                            ),
+                          ),
                         ),
-                      ),
-                    ],
+                      );
+                    },
                   ),
                   Positioned(
                     top: 2,

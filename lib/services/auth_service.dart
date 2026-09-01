@@ -142,7 +142,10 @@ class AuthService {
           payload,
           SetOptions(merge: true),
         );
-    if (normalizedPhone.isNotEmpty) {
+    final hasPasswordProvider = currentUser.providerData.any(
+      (provider) => provider.providerId == 'password',
+    );
+    if (normalizedPhone.isNotEmpty && hasPasswordProvider) {
       await registerPhoneNumber(normalizedPhone, currentUser.uid);
     }
   }
@@ -376,22 +379,22 @@ class AuthService {
     final trimmed = input.trim();
     final isEmail = RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(trimmed);
     if (isEmail) {
-      debugPrint('[AuthService][resolveSignInEmail] input="$trimmed" is an email, using as-is');
+      debugPrint(
+          '[AuthService][resolveSignInEmail] input="$trimmed" is an email, using as-is');
       return trimmed;
     }
 
     final normalizedPhone = normalizePhoneNumber(trimmed);
     final syntheticEmail = phoneAuthEmail(trimmed);
     if (syntheticEmail.isEmpty) {
-      debugPrint('[AuthService][resolveSignInEmail] input="$trimmed" produced empty synthetic email');
+      debugPrint(
+          '[AuthService][resolveSignInEmail] input="$trimmed" produced empty synthetic email');
       return syntheticEmail;
     }
 
     try {
-      final doc = await _db
-          .collection('registered_phones')
-          .doc(normalizedPhone)
-          .get();
+      final doc =
+          await _db.collection('registered_phones').doc(normalizedPhone).get();
       final storedEmail =
           _normalizeEmail(doc.data()?['authEmail'] as String? ?? '');
       debugPrint(
@@ -402,10 +405,12 @@ class AuthService {
         return storedEmail;
       }
     } catch (e) {
-      debugPrint('[AuthService][resolveSignInEmail] registered_phones lookup failed: $e');
+      debugPrint(
+          '[AuthService][resolveSignInEmail] registered_phones lookup failed: $e');
     }
 
-    debugPrint('[AuthService][resolveSignInEmail] falling back to synthetic email "$syntheticEmail"');
+    debugPrint(
+        '[AuthService][resolveSignInEmail] falling back to synthetic email "$syntheticEmail"');
     return syntheticEmail;
   }
 
@@ -461,12 +466,52 @@ class AuthService {
       if (snapshot.docs.isNotEmpty) {
         final data = snapshot.docs.first.data();
         if (data['isDeleted'] != true) {
-          return true;
+          final step = OnboardingStep.fromFirestore(
+            data[onboardingStepField] as String?,
+          );
+          return step == OnboardingStep.pendingProfile ||
+              step == OnboardingStep.active ||
+              step == OnboardingStep.expired;
         }
       }
     } catch (_) {}
 
     return false;
+  }
+
+  Future<void> discardTemporaryPhoneUser() async {
+    final user = _auth.currentUser;
+    if (user == null) return;
+
+    final hasPasswordProvider = user.providerData.any(
+      (provider) => provider.providerId == 'password',
+    );
+    if (hasPasswordProvider) return;
+
+    final uid = user.uid;
+    final phone = normalizePhoneNumber(user.phoneNumber ?? '');
+    try {
+      if (phone.isNotEmpty) {
+        final phoneRef = _db.collection('registered_phones').doc(phone);
+        final phoneSnapshot = await phoneRef.get();
+        if ((phoneSnapshot.data()?['uid'] as String? ?? '') == uid) {
+          await phoneRef.delete();
+        }
+      }
+      await _db.collection('users_public').doc(uid).delete();
+      await _db.collection('users').doc(uid).delete();
+    } catch (error) {
+      debugPrint('[AuthService] temporary phone user cleanup error: $error');
+    }
+
+    try {
+      await user.delete();
+    } on FirebaseAuthException catch (error) {
+      debugPrint(
+        '[AuthService] temporary phone auth deletion failed: ${error.code}',
+      );
+      await _auth.signOut();
+    }
   }
 
   void logAuthFailure(String source, Object error, [StackTrace? stackTrace]) {
@@ -1149,7 +1194,8 @@ class AuthService {
       },
       SetOptions(merge: true),
     );
-    await registerPhoneNumber(normalizedPhone, user.uid, authEmail: internalEmail);
+    await registerPhoneNumber(normalizedPhone, user.uid,
+        authEmail: internalEmail);
     return user;
   }
 
@@ -1261,12 +1307,12 @@ class AuthService {
     try {
       await user.reload();
     } on FirebaseAuthException catch (e) {
-      debugPrint('[AuthService][confirmBackupEmail] reload failed: code=${e.code}');
+      debugPrint(
+          '[AuthService][confirmBackupEmail] reload failed: code=${e.code}');
       if (e.code == 'user-token-expired' ||
           e.code == 'user-not-found' ||
           e.code == 'user-mismatch') {
-        final silentUser =
-            await _trySilentReauthAfterEmailChange(pendingEmail);
+        final silentUser = await _trySilentReauthAfterEmailChange(pendingEmail);
         if (silentUser == null) {
           return BackupEmailConfirmationResult.requiresRelogin;
         }
@@ -1292,12 +1338,12 @@ class AuthService {
     try {
       await refreshedUser.getIdToken(true);
     } on FirebaseAuthException catch (e) {
-      debugPrint('[AuthService][confirmBackupEmail] forced token refresh failed: code=${e.code}');
+      debugPrint(
+          '[AuthService][confirmBackupEmail] forced token refresh failed: code=${e.code}');
       if (e.code == 'user-token-expired' ||
           e.code == 'user-not-found' ||
           e.code == 'user-mismatch') {
-        final silentUser =
-            await _trySilentReauthAfterEmailChange(pendingEmail);
+        final silentUser = await _trySilentReauthAfterEmailChange(pendingEmail);
         if (silentUser == null) {
           return BackupEmailConfirmationResult.requiresRelogin;
         }
@@ -1334,7 +1380,8 @@ class AuthService {
       );
       return result.user;
     } catch (e) {
-      debugPrint('[AuthService][_trySilentReauthAfterEmailChange] silent sign-in failed: $e');
+      debugPrint(
+          '[AuthService][_trySilentReauthAfterEmailChange] silent sign-in failed: $e');
       return null;
     }
   }
@@ -1344,7 +1391,8 @@ class AuthService {
     required String pendingEmail,
   }) async {
     final email = _normalizeEmail(refreshedUser.email ?? '');
-    final isRealEmail = email.isNotEmpty && !email.endsWith('@$phoneAuthDomain');
+    final isRealEmail =
+        email.isNotEmpty && !email.endsWith('@$phoneAuthDomain');
     // Require emailVerified (set only once the link is confirmed) and, when
     // known, that the change matches the address we actually sent it to —
     // otherwise a stale/leftover Auth email must not be treated as success.
@@ -1362,7 +1410,8 @@ class AuthService {
           await _db.collection('users').doc(refreshedUser.uid).get();
       phone = normalizePhoneNumber(snapshot.data()?['phone'] as String? ?? '');
     } catch (e) {
-      debugPrint('[AuthService][_finalizeBackupEmailConfirmation] phone lookup failed: $e');
+      debugPrint(
+          '[AuthService][_finalizeBackupEmailConfirmation] phone lookup failed: $e');
     }
 
     await _db.collection('users').doc(refreshedUser.uid).set(
@@ -2357,7 +2406,8 @@ class AuthService {
         }
         currentAuthEmail ??= data['email'] as String?;
       } catch (_) {}
-      await registerPhoneNumber(normalizedPhone, uid, authEmail: currentAuthEmail);
+      await registerPhoneNumber(normalizedPhone, uid,
+          authEmail: currentAuthEmail);
     }
 
     await _db
