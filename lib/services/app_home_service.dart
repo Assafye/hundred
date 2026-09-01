@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
@@ -139,6 +140,25 @@ class _MeetNowDistanceRank {
 
   final double displayDistanceMeters;
   final int sortOrder;
+}
+
+// Approximate client-side distance (meters) between two geo points, used as
+// a fallback ranking when the rankMeetNowPosts Cloud Function (App Check
+// gated) is unavailable, so posts are never hidden solely because that
+// backend call failed.
+double _approximateDistanceMeters(GeoPoint a, GeoPoint b) {
+  const double earthRadiusMeters = 6371000.0;
+  final radians = math.pi / 180;
+  final latDelta = (b.latitude - a.latitude) * radians;
+  final lngDelta = (b.longitude - a.longitude) * radians;
+  final sinLat = math.sin(latDelta / 2);
+  final sinLng = math.sin(lngDelta / 2);
+  final h = sinLat * sinLat +
+      math.cos(a.latitude * radians) *
+          math.cos(b.latitude * radians) *
+          sinLng *
+          sinLng;
+  return earthRadiusMeters * 2 * math.atan2(math.sqrt(h), math.sqrt(1 - h));
 }
 
 class HomeGroupMemberEntry {
@@ -884,7 +904,6 @@ class AppHomeService {
       var emitQueued = false;
       var blockedUserIds = <String>{};
       var exactDistanceMetersByPostId = <String, _MeetNowDistanceRank>{};
-      var hasExactDistanceRanking = false;
       var isExactDistanceRefreshInFlight = false;
       DateTime? lastExactDistanceRefreshAt;
 
@@ -951,18 +970,34 @@ class AppHomeService {
 
         final userData = currentUserSnapshot!.data() ?? <String, dynamic>{};
         final userLocation = _userLocationFromData(userData);
-        if (!hasExactDistanceRanking) {
-          return;
-        }
         final docs = nearbyPostDocs();
         final entries = <MeetNowPostEntry>[];
         final buildFutures = docs.map((doc) async {
           try {
-            final distanceRank = exactDistanceMetersByPostId[doc.id];
-            if (!hasExactDistanceRanking || distanceRank == null) {
-              return null;
-            }
             final data = doc.data();
+            // Prefer the exact server-ranked distance (rankMeetNowPosts), but
+            // never hide a post just because that App Check-gated call
+            // failed/hasn't completed yet — fall back to an approximate
+            // client-side distance computed from the stored discovery geo.
+            var distanceRank = exactDistanceMetersByPostId[doc.id];
+            if (distanceRank == null) {
+              final postGeo = data['discoveryGeo'];
+              if (currentUserGeo != null && postGeo is GeoPoint) {
+                final meters =
+                    _approximateDistanceMeters(currentUserGeo!, postGeo);
+                distanceRank = _MeetNowDistanceRank(
+                  displayDistanceMeters: meters,
+                  sortOrder: meters.round(),
+                );
+              } else {
+                // No exact ranking and no geo to approximate from; still show
+                // the post rather than hiding it, just without a distance.
+                distanceRank = const _MeetNowDistanceRank(
+                  displayDistanceMeters: -1,
+                  sortOrder: 1 << 30,
+                );
+              }
+            }
             final status =
                 (data['status'] as String? ?? 'active').trim().toLowerCase();
             if (status != 'active') {
@@ -1165,7 +1200,6 @@ class AppHomeService {
             candidateLimit: effectiveCandidateLimit,
           );
           exactDistanceMetersByPostId = distances;
-          hasExactDistanceRanking = true;
           lastExactDistanceRefreshAt = DateTime.now();
           await scheduleEmit();
         } catch (error) {

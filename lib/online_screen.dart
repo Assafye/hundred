@@ -20,6 +20,7 @@ import 'services/block_user_service.dart';
 import 'services/chat_service.dart';
 import 'services/group_service.dart';
 import 'services/keyboard_dismiss_controller.dart';
+import 'services/location_service.dart';
 import 'services/report_service.dart';
 import 'services/weekly_challenge_service.dart';
 import 'stars_screen.dart' show StarsScreen;
@@ -50,6 +51,7 @@ class _OnlineScreenState extends State<OnlineScreen>
       Duration(milliseconds: 320);
 
   final AppHomeService _homeService = AppHomeService();
+  final LocationService _locationService = LocationService();
   final GroupService _groupService = GroupService();
   final ChatService _chatService = ChatService();
   final BlockUserService _blockUserService = BlockUserService();
@@ -1934,6 +1936,12 @@ class _OnlineScreenState extends State<OnlineScreen>
       return;
     }
 
+    // Kick off a fresh location fix now (best-effort) so it's ready by the
+    // time the user submits — otherwise createMeetNowPost can silently omit
+    // the geohash if the stored location doc hasn't been populated yet,
+    // making the post invisible to every other nearby-geohash query.
+    unawaited(_locationService.syncCurrentLocation(force: true));
+
     final canPublish = await _homeService.canPublishMeetNowPost();
     if (!mounted) {
       return;
@@ -2252,6 +2260,15 @@ class _OnlineScreenState extends State<OnlineScreen>
                             }
                             FocusScope.of(sheetContext).unfocus();
                             try {
+                              // Guarantee a fresh, persisted location before
+                              // creating the post so it always gets a geohash.
+                              try {
+                                await _locationService.syncCurrentLocation(
+                                    force: true);
+                              } catch (_) {
+                                // Best-effort; createMeetNowPost still works
+                                // with whatever location doc already exists.
+                              }
                               await _homeService.createMeetNowPost(
                                 title: title,
                                 details: _meetDetailsController.text.trim(),
@@ -5991,6 +6008,31 @@ class _MeetNowPostsViewerState extends State<_MeetNowPostsViewer> {
                             ),
                           ),
                         ),
+                        Positioned(
+                          left: 16,
+                          bottom: 16,
+                          child: GestureDetector(
+                            onTap: () async {
+                              final reported =
+                                  await widget.onReportPressed(entry);
+                              if (reported && mounted) {
+                                Navigator.of(context).pop();
+                              }
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: const BoxDecoration(
+                                color: Colors.black38,
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                Icons.flag_rounded,
+                                color: Colors.redAccent,
+                                size: 22,
+                              ),
+                            ),
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -6264,27 +6306,6 @@ class _MeetNowPostsViewerState extends State<_MeetNowPostsViewer> {
                                           ),
                                         ),
                                       ],
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                SizedBox(
-                                  width: double.infinity,
-                                  child: TextButton.icon(
-                                    onPressed: () async {
-                                      final reported =
-                                          await widget.onReportPressed(entry);
-                                      if (reported && mounted) {
-                                        Navigator.of(context).pop();
-                                      }
-                                    },
-                                    icon: const Icon(Icons.flag_outlined),
-                                    label: const Text('דווח'),
-                                    style: TextButton.styleFrom(
-                                      foregroundColor: Colors.redAccent,
-                                      padding: const EdgeInsets.symmetric(
-                                        vertical: 10,
-                                      ),
                                     ),
                                   ),
                                 ),

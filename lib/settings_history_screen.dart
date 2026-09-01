@@ -626,6 +626,70 @@ class _SettingsHistoryScreenState extends State<SettingsHistoryScreen>
                 ),
                 actions: [
                   TextButton(
+                    onPressed: () async {
+                      final shouldDelete = await showDialog<bool>(
+                            context: dialogContext,
+                            builder: (confirmContext) {
+                              return Directionality(
+                                textDirection: TextDirection.rtl,
+                                child: AlertDialog(
+                                  backgroundColor: const Color(0xFF1A2435),
+                                  title: const Text(
+                                    'מחיקת פופ',
+                                    style: TextStyle(color: Colors.white),
+                                  ),
+                                  content: const Text(
+                                    'הפופ יימחק לצמיתות ולא יוצג יותר לך ולמשתמשים אחרים. להמשיך?',
+                                    style: TextStyle(color: Colors.white70),
+                                  ),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () => Navigator.of(
+                                              confirmContext)
+                                          .pop(false),
+                                      child: const Text('ביטול'),
+                                    ),
+                                    ElevatedButton(
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: Colors.redAccent,
+                                      ),
+                                      onPressed: () => Navigator.of(
+                                              confirmContext)
+                                          .pop(true),
+                                      child: const Text('מחק'),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ) ??
+                          false;
+
+                      if (!shouldDelete) {
+                        return;
+                      }
+
+                      // Soft-delete: flips status away from 'active' so every
+                      // status=='active' query (this viewer's and everyone
+                      // else's) stops returning the post immediately.
+                      await _db.collection('meet_now_posts').doc(doc.id).set(
+                        {
+                          'status': 'deleted',
+                          'updatedAt': FieldValue.serverTimestamp(),
+                        },
+                        SetOptions(merge: true),
+                      );
+
+                      if (dialogContext.mounted) {
+                        Navigator.of(dialogContext).pop(false);
+                      }
+                    },
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.redAccent,
+                    ),
+                    child: const Text('מחק פופ'),
+                  ),
+                  TextButton(
                     onPressed: () => Navigator.of(dialogContext).pop(false),
                     child: const Text('ביטול'),
                   ),
