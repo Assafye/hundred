@@ -1,6 +1,7 @@
 const { initializeApp } = require('firebase-admin/app');
 const { FieldValue, getFirestore } = require('firebase-admin/firestore');
 const { HttpsError, onCall } = require('firebase-functions/v2/https');
+const { onDocumentCreated } = require('firebase-functions/v2/firestore');
 
 initializeApp();
 const db = getFirestore();
@@ -92,6 +93,278 @@ function displayDistanceMeters(distance) {
   if (distance < 90000) return 85000;
   return 100000;
 }
+
+function normalizeUidSet(raw) {
+  if (!Array.isArray(raw)) return new Set();
+  return new Set(
+    raw.map((v) => String(v ?? '').trim()).filter((v) => v.length > 0),
+  );
+}
+
+// Real-time counterpart to scripts/process-secure-actions.js for the
+// follow/unfollow/remove-follower/cancel-request action types: the client
+// cannot write another user's doc directly under strict Firestore rules, so
+// it enqueues an intent here and this trigger applies the target-side update
+// (followers/following arrays on both `users` and `users_public`, plus the
+// +50 follow score) the moment the intent is created.
+const FOLLOW_ACTION_TYPES = new Set([
+  'follow_user',
+  'unfollow_user',
+  'remove_follower',
+  'cancel_follow_request',
+]);
+
+async function processFollowUserAction(actorUid, payload) {
+  const targetUid = String(payload.targetUid ?? '').trim();
+  if (!targetUid || targetUid === actorUid) return;
+
+  const myUserRef = db.collection('users').doc(actorUid);
+  const targetUserRef = db.collection('users').doc(targetUid);
+  const myPublicRef = db.collection('users_public').doc(actorUid);
+  const targetPublicRef = db.collection('users_public').doc(targetUid);
+
+  await db.runTransaction(async (tx) => {
+    const [mySnap, targetSnap] = await Promise.all([
+      tx.get(myUserRef),
+      tx.get(targetUserRef),
+    ]);
+    if (!mySnap.exists || !targetSnap.exists) return;
+
+    const myData = mySnap.data() || {};
+    const targetData = targetSnap.data() || {};
+
+    const myFollowing = normalizeUidSet(myData.following);
+    const targetFollowers = normalizeUidSet(targetData.followers);
+    const targetRequests = normalizeUidSet(targetData.followRequests);
+    const targetFollowing = normalizeUidSet(targetData.following);
+    const currentTargetScore = Number(targetData.score ?? 0) || 0;
+
+    const isPrivate = Boolean(targetData.isPrivate ?? false);
+    if (isPrivate) {
+      const mySentRequests = normalizeUidSet(myData.sentFollowRequests);
+      mySentRequests.add(targetUid);
+      targetRequests.add(actorUid);
+      tx.set(myUserRef, { sentFollowRequests: Array.from(mySentRequests) }, { merge: true });
+      tx.set(targetUserRef, { followRequests: Array.from(targetRequests) }, { merge: true });
+      return;
+    }
+
+    myFollowing.add(targetUid);
+    targetFollowers.add(actorUid);
+
+    tx.set(myUserRef, {
+      following: Array.from(myFollowing),
+      followingCount: myFollowing.size,
+      sentFollowRequests: FieldValue.arrayRemove(targetUid),
+    }, { merge: true });
+
+    tx.set(targetUserRef, {
+      followers: Array.from(targetFollowers),
+      followersCount: targetFollowers.size,
+      followRequests: FieldValue.arrayRemove(actorUid),
+      score: currentTargetScore + 50,
+    }, { merge: true });
+
+    tx.set(myPublicRef, {
+      following: Array.from(myFollowing).sort(),
+      followingCount: myFollowing.size,
+      followers: Array.from(normalizeUidSet(myData.followers)).sort(),
+      followersCount: normalizeUidSet(myData.followers).size,
+    }, { merge: true });
+
+    tx.set(targetPublicRef, {
+      followers: Array.from(targetFollowers).sort(),
+      followersCount: targetFollowers.size,
+      following: Array.from(targetFollowing).sort(),
+      followingCount: targetFollowing.size,
+      score: currentTargetScore + 50,
+    }, { merge: true });
+  });
+}
+
+async function processUnfollowUserAction(actorUid, payload) {
+  const targetUid = String(payload.targetUid ?? '').trim();
+  if (!targetUid || targetUid === actorUid) return;
+
+  const myUserRef = db.collection('users').doc(actorUid);
+  const targetUserRef = db.collection('users').doc(targetUid);
+  const myPublicRef = db.collection('users_public').doc(actorUid);
+  const targetPublicRef = db.collection('users_public').doc(targetUid);
+
+  await db.runTransaction(async (tx) => {
+    const [mySnap, targetSnap] = await Promise.all([
+      tx.get(myUserRef),
+      tx.get(targetUserRef),
+    ]);
+    if (!mySnap.exists || !targetSnap.exists) return;
+
+    const myData = mySnap.data() || {};
+    const targetData = targetSnap.data() || {};
+
+    const myFollowing = normalizeUidSet(myData.following);
+    const mySentRequests = normalizeUidSet(myData.sentFollowRequests);
+    const targetFollowers = normalizeUidSet(targetData.followers);
+    const targetRequests = normalizeUidSet(targetData.followRequests);
+    const targetFollowing = normalizeUidSet(targetData.following);
+    const currentTargetScore = Number(targetData.score ?? 0) || 0;
+
+    myFollowing.delete(targetUid);
+    mySentRequests.delete(targetUid);
+    const wasFollowing = targetFollowers.delete(actorUid);
+    targetRequests.delete(actorUid);
+
+    // Mirror the +50 awarded on follow so repeated follow/unfollow cycles
+    // don't leave the target's score permanently inflated.
+    const nextTargetScore = wasFollowing
+      ? Math.max(0, currentTargetScore - 50)
+      : currentTargetScore;
+
+    tx.set(myUserRef, {
+      following: Array.from(myFollowing),
+      followingCount: myFollowing.size,
+      sentFollowRequests: Array.from(mySentRequests),
+    }, { merge: true });
+
+    tx.set(targetUserRef, {
+      followers: Array.from(targetFollowers),
+      followersCount: targetFollowers.size,
+      followRequests: Array.from(targetRequests),
+      score: nextTargetScore,
+    }, { merge: true });
+
+    tx.set(myPublicRef, {
+      following: Array.from(myFollowing).sort(),
+      followingCount: myFollowing.size,
+      followers: Array.from(normalizeUidSet(myData.followers)).sort(),
+      followersCount: normalizeUidSet(myData.followers).size,
+    }, { merge: true });
+
+    tx.set(targetPublicRef, {
+      followers: Array.from(targetFollowers).sort(),
+      followersCount: targetFollowers.size,
+      following: Array.from(targetFollowing).sort(),
+      followingCount: targetFollowing.size,
+      score: nextTargetScore,
+    }, { merge: true });
+  });
+}
+
+async function processRemoveFollowerAction(actorUid, payload) {
+  const followerUid = String(payload.followerUid ?? '').trim();
+  if (!followerUid || followerUid === actorUid) return;
+
+  const myUserRef = db.collection('users').doc(actorUid);
+  const followerUserRef = db.collection('users').doc(followerUid);
+  const myPublicRef = db.collection('users_public').doc(actorUid);
+  const followerPublicRef = db.collection('users_public').doc(followerUid);
+
+  await db.runTransaction(async (tx) => {
+    const [mySnap, followerSnap] = await Promise.all([
+      tx.get(myUserRef),
+      tx.get(followerUserRef),
+    ]);
+    if (!mySnap.exists || !followerSnap.exists) return;
+
+    const myData = mySnap.data() || {};
+    const followerData = followerSnap.data() || {};
+
+    const myFollowers = normalizeUidSet(myData.followers);
+    const myFollowing = normalizeUidSet(myData.following);
+    const followerFollowing = normalizeUidSet(followerData.following);
+    const followerFollowers = normalizeUidSet(followerData.followers);
+
+    myFollowers.delete(followerUid);
+    followerFollowing.delete(actorUid);
+
+    tx.set(myUserRef, {
+      followers: Array.from(myFollowers),
+      followersCount: myFollowers.size,
+    }, { merge: true });
+
+    tx.set(followerUserRef, {
+      following: Array.from(followerFollowing),
+      followingCount: followerFollowing.size,
+    }, { merge: true });
+
+    tx.set(myPublicRef, {
+      followers: Array.from(myFollowers).sort(),
+      followersCount: myFollowers.size,
+      following: Array.from(myFollowing).sort(),
+      followingCount: myFollowing.size,
+    }, { merge: true });
+
+    tx.set(followerPublicRef, {
+      followers: Array.from(followerFollowers).sort(),
+      followersCount: followerFollowers.size,
+      following: Array.from(followerFollowing).sort(),
+      followingCount: followerFollowing.size,
+    }, { merge: true });
+  });
+}
+
+async function processCancelFollowRequestAction(actorUid, payload) {
+  const targetUid = String(payload.targetUid ?? '').trim();
+  if (!targetUid || targetUid === actorUid) return;
+
+  const myRef = db.collection('users').doc(actorUid);
+  const targetRef = db.collection('users').doc(targetUid);
+
+  await Promise.all([
+    myRef.set({ sentFollowRequests: FieldValue.arrayRemove(targetUid) }, { merge: true }),
+    targetRef.set({ followRequests: FieldValue.arrayRemove(actorUid) }, { merge: true }),
+  ]);
+}
+
+exports.processFollowSecureAction = onDocumentCreated(
+  { document: 'users/{uid}/secure_actions/{actionId}', region: REGION },
+  async (event) => {
+    const snapshot = event.data;
+    if (!snapshot) return;
+
+    const data = snapshot.data() || {};
+    const type = String(data.type ?? '').trim();
+    if (!FOLLOW_ACTION_TYPES.has(type)) return;
+
+    const actorUid = String(data.actorUid ?? '').trim();
+    const payload = data.payload && typeof data.payload === 'object' ? data.payload : {};
+    if (!actorUid) return;
+
+    try {
+      switch (type) {
+        case 'follow_user':
+          await processFollowUserAction(actorUid, payload);
+          break;
+        case 'unfollow_user':
+          await processUnfollowUserAction(actorUid, payload);
+          break;
+        case 'remove_follower':
+          await processRemoveFollowerAction(actorUid, payload);
+          break;
+        case 'cancel_follow_request':
+          await processCancelFollowRequestAction(actorUid, payload);
+          break;
+        default:
+          return;
+      }
+
+      await snapshot.ref.set({
+        status: 'done',
+        processedAt: FieldValue.serverTimestamp(),
+        attempts: FieldValue.increment(1),
+        lastError: '',
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+    } catch (error) {
+      await snapshot.ref.set({
+        status: 'failed',
+        attempts: FieldValue.increment(1),
+        lastError: String(error?.message ?? error ?? 'unknown-error'),
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+      throw error;
+    }
+  },
+);
 
 exports.rankMeetNowPosts = onCall({ region: REGION, enforceAppCheck: true }, async (request) => {
   const viewerUid = request.auth?.uid;

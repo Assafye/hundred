@@ -1514,9 +1514,17 @@ class PostService {
             },
             onError: (Object error, StackTrace stackTrace) {
               if (isRecoverableStreamError(error)) {
+                if (kDebugMode) {
+                  final code = error is FirebaseException ? error.code : error.runtimeType;
+                  debugPrint(
+                      '[FEED_QUERY] streamProfile($uid) recoverable error code=$code, treating author profile as unknown: $error');
+                }
                 profilesByUid[uid] = null;
                 emitCurrentFeed();
                 return;
+              }
+              if (kDebugMode) {
+                debugPrint('[FEED_QUERY] streamProfile($uid) unrecoverable error: $error');
               }
               if (!controller.isClosed) {
                 controller.addError(error, stackTrace);
@@ -1535,17 +1543,29 @@ class PostService {
         ).listen(
           (snapshot) {
             currentPosts = snapshot.docs.toList(growable: false);
+            if (kDebugMode) {
+              debugPrint(
+                  '[FEED_QUERY] watchPublishedPosts emitted ${currentPosts.length} raw docs | category=$category | subCategory=$subCategory');
+            }
             syncProfileSubscriptions();
             emitCurrentFeed();
           },
           onError: (Object error, StackTrace stackTrace) {
             if (isRecoverableStreamError(error)) {
+              if (kDebugMode) {
+                final code = error is FirebaseException ? error.code : error.runtimeType;
+                debugPrint(
+                    '[FEED_QUERY] watchPublishedPosts recoverable error code=$code, falling back to lastGoodFeed (${lastGoodFeed.length} posts): $error');
+              }
               currentPosts =
                   const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
               if (!controller.isClosed) {
                 controller.add(lastGoodFeed);
               }
               return;
+            }
+            if (kDebugMode) {
+              debugPrint('[FEED_QUERY] watchPublishedPosts unrecoverable error: $error');
             }
             if (!controller.isClosed) {
               controller.addError(error, stackTrace);

@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:ui';
+import 'dart:ui' as ui;
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:video_player/video_player.dart';
 
@@ -29,9 +31,10 @@ class CreatePostScreen extends StatefulWidget {
 }
 
 class _CreatePostScreenState extends State<CreatePostScreen>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   static const int _maxMediaItems = 10;
   static const int _maxVideoRecordingSeconds = 60;
+  static const double _lensFlipMaxBlurSigma = 12;
 
   CameraController? _cameraController;
   Future<void>? _initializeControllerFuture;
@@ -47,6 +50,19 @@ class _CreatePostScreenState extends State<CreatePostScreen>
   double _whiteScreenFlashAlpha = 0;
   String? _cameraError;
   Timer? _recordingLimitTimer;
+  final GlobalKey _cameraPreviewBoundaryKey = GlobalKey();
+  ui.Image? _frozenPreviewImage;
+  // Drives the instant blur+flip transition while the camera hardware swaps
+  // in the background: 0 = live preview, 1 = fully hidden/blurred.
+  late final AnimationController _lensFlipController = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 160),
+  );
+  late final Animation<double> _lensFlipCurve = CurvedAnimation(
+    parent: _lensFlipController,
+    curve: Curves.easeInOut,
+    reverseCurve: Curves.easeInOut,
+  );
 
   final ImagePicker _imagePicker = ImagePicker();
   final List<PostUploadMediaItem> _selectedMediaItems = <PostUploadMediaItem>[];
@@ -70,6 +86,14 @@ class _CreatePostScreenState extends State<CreatePostScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _logCamera('initState -> adding lifecycle observer');
+    WidgetsBinding.instance.addPostFrameCallback((_) => _startCameraOnOpen());
+  }
+
+  Future<void> _startCameraOnOpen() async {
+    if (!mounted) return;
+    if (!await CameraPermissionService.ensureCameraAccess(context)) return;
+    if (!mounted) return;
+    await _initializeCamera();
   }
 
   @override
@@ -82,6 +106,8 @@ class _CreatePostScreenState extends State<CreatePostScreen>
     final controller = _cameraController;
     _detachCameraState();
     controller?.dispose();
+    _lensFlipController.dispose();
+    _frozenPreviewImage?.dispose();
     super.dispose();
   }
 
@@ -107,7 +133,10 @@ class _CreatePostScreenState extends State<CreatePostScreen>
       return;
     }
 
-    if (state == AppLifecycleState.resumed && !hasActiveController) return;
+    if (state == AppLifecycleState.resumed && !hasActiveController) {
+      _logCamera('lifecycle -> resumed without active controller, reinitializing camera');
+      unawaited(_startCameraOnOpen());
+    }
   }
 
   void _detachCameraState({bool resetReadyState = true}) {
@@ -323,6 +352,24 @@ class _CreatePostScreenState extends State<CreatePostScreen>
     }
   }
 
+  // Snapshot the live preview as a raw GPU texture (no PNG encode/decode, so
+  // it stays fast enough to feel instant) to freeze on screen while the
+  // camera hardware is released and reacquired for the new lens (no black
+  // flash, and no two CameraController instances holding the camera at the
+  // same time, which is what caused the switch to hang).
+  Future<ui.Image?> _captureFrozenPreviewFrame() async {
+    try {
+      final renderObject =
+          _cameraPreviewBoundaryKey.currentContext?.findRenderObject();
+      if (renderObject is! RenderRepaintBoundary) return null;
+      final devicePixelRatio = MediaQuery.of(context).devicePixelRatio;
+      return await renderObject.toImage(pixelRatio: devicePixelRatio);
+    } catch (_) {
+      // Ignore snapshot failures; the switch still works, just without the freeze frame.
+      return null;
+    }
+  }
+
   Future<void> _toggleCameraLens() async {
     if (_isCameraOperationInProgress) {
       return;
@@ -334,19 +381,34 @@ class _CreatePostScreenState extends State<CreatePostScreen>
 
     // Lock the entire lens-switch sequence against re-entry.
     _isCameraOperationInProgress = true;
+
+    // Immediate feedback: start the hide animation on the same frame as the
+    // tap, before any async work, so there is zero perceived delay.
     setState(() {
       _isSwitchingCamera = true;
       _isTransitioning = true;
       _cameraError = null;
     });
+    final hideAnimation = _lensFlipController.forward(from: 0);
 
     final currentController = _cameraController;
-    final camerasFuture = availableCameras();
+    final capturedFrame = await _captureFrozenPreviewFrame();
+    if (mounted && capturedFrame != null) {
+      final previousFrame = _frozenPreviewImage;
+      setState(() {
+        _frozenPreviewImage = capturedFrame;
+      });
+      previousFrame?.dispose();
+    }
+
+    // Wait for the hide animation to finish covering the screen before
+    // touching the camera hardware, so the swap itself is never visible.
+    await hideAnimation;
 
     try {
-      final cameras = await camerasFuture;
+      final cameras = await availableCameras();
       if (cameras.isEmpty) {
-        return;
+        throw StateError('no cameras available');
       }
 
       // Resolve the opposite lens before updating the active state.
@@ -362,7 +424,9 @@ class _CreatePostScreenState extends State<CreatePostScreen>
       final resolvedIsFront =
           cameraDescription.lensDirection == CameraLensDirection.front;
 
-      // Remove the old preview from state before disposing the controller.
+      // Release the current camera hardware before requesting the new lens;
+      // only one CameraController may hold the device at a time. The frozen
+      // texture (fully hidden behind the blur/scale transform) covers the gap.
       if (mounted) {
         setState(() {
           if (identical(_cameraController, currentController)) {
@@ -370,16 +434,12 @@ class _CreatePostScreenState extends State<CreatePostScreen>
           }
           _initializeControllerFuture = null;
           _isCameraReady = false;
-          _cameraError = null;
         });
       } else if (identical(_cameraController, currentController)) {
         _cameraController = null;
         _initializeControllerFuture = null;
         _isCameraReady = false;
-        _cameraError = null;
       }
-
-      // Dispose the current controller before initializing the next one.
       await currentController?.dispose();
 
       final newController = CameraController(
@@ -398,16 +458,30 @@ class _CreatePostScreenState extends State<CreatePostScreen>
           return;
         }
 
-        // Commit the new controller only after it is fully ready for preview.
         setState(() {
           _isFrontCamera = resolvedIsFront;
           _cameraController = newController;
           _initializeControllerFuture = null;
           _isCameraReady = true;
           _cameraError = null;
-          _isSwitchingCamera = false;
-          _isTransitioning = false;
         });
+
+        // Drop the frozen frame now so the reveal animates in the new live
+        // preview instead of unblurring the previous camera's last frame.
+        final frameToDispose = _frozenPreviewImage;
+        setState(() {
+          _frozenPreviewImage = null;
+        });
+        frameToDispose?.dispose();
+
+        // Reveal the new live preview with the same smooth blur/flip motion.
+        await _lensFlipController.reverse();
+        if (mounted) {
+          setState(() {
+            _isSwitchingCamera = false;
+            _isTransitioning = false;
+          });
+        }
       } catch (_) {
         await newController.dispose();
         rethrow;
@@ -416,13 +490,17 @@ class _CreatePostScreenState extends State<CreatePostScreen>
       if (kDebugMode) {
         debugPrint('Toggle lens failed: $error');
       }
+      await _lensFlipController.reverse();
       if (mounted) {
+        final frameToDispose = _frozenPreviewImage;
         setState(() {
           _cameraError = 'שגיאה בהחלפת המצלמה';
           _isSwitchingCamera = false;
           _isTransitioning = false;
           _isCameraReady = false;
+          _frozenPreviewImage = null;
         });
+        frameToDispose?.dispose();
       }
     } finally {
       _isCameraOperationInProgress = false;
@@ -945,63 +1023,98 @@ class _CreatePostScreenState extends State<CreatePostScreen>
 
   Widget _buildCameraPreview() {
     final isLight = Theme.of(context).brightness == Brightness.light;
-    final controller = _cameraController;
-    final canRenderPreview =
-        controller != null &&
-        controller.value.isInitialized;
 
-    if (!canRenderPreview) {
-      if (_cameraError != null &&
-          !_isCameraOperationInProgress &&
-          !_isSwitchingCamera &&
-          !_isTransitioning) {
-        return Center(
-          child: Text(
-            _cameraError!,
-            style: TextStyle(
-              color: isLight ? Colors.black54 : Colors.white70,
-              fontSize: 16,
-            ),
-            textAlign: TextAlign.center,
-          ),
-        );
-      }
-
-      return const SizedBox.expand(
-        child: ColoredBox(color: Colors.black),
-      );
-    }
-
-    final previewSize = controller.value.previewSize;
-    if (previewSize == null || previewSize.width <= 0 || previewSize.height <= 0) {
-      // Avoid buildPreview on unstable preview dimensions.
-      return CameraPreview(controller);
-    }
-
-    return ClipRect(
-      child: SizedBox.expand(
+    Widget content;
+    // While the lens is switching, show the frozen last frame instead of the
+    // live preview so no controller renders during the hardware handoff.
+    final frozenFrame = _frozenPreviewImage;
+    if (frozenFrame != null) {
+      content = SizedBox.expand(
         child: FittedBox(
           fit: BoxFit.cover,
           child: SizedBox(
-            width: previewSize.height,
-            height: previewSize.width,
-            child: CameraPreview(controller),
+            width: frozenFrame.width.toDouble(),
+            height: frozenFrame.height.toDouble(),
+            child: RawImage(image: frozenFrame),
           ),
         ),
-      ),
-    );
-  }
+      );
+    } else {
+      final controller = _cameraController;
+      final canRenderPreview =
+          controller != null &&
+          controller.value.isInitialized;
 
-  Widget _buildCameraTransitionOverlay() {
-    return AnimatedOpacity(
-      duration: const Duration(milliseconds: 90),
-      opacity: _isTransitioning ? 1 : 0,
-      child: ClipRect(
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 3, sigmaY: 3),
-          child: const SizedBox.expand(),
-        ),
-      ),
+      if (!canRenderPreview) {
+        if (_cameraError != null &&
+            !_isCameraOperationInProgress &&
+            !_isSwitchingCamera &&
+            !_isTransitioning) {
+          content = Center(
+            child: Text(
+              _cameraError!,
+              style: TextStyle(
+                color: isLight ? Colors.black54 : Colors.white70,
+                fontSize: 16,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          );
+        } else {
+          content = const SizedBox.expand(
+            child: ColoredBox(color: Colors.black),
+          );
+        }
+      } else {
+        final previewSize = controller.value.previewSize;
+        if (previewSize == null || previewSize.width <= 0 || previewSize.height <= 0) {
+          // Avoid buildPreview on unstable preview dimensions.
+          content = RepaintBoundary(
+            key: _cameraPreviewBoundaryKey,
+            child: CameraPreview(controller),
+          );
+        } else {
+          content = RepaintBoundary(
+            key: _cameraPreviewBoundaryKey,
+            child: ClipRect(
+              child: SizedBox.expand(
+                child: FittedBox(
+                  fit: BoxFit.cover,
+                  child: SizedBox(
+                    width: previewSize.height,
+                    height: previewSize.width,
+                    child: CameraPreview(controller),
+                  ),
+                ),
+              ),
+            ),
+          );
+        }
+      }
+    }
+
+    // Drive the instant blur+flip transition off the same animation that
+    // starts synchronously on tap, so the hide/reveal always feels immediate.
+    return AnimatedBuilder(
+      animation: _lensFlipCurve,
+      child: content,
+      builder: (context, child) {
+        final t = _lensFlipCurve.value;
+        if (t == 0) {
+          return child!;
+        }
+        return ImageFiltered(
+          imageFilter: ImageFilter.blur(
+            sigmaX: t * _lensFlipMaxBlurSigma,
+            sigmaY: t * _lensFlipMaxBlurSigma,
+          ),
+          child: Transform(
+            alignment: Alignment.center,
+            transform: Matrix4.diagonal3Values(1 - t, 1, 1),
+            child: child,
+          ),
+        );
+      },
     );
   }
 
@@ -1354,12 +1467,6 @@ class _CreatePostScreenState extends State<CreatePostScreen>
                   child: _buildCameraPreview(),
                 ),
               ),
-              if (_isTransitioning)
-                Positioned.fill(
-                  child: IgnorePointer(
-                    child: _buildCameraTransitionOverlay(),
-                  ),
-                ),
               Positioned.fill(
                 child: IgnorePointer(
                   child: Container(

@@ -2053,10 +2053,15 @@ class _ActiveSpontaneousTaskDialogState
 
 class _SpontaneousChallengeDialogState
     extends State<_SpontaneousChallengeDialog>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   static const Duration _runDuration = Duration(seconds: 5);
 
   late final AnimationController _controller;
+  // Continuously rotates the light-mode frame's gradient for a dynamic look.
+  late final AnimationController _borderShimmerController = AnimationController(
+    vsync: this,
+    duration: const Duration(seconds: 4),
+  )..repeat();
   final Random _random = Random();
   final List<_BubbleParticle> _particles = <_BubbleParticle>[];
   Timer? _timer;
@@ -2082,6 +2087,7 @@ class _SpontaneousChallengeDialogState
   void dispose() {
     _timer?.cancel();
     _controller.dispose();
+    _borderShimmerController.dispose();
     super.dispose();
   }
 
@@ -2250,31 +2256,51 @@ class _SpontaneousChallengeDialogState
       child: Stack(
         children: [
           Center(
-            child: Container(
-              width: 360,
-              margin: const EdgeInsets.symmetric(horizontal: 18),
-              padding: const EdgeInsets.all(1.8),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(32),
-                gradient: const LinearGradient(
-                  colors: [
-                    Color(0xFF70E0FF),
-                    Color(0xFFB8A5FF),
-                    Color(0xFF8AD7FF),
-                  ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: const Color(0xFF7ED7FF).withValues(alpha: 0.42),
-                    blurRadius: 24,
-                    spreadRadius: 1,
-                    offset: const Offset(0, 12),
+            child: AnimatedBuilder(
+              animation: _borderShimmerController,
+              builder: (context, child) {
+                final shimmerAngle = _borderShimmerController.value * 2 * pi;
+                return Container(
+                  width: 360,
+                  margin: const EdgeInsets.symmetric(horizontal: 18),
+                  padding: EdgeInsets.all(isLight ? 3.2 : 1.8),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(32),
+                    gradient: isLight
+                        ? LinearGradient(
+                            colors: const [
+                              Color(0xFF8CE9FF),
+                              Color(0xFFC9B6FF),
+                              Color(0xFF7ED0FF),
+                              Color(0xFFD3C2FF),
+                            ],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            transform: GradientRotation(shimmerAngle),
+                          )
+                        : const LinearGradient(
+                            colors: [
+                              Color(0xFF70E0FF),
+                              Color(0xFFB8A5FF),
+                              Color(0xFF8AD7FF),
+                            ],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF7ED7FF).withValues(alpha: 0.42),
+                        blurRadius: 24,
+                        spreadRadius: 1,
+                        offset: const Offset(0, 12),
+                      ),
+                    ],
                   ),
-                ],
-              ),
+                  child: child,
+                );
+              },
               child: Container(
+                width: 360,
                 padding: const EdgeInsets.all(18),
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(30),
@@ -2287,7 +2313,7 @@ class _SpontaneousChallengeDialogState
                   ),
                   border: Border.all(
                     color: const Color(0xFF79D8FF).withValues(alpha: 0.52),
-                    width: 1.5,
+                    width: isLight ? 2.2 : 1.5,
                   ),
                 ),
                 child: Directionality(

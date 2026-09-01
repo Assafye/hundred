@@ -12,6 +12,7 @@ import 'phone_registration_screen.dart';
 import 'register_screen.dart';
 import 'services/keyboard_dismiss_controller.dart';
 import 'widgets/animated_infinity_splash_screen.dart';
+import 'widgets/forgot_password_sheet.dart';
 import 'widgets/swipe_back_wrapper.dart';
 
 bool shouldBlockLoginForState({
@@ -36,7 +37,6 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
   static const Color _textPrimary = Color(0xFFEAF0FF);
   static const Color _textSecondary = Color(0xFFAAB7E8);
   static const Color _fieldFill = Color(0xFF141D2E);
-  static const bool _useLightForgotPasswordDialog = false;
 
   final TextEditingController _usernameController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
@@ -67,9 +67,6 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
           _showError = true;
           _errorMessage = pendingMessage;
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(pendingMessage)),
-        );
       }
 
       if (!mounted) return;
@@ -168,27 +165,6 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
     super.dispose();
   }
 
-  void _showLoginSnackBar(String message, {bool error = false}) {
-    if (!mounted) {
-      return;
-    }
-
-    final rootContext = Navigator.of(context, rootNavigator: true).context;
-    final messenger = ScaffoldMessenger.maybeOf(rootContext);
-    if (messenger == null) {
-      return;
-    }
-
-    messenger.showSnackBar(
-      SnackBar(
-        content: Text(message),
-        behavior: SnackBarBehavior.floating,
-        backgroundColor: error ? Colors.redAccent : null,
-        duration: const Duration(seconds: 4),
-      ),
-    );
-  }
-
   bool _tapHitsEditable(PointerDownEvent event) {
     final hitTestResult = HitTestResult();
     GestureBinding.instance.hitTest(hitTestResult, event.position);
@@ -211,53 +187,39 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
     if (error is FirebaseAuthException) {
       switch (error.code) {
         case 'invalid-email':
-          return 'כתובת המייל או שם המשתמש שהוזנו אינם תקינים. / The email or username is invalid. Check that it matches the account exactly.';
         case 'user-not-found':
-          return 'לא נמצא חשבון עם הפרטים שהוזנו. / No account was found with the provided details. Check that the account exists in the active Firebase project.';
         case 'wrong-password':
-          return 'הסיסמה שהזנת שגויה. / The password is incorrect. Please try again and make sure it matches exactly.';
         case 'invalid-credential':
-          return 'פרטי הכניסה לא תקינים או שהחשבון שייך לפרויקט Firebase אחר. / The login credentials are invalid or belong to a different Firebase project. Verify the environment and the same account.';
+          return 'שם המשתמש או הסיסמה שגויים.';
         case 'user-disabled':
-          return 'החשבון מושבת או נחסם. / This account has been disabled or blocked. Please use an active account or contact support.';
+          return 'החשבון הזה הושבת.';
         case 'too-many-requests':
-          return 'ניסיונות הכניסה נעצרו לזמן קצר עקב הגנה. / Too many attempts were made. Please wait a moment and try again.';
+          return 'יותר מדי ניסיונות התחברות. נסה שוב בעוד כמה דקות.';
         case 'network-request-failed':
-          return 'אין חיבור אינטרנט או יש בעיית רשת. / No internet connection or network problem. Check your connection and try again.';
+          return 'אין חיבור לאינטרנט. בדוק את החיבור ונסה שוב.';
         case 'email-not-verified':
-          return 'החשבון עדיין לא הושלם. / Your account is not complete yet. Please finish registration.';
         case 'registration-incomplete':
-          return 'החשבון עדיין לא הושלם. / Your account is not complete yet. Please finish the registration steps and try again.';
+          return 'יש להשלים את תהליך ההרשמה כדי להתחבר.';
         case AuthService.ageRestrictedCode:
-          return 'הכניסה לאפליקציה זמינה מגיל 13 ומעלה בלבד. / The app is available to users aged 13 and over only.';
+          return 'האפליקציה מיועדת לגילאי 13 ומעלה בלבד.';
         case 'session-expired':
-          return 'הסשן פג תוקף. / Your login session has expired. Please sign in again.';
+          return 'החיבור פג תוקף. יש להתחבר מחדש.';
         case 'account-exists-with-different-credential':
-          return 'החשבון כבר קיים בשיטת אימות אחרת. / This account already exists with a different sign-in method. Use the same method and project.';
-        case 'operation-not-allowed':
-          return 'כניסה עם פרטי חשבון אלה אינה מאופשרת. / Sign-in with these credentials is not allowed in this Firebase project.';
-        case 'app-not-authorized':
-          return 'האפליקציה אינה מאושרת לשימוש ב-Firebase Auth. / This app is not authorized to use Firebase Auth in this project.';
-        case 'permission-denied':
-          return 'הגישה ל-Firebase נדחתה. / Firebase access was denied. Check project permissions and configuration.';
-        case 'internal-error':
-          return 'שגיאת שרת פנימית של Firebase. / Internal Firebase server error. Please try again in a moment.';
-        case 'unknown':
-          return 'אירעה שגיאה לא ידועה בהתחברות. / An unknown login error occurred. Please verify the account and try again.';
+          return 'החשבון כבר קיים בשיטת התחברות אחרת.';
         default:
-          return 'ההתחברות נכשלה. / Login failed. Please check the login details and try again.';
+          return 'ההתחברות נכשלה. נסה שוב.';
       }
     }
 
     if (error is PlatformException) {
       final message = (error.message ?? '').trim();
       if (message.toLowerCase().contains('network')) {
-        return 'אין חיבור אינטרנט או יש בעיית רשת. / No internet connection or network issue. Check your network and try again.';
+        return 'אין חיבור לאינטרנט. בדוק את החיבור ונסה שוב.';
       }
-      return 'התחברות נכשלה עקב שגיאת מערכת. / Login failed due to a system error. Please try again in a moment.';
+      return 'ההתחברות נכשלה. נסה שוב.';
     }
 
-    return 'ההתחברות נכשלה. / Login failed. Please check the account details and try again.';
+    return 'ההתחברות נכשלה. נסה שוב.';
   }
 
   Future<void> _onLoginPressed() async {
@@ -266,20 +228,15 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
     final password = _passwordController.text.trim();
 
     if (emailOrUsername.isEmpty || password.isEmpty) {
-      const message =
-          'נא למלא מייל / Mail או שם משתמש וסיסמה / Password. / Please enter email / mail or username and password.';
+      const message = 'יש למלא טלפון  או מייל וסיסמה.';
       setState(() {
         _showError = true;
         _errorMessage = message;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text(message)),
-      );
       return;
     }
 
     final navigator = Navigator.of(context);
-    final messenger = ScaffoldMessenger.maybeOf(context);
 
     setState(() {
       _isLoggingIn = true;
@@ -375,15 +332,6 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
         _showError = true;
         _errorMessage = message;
       });
-      if (messenger != null) {
-        messenger.showSnackBar(
-          SnackBar(
-            content: Text(message),
-            behavior: SnackBarBehavior.floating,
-            duration: const Duration(seconds: 4),
-          ),
-        );
-      }
     } catch (e, stackTrace) {
       debugPrint('[LoginScreen][_onLoginPressed] error: $e');
       debugPrint('[LoginScreen][_onLoginPressed] stackTrace: $stackTrace');
@@ -401,15 +349,6 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
         _showError = true;
         _errorMessage = message;
       });
-      if (messenger != null) {
-        messenger.showSnackBar(
-          SnackBar(
-            content: Text(message),
-            behavior: SnackBarBehavior.floating,
-            duration: const Duration(seconds: 4),
-          ),
-        );
-      }
     } finally {
       if (mounted) {
         setState(() {
@@ -420,231 +359,17 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _onForgotPasswordPressed() async {
-    final recoveryMethod = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('שחזור סיסמה'),
-        content: const Text('באיזו דרך לשחזר את החשבון?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop('phone'),
-            child: const Text('טלפון'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.of(dialogContext).pop('email'),
-            child: const Text('מייל'),
-          ),
-        ],
-      ),
+    final seedEmail = _usernameController.text.trim();
+    final user = await showForgotPasswordSheet(
+      context,
+      authService: _authService,
+      initialEmail: RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(seedEmail)
+          ? seedEmail
+          : null,
     );
-    if (recoveryMethod == 'phone') {
-      await _recoverWithPhone();
-      return;
-    }
-    if (recoveryMethod != 'email') return;
-
-    final seedValue = _usernameController.text.trim();
-    final controller = TextEditingController(text: seedValue);
-    final isLight = _useLightForgotPasswordDialog;
-
-    final value = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) {
-        return Directionality(
-          textDirection: TextDirection.rtl,
-          child: AlertDialog(
-            backgroundColor: isLight ? Colors.white : const Color(0xFF1A2435),
-            title: Text(
-              'איפוס סיסמה',
-              style: TextStyle(color: isLight ? Colors.black : Colors.white),
-            ),
-            content: SizedBox(
-              width: 320,
-              child: TextField(
-                controller: controller,
-                textAlign: TextAlign.right,
-                textDirection: TextDirection.rtl,
-                maxLines: 1,
-                style: const TextStyle(color: Colors.black),
-                cursorColor: Colors.black,
-                decoration: InputDecoration(
-                  hintText: 'אימייל...',
-                  hintStyle:
-                      TextStyle(color: Colors.black.withValues(alpha: 0.55)),
-                  filled: true,
-                  fillColor: Colors.white,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
-                  ),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 12,
-                  ),
-                ),
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(dialogContext).pop(),
-                child: const Text('ביטול'),
-              ),
-              ElevatedButton(
-                onPressed: () =>
-                    Navigator.of(dialogContext).pop(controller.text.trim()),
-                child: const Text('שלח קישור איפוס'),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      controller.dispose();
-    });
-
-    final input = (value ?? '').trim();
-    if (input.isEmpty || !mounted) {
-      return;
-    }
+    if (user == null || !mounted) return;
 
     try {
-      await _authService.sendPasswordResetForEmailOrUsername(input);
-      if (!mounted) return;
-      _showLoginSnackBar(
-          'אם החשבון קיים, נשלח קישור לאיפוס סיסמה. בדוק גם בספאם.');
-    } on FirebaseAuthException catch (e, stackTrace) {
-      debugPrint(
-          '[LoginScreen][_onForgotPasswordPressed] FirebaseAuthException: $e');
-      debugPrint(
-          '[LoginScreen][_onForgotPasswordPressed] stackTrace: $stackTrace');
-      if (!mounted) return;
-      if (e.code == 'invalid-email') {
-        _showLoginSnackBar(
-          e.message ?? 'לא הצלחנו לזהות כתובת מייל תקינה.',
-          error: true,
-        );
-        return;
-      }
-      _showLoginSnackBar('לא הצלחנו לשלוח כרגע, נסה שוב בעוד רגע.',
-          error: true);
-    } catch (e, stackTrace) {
-      debugPrint('[LoginScreen][_onForgotPasswordPressed] error: $e');
-      debugPrint(
-          '[LoginScreen][_onForgotPasswordPressed] stackTrace: $stackTrace');
-      if (!mounted) return;
-      _showLoginSnackBar('לא הצלחנו לשלוח כרגע, נסה שוב בעוד רגע.',
-          error: true);
-    }
-  }
-
-  Future<void> _recoverWithPhone() async {
-    final phone = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) {
-        final controller = TextEditingController();
-        return AlertDialog(
-          title: const Text('שחזור באמצעות טלפון'),
-          content: TextField(
-            controller: controller,
-            keyboardType: TextInputType.phone,
-            decoration: const InputDecoration(labelText: 'מספר טלפון'),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('ביטול'),
-            ),
-            ElevatedButton(
-              onPressed: () =>
-                  Navigator.of(dialogContext).pop(controller.text.trim()),
-              child: const Text('שליחת קוד'),
-            ),
-          ],
-        );
-      },
-    );
-    if (!mounted || phone == null || phone.isEmpty) return;
-    final normalizedPhone = _authService.normalizePhoneNumber(phone);
-    if (!RegExp(r'^\+[1-9]\d{7,14}$').hasMatch(normalizedPhone)) {
-      _showLoginSnackBar('יש להזין מספר טלפון תקין.', error: true);
-      return;
-    }
-
-    try {
-      if (!await _authService.isRegisteredPhone(phone)) {
-        _showLoginSnackBar('לא נמצא חשבון עם מספר הטלפון הזה.', error: true);
-        return;
-      }
-    } catch (_) {
-      _showLoginSnackBar('לא ניתן לבדוק את החשבון כרגע. נסה שוב.', error: true);
-      return;
-    }
-
-    final verificationIdCompleter = Completer<String>();
-    User? autoVerifiedUser;
-    try {
-      await FirebaseAuth.instance.verifyPhoneNumber(
-        phoneNumber: normalizedPhone,
-        verificationCompleted: (credential) async {
-          try {
-            autoVerifiedUser =
-                (await FirebaseAuth.instance.signInWithCredential(credential))
-                    .user;
-          } finally {
-            if (!verificationIdCompleter.isCompleted) {
-              verificationIdCompleter.complete('');
-            }
-          }
-        },
-        verificationFailed: (error) {
-          if (!verificationIdCompleter.isCompleted) {
-            verificationIdCompleter.completeError(error);
-          }
-        },
-        codeSent: (verificationId, _) {
-          if (!verificationIdCompleter.isCompleted) {
-            verificationIdCompleter.complete(verificationId);
-          }
-        },
-        codeAutoRetrievalTimeout: (verificationId) {},
-      );
-      final verificationId = await verificationIdCompleter.future;
-      if (verificationId.isNotEmpty) {
-        final code = await showDialog<String>(
-          context: context,
-          builder: (dialogContext) {
-            final controller = TextEditingController();
-            return AlertDialog(
-              title: const Text('קוד אימות'),
-              content: TextField(
-                controller: controller,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'קוד בן 6 ספרות'),
-              ),
-              actions: [
-                ElevatedButton(
-                  onPressed: () =>
-                      Navigator.of(dialogContext).pop(controller.text.trim()),
-                  child: const Text('אימות'),
-                ),
-              ],
-            );
-          },
-        );
-        if (code == null || code.length != 6) return;
-        autoVerifiedUser = (await FirebaseAuth.instance.signInWithCredential(
-          PhoneAuthProvider.credential(
-            verificationId: verificationId,
-            smsCode: code,
-          ),
-        ))
-            .user;
-      }
-
-      final user = autoVerifiedUser ?? FirebaseAuth.instance.currentUser;
-      if (user == null) return;
       final canAccess = await _authService.canCurrentUserAccessApp();
       if (!mounted) return;
       if (canAccess) {
@@ -667,14 +392,12 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
           ),
         );
       }
-    } catch (error) {
+    } catch (_) {
       if (mounted) {
-        _showLoginSnackBar(
-          error is FirebaseAuthException
-              ? (error.message ?? 'לא הצלחנו לאמת את מספר הטלפון.')
-              : 'לא הצלחנו לאמת את מספר הטלפון.',
-          error: true,
-        );
+        setState(() {
+          _showError = true;
+          _errorMessage = 'לא הצלחנו להתחבר לחשבון כרגע. נסה שוב.';
+        });
       }
     }
   }
@@ -877,7 +600,7 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
                                                 color: _textPrimary,
                                                 fontWeight: FontWeight.w500),
                                             decoration: _inputDecoration(
-                                                'מייל / Mail או שם משתמש'),
+                                                'טלפון / אימייל Phone / Email'),
                                           ),
                                           const SizedBox(height: 14),
                                           TextField(

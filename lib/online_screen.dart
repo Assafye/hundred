@@ -270,7 +270,6 @@ class _OnlineScreenState extends State<OnlineScreen>
     }
     setState(() {
       _isMeetNowRefreshing = true;
-      _resetMeetNowVisibleCount();
       _configureMeetNowPostsStream(force: true);
     });
   }
@@ -4349,14 +4348,20 @@ class _OnlineScreenState extends State<OnlineScreen>
     return StreamBuilder<List<MeetNowPostEntry>>(
       stream: _meetNowPostsStream,
       builder: (context, snapshot) {
-        if (snapshot.hasData) {
+        if (snapshot.hasData && !_isMeetNowRefreshing) {
           _cachedMeetNowEntries = snapshot.data!;
         }
-        final allEntries = snapshot.data ?? _cachedMeetNowEntries;
-        final isSoftLoading =
+        // Freeze on the pre-refresh posts until the new batch is fully
+        // ready, so the grid never shrinks/reorders mid-refresh and jumps.
+        final allEntries = _isMeetNowRefreshing
+            ? _cachedMeetNowEntries
+            : (snapshot.data ?? _cachedMeetNowEntries);
+        // The refresh button already shows its own spinner; avoid inserting
+        // this bar mid-refresh since it would shift the whole page's layout.
+        final isSoftLoading = !_isMeetNowRefreshing &&
             snapshot.connectionState == ConnectionState.waiting &&
-                !snapshot.hasData &&
-                _cachedMeetNowEntries.isNotEmpty;
+            !snapshot.hasData &&
+            _cachedMeetNowEntries.isNotEmpty;
 
         if (snapshot.connectionState == ConnectionState.waiting &&
             !snapshot.hasData &&

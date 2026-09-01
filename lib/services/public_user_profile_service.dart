@@ -7,6 +7,7 @@ import '../models/public_user_profile.dart';
 class PublicUserProfileService {
   static final Map<String, int> _optimisticScoreDeltaByUid =
       <String, int>{};
+  static final Map<String, int> _lastRawScoreByUid = <String, int>{};
   static final StreamController<String> _scoreDeltaChangesController =
       StreamController<String>.broadcast();
 
@@ -37,6 +38,18 @@ class PublicUserProfileService {
 
   bool _isPermissionDenied(Object error) {
     return error is FirebaseException && error.code == 'permission-denied';
+  }
+
+  bool _isRecoverableProfileReadError(Object error) {
+    if (error is! FirebaseException) {
+      return false;
+    }
+    return error.code == 'permission-denied' ||
+        error.code == 'unavailable' ||
+        error.code == 'deadline-exceeded' ||
+        error.code == 'resource-exhausted' ||
+        error.code == 'aborted' ||
+        error.code == 'failed-precondition';
   }
 
   PublicUserProfileService({FirebaseFirestore? db})
@@ -252,6 +265,16 @@ class PublicUserProfileService {
     String uid,
     PublicUserProfile profile,
   ) {
+    final normalizedUid = uid.trim();
+    final lastRawScore = _lastRawScoreByUid[normalizedUid];
+    if (lastRawScore != null && lastRawScore != profile.score) {
+      // The backend already applied a real change to this uid's score since
+      // we last saw it, so any pending optimistic delta is stale — drop it
+      // instead of double-counting on top of the now-authoritative value.
+      _optimisticScoreDeltaByUid.remove(normalizedUid);
+    }
+    _lastRawScoreByUid[normalizedUid] = profile.score;
+
     final delta = optimisticScoreDeltaFor(uid);
     if (delta == 0) {
       return profile;
@@ -335,8 +358,18 @@ class PublicUserProfileService {
       return null;
     }
 
-    final snapshot = await _publicUsers.doc(normalizedUserId).get();
-    return _resolveProfileWithFallback(normalizedUserId, snapshot);
+    try {
+      final snapshot = await _publicUsers.doc(normalizedUserId).get();
+      return _resolveProfileWithFallback(normalizedUserId, snapshot);
+    } catch (error) {
+      // A transient read failure (e.g. permission/App Check hiccup) must not
+      // crash callers that fan this out across every post author in a feed
+      // batch; degrade to an unknown/non-private fallback instead.
+      if (!_isRecoverableProfileReadError(error)) {
+        rethrow;
+      }
+      return PublicUserProfile.fallback(userId: normalizedUserId, exists: false);
+    }
   }
 
   PublicUserProfile fallbackProfileForPost(Map<String, dynamic> post) {

@@ -47,7 +47,16 @@ enum _FeedShareMenuAction { copyLink, sendToFriend, systemShare }
 
 const int _feedSeenHistoryLimit = 400;
 const int _feedSeenHistoryRetentionDays = 30;
-const String _feedSeenHistoryStorageKey = 'feed_seen_history_v1';
+const String _feedSeenHistoryStorageKeyPrefix = 'feed_seen_history_v1';
+
+// Scoped per signed-in uid so switching accounts on the same device never
+// makes a different user inherit another account's "seen everything" state.
+String _feedSeenHistoryStorageKeyForCurrentUser() {
+  final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+  return uid.isEmpty
+      ? _feedSeenHistoryStorageKeyPrefix
+      : '${_feedSeenHistoryStorageKeyPrefix}_$uid';
+}
 
 List<PostModel> filterFeedPostsForFreshnessAndSeen(
   List<PostModel> posts, {
@@ -209,7 +218,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
 
   Future<void> _loadSeenFeedHistory() async {
     final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_feedSeenHistoryStorageKey);
+    final raw = prefs.getString(_feedSeenHistoryStorageKeyForCurrentUser());
     if (!mounted) {
       return;
     }
@@ -281,7 +290,8 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
     };
 
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_feedSeenHistoryStorageKey, jsonEncode(payload));
+    await prefs.setString(
+        _feedSeenHistoryStorageKeyForCurrentUser(), jsonEncode(payload));
   }
 
   void _recordSeenFeedPost(PostModel post) {
@@ -3473,7 +3483,17 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
       () => _applyAudienceFilter(
         posts,
         blockedUids: blockedUids,
-      ),
+      ).catchError((Object error, StackTrace stackTrace) {
+        // Never let a transient read failure (e.g. permission/App Check
+        // hiccup) cache a broken Future forever and blank out the feed —
+        // evict it so the next rebuild retries, and fail open with the
+        // already blocked/scoped posts instead of showing nothing.
+        _audienceFilteredPostsCache.remove(signature);
+        if (kDebugMode) {
+          debugPrint('Audience filter failed, showing posts unfiltered: $error');
+        }
+        return posts;
+      }),
     );
   }
 
@@ -3760,6 +3780,10 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
         }
 
         final rawPosts = snapshot.data ?? const <Map<String, dynamic>>[];
+        if (kDebugMode) {
+          debugPrint(
+              '[FEED_PIPELINE] rawPosts=${rawPosts.length} usingBackendFeed=$usingBackendFeed category=$categoryFilter subCategory=$subCategoryFilter');
+        }
 
         return StreamBuilder<Set<String>>(
           stream: _blockUserService.streamBlockedConnections(),
@@ -3783,6 +3807,10 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
             final randomizedPosts = _randomizePostsOnce(postsFromDb);
             final postsWithoutCurrentUser =
                 _excludeCurrentUserPosts(randomizedPosts);
+            if (kDebugMode) {
+              debugPrint(
+                  '[FEED_PIPELINE] blockedUids=${blockedUids.length} postsFromDb=${postsFromDb.length} postsWithoutCurrentUser=${postsWithoutCurrentUser.length}');
+            }
 
             return StreamBuilder<Set<String>>(
               stream: _followingIdsStream(),
@@ -3799,6 +3827,10 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                   visibleFollowingIds,
                   alreadyScopedByBackend: usingBackendFeed,
                 );
+                if (kDebugMode) {
+                  debugPrint(
+                      '[FEED_PIPELINE] followingIds=${followingIds.length} isForYouFeed=$isForYouFeed scopedPosts=${scopedPosts.length}');
+                }
 
                 if (scopedPosts.isEmpty) {
                   return Scaffold(
@@ -3818,6 +3850,10 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                     blockedUids: blockedUids,
                   ),
                   builder: (context, audienceSnapshot) {
+                    if (audienceSnapshot.hasError && kDebugMode) {
+                      debugPrint(
+                          '[FEED_PIPELINE] audience filter future errored: ${audienceSnapshot.error}');
+                    }
                     if (!audienceSnapshot.hasData &&
                         audienceSnapshot.connectionState !=
                             ConnectionState.done) {
@@ -3832,6 +3868,10 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                       baseFeedPosts,
                       seenPostIds: displaySeenIds,
                     );
+                    if (kDebugMode) {
+                      debugPrint(
+                          '[FEED_PIPELINE] baseFeedPosts=${baseFeedPosts.length} seenIds=${displaySeenIds.length} feedPosts=${feedPosts.length}');
+                    }
                     final activeFeedIndex = feedPosts.isEmpty
                         ? 0
                         : _currentFeedPageIndex.clamp(0, feedPosts.length - 1);

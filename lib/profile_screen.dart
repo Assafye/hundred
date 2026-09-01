@@ -2205,6 +2205,10 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
 
     String query = '';
     final isLight = Theme.of(context).brightness == Brightness.light;
+    // Computed once outside the modal's builder so a keyboard-driven rebuild
+    // can't recreate this Future and flash the FutureBuilder back to loading
+    // (which was tearing down the TextField and losing keyboard focus).
+    final relationUsersFuture = _relationUsersForIds(filteredUserIds);
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -2215,7 +2219,7 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
           child: SafeArea(
             child: Container(
               constraints: BoxConstraints(
-                maxHeight: MediaQuery.of(sheetContext).size.height * 0.78,
+                maxHeight: MediaQuery.sizeOf(sheetContext).height * 0.78,
               ),
               margin: const EdgeInsets.fromLTRB(14, 8, 14, 16),
               decoration: BoxDecoration(
@@ -2237,7 +2241,7 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                 ),
                 padding: const EdgeInsets.fromLTRB(14, 14, 14, 10),
                 child: FutureBuilder<List<_ProfileRelationUser>>(
-                  future: _relationUsersForIds(filteredUserIds),
+                  future: relationUsersFuture,
                   builder: (context, snapshot) {
                     if (snapshot.connectionState == ConnectionState.waiting) {
                       return const Center(

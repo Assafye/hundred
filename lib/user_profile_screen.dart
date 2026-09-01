@@ -3557,12 +3557,14 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       return const <String>[];
     }
 
-    final myUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
     final seen = <String>{};
     final orderedIds = <String>[];
     for (final rawId in ids) {
       final uid = rawId.trim();
-      if (uid.isEmpty || uid == myUid || seen.contains(uid)) {
+      // Note: unlike the own-profile relation sheet, do NOT exclude the
+      // viewer's own uid here — the viewer legitimately can (and should)
+      // appear in another user's followers/following/friends list.
+      if (uid.isEmpty || seen.contains(uid)) {
         continue;
       }
       seen.add(uid);

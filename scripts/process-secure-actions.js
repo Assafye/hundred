@@ -187,6 +187,8 @@ async function processFollowUser(actorUid, payload) {
   const myPublicRef = db.collection('users_public').doc(actorUid);
   const targetPublicRef = db.collection('users_public').doc(targetUid);
 
+  if (DRY_RUN) return;
+
   await db.runTransaction(async (tx) => {
     const [mySnap, targetSnap] = await Promise.all([
       tx.get(myUserRef),
@@ -235,12 +237,16 @@ async function processFollowUser(actorUid, payload) {
     }, { merge: true });
 
     tx.set(myPublicRef, {
+      following: Array.from(myFollowing).sort(),
       followingCount: myFollowing.size,
+      followers: Array.from(normalizeUidSet(myData.followers)).sort(),
       followersCount: normalizeUidSet(myData.followers).size,
     }, { merge: true });
 
     tx.set(targetPublicRef, {
+      followers: Array.from(targetFollowers).sort(),
       followersCount: targetFollowers.size,
+      following: Array.from(targetFollowing).sort(),
       followingCount: targetFollowing.size,
       score: currentTargetScore + 50,
     }, { merge: true });
@@ -255,6 +261,8 @@ async function processUnfollowUser(actorUid, payload) {
   const targetUserRef = db.collection('users').doc(targetUid);
   const myPublicRef = db.collection('users_public').doc(actorUid);
   const targetPublicRef = db.collection('users_public').doc(targetUid);
+
+  if (DRY_RUN) return;
 
   await db.runTransaction(async (tx) => {
     const [mySnap, targetSnap] = await Promise.all([
@@ -272,11 +280,18 @@ async function processUnfollowUser(actorUid, payload) {
     const targetFollowers = normalizeUidSet(targetData.followers);
     const targetRequests = normalizeUidSet(targetData.followRequests);
     const targetFollowing = normalizeUidSet(targetData.following);
+    const currentTargetScore = Number(targetData.score ?? 0) || 0;
 
     myFollowing.delete(targetUid);
     mySentRequests.delete(targetUid);
-    targetFollowers.delete(actorUid);
+    const wasFollowing = targetFollowers.delete(actorUid);
     targetRequests.delete(actorUid);
+
+    // Mirror the +50 awarded on follow so repeated follow/unfollow cycles
+    // don't leave the target's score permanently inflated.
+    const nextTargetScore = wasFollowing
+      ? Math.max(0, currentTargetScore - 50)
+      : currentTargetScore;
 
     tx.set(myUserRef, {
       following: Array.from(myFollowing),
@@ -288,16 +303,22 @@ async function processUnfollowUser(actorUid, payload) {
       followers: Array.from(targetFollowers),
       followersCount: targetFollowers.size,
       followRequests: Array.from(targetRequests),
+      score: nextTargetScore,
     }, { merge: true });
 
     tx.set(myPublicRef, {
+      following: Array.from(myFollowing).sort(),
       followingCount: myFollowing.size,
+      followers: Array.from(normalizeUidSet(myData.followers)).sort(),
       followersCount: normalizeUidSet(myData.followers).size,
     }, { merge: true });
 
     tx.set(targetPublicRef, {
+      followers: Array.from(targetFollowers).sort(),
       followersCount: targetFollowers.size,
+      following: Array.from(targetFollowing).sort(),
       followingCount: targetFollowing.size,
+      score: nextTargetScore,
     }, { merge: true });
   });
 }
@@ -310,6 +331,8 @@ async function processRemoveFollower(actorUid, payload) {
   const followerUserRef = db.collection('users').doc(followerUid);
   const myPublicRef = db.collection('users_public').doc(actorUid);
   const followerPublicRef = db.collection('users_public').doc(followerUid);
+
+  if (DRY_RUN) return;
 
   await db.runTransaction(async (tx) => {
     const [mySnap, followerSnap] = await Promise.all([
@@ -341,12 +364,16 @@ async function processRemoveFollower(actorUid, payload) {
     }, { merge: true });
 
     tx.set(myPublicRef, {
+      followers: Array.from(myFollowers).sort(),
       followersCount: myFollowers.size,
+      following: Array.from(myFollowing).sort(),
       followingCount: myFollowing.size,
     }, { merge: true });
 
     tx.set(followerPublicRef, {
+      followers: Array.from(followerFollowers).sort(),
       followersCount: followerFollowers.size,
+      following: Array.from(followerFollowing).sort(),
       followingCount: followerFollowing.size,
     }, { merge: true });
   });
@@ -381,6 +408,8 @@ async function processTogglePostLike(actorUid, payload) {
   let postAfter = null;
   let postBefore = null;
   let didAddLike = false;
+
+  if (DRY_RUN) return;
 
   await db.runTransaction(async (tx) => {
     const postSnap = await tx.get(postRef);
@@ -440,6 +469,8 @@ async function processTogglePostSave(actorUid, payload) {
   let postBefore = null;
   let postAfter = null;
   let didAddSave = false;
+
+  if (DRY_RUN) return;
 
   await db.runTransaction(async (tx) => {
     const postSnap = await tx.get(postRef);
@@ -510,6 +541,8 @@ async function processRegisterPostShare(actorUid, payload) {
   let postBefore = null;
   let postAfter = null;
 
+  if (DRY_RUN) return;
+
   await db.runTransaction(async (tx) => {
     const postSnap = await tx.get(postRef);
     if (!postSnap.exists) return;
@@ -554,6 +587,8 @@ async function processCommentSideEffects(actorUid, payload) {
   let postAfter = null;
   let parentCommentAuthor = '';
   let postImageUrl = '';
+
+  if (DRY_RUN) return;
 
   await db.runTransaction(async (tx) => {
     const [postSnap, commentSnap, parentSnap] = await Promise.all([
@@ -644,6 +679,8 @@ async function processJoinGroup(actorUid, payload) {
   const memberRef = groupRef.collection('members').doc(actorUid);
   const chatRef = db.collection('chats').doc(groupId);
 
+  if (DRY_RUN) return;
+
   await db.runTransaction(async (tx) => {
     const groupSnap = await tx.get(groupRef);
     if (!groupSnap.exists) return;
@@ -702,6 +739,8 @@ async function processCancelGroupJoinRequest(actorUid, payload) {
   const groupRef = db.collection('groups').doc(groupId);
   const memberRef = groupRef.collection('members').doc(actorUid);
 
+  if (DRY_RUN) return;
+
   await db.runTransaction(async (tx) => {
     const [groupSnap, memberSnap] = await Promise.all([tx.get(groupRef), tx.get(memberRef)]);
     if (!groupSnap.exists || !memberSnap.exists) return;
@@ -727,6 +766,8 @@ async function processInviteUserToGroup(actorUid, payload) {
   const chatRef = db.collection('chats').doc(groupId);
   const targetMemberRef = groupRef.collection('members').doc(targetUid);
   const inviterMemberRef = groupRef.collection('members').doc(actorUid);
+
+  if (DRY_RUN) return;
 
   await db.runTransaction(async (tx) => {
     const [groupSnap, chatSnap] = await Promise.all([
@@ -802,6 +843,8 @@ async function processRemoveGroupMember(actorUid, payload) {
   const memberRef = groupRef.collection('members').doc(targetUid);
   const chatRef = db.collection('chats').doc(groupId);
 
+  if (DRY_RUN) return;
+
   await db.runTransaction(async (tx) => {
     const [groupSnap, memberSnap] = await Promise.all([
       tx.get(groupRef),
@@ -846,6 +889,8 @@ async function processLeaveGroup(actorUid, payload) {
   const memberRef = groupRef.collection('members').doc(actorUid);
   const chatRef = db.collection('chats').doc(groupId);
 
+  if (DRY_RUN) return;
+
   await db.runTransaction(async (tx) => {
     const [groupSnap, memberSnap] = await Promise.all([
       tx.get(groupRef),
@@ -888,6 +933,8 @@ async function processJoinPublicChat(actorUid, payload) {
 
   const chatRef = db.collection('chats').doc(chatId);
 
+  if (DRY_RUN) return;
+
   await db.runTransaction(async (tx) => {
     const chatSnap = await tx.get(chatRef);
     if (!chatSnap.exists) return;
@@ -914,6 +961,8 @@ async function processUpdateGroupImage(actorUid, payload) {
   const groupRef = db.collection('groups').doc(groupId);
   const chatRef = db.collection('chats').doc(groupId);
   const memberRef = groupRef.collection('members').doc(actorUid);
+
+  if (DRY_RUN) return;
 
   await db.runTransaction(async (tx) => {
     const [groupSnap, memberSnap] = await Promise.all([
