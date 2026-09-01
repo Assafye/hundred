@@ -1,6 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import 'login_screen.dart';
 import 'register_screen.dart';
 import 'services/auth_service.dart';
 import 'services/keyboard_dismiss_controller.dart';
@@ -103,6 +104,21 @@ class _PhoneRegistrationScreenState extends State<PhoneRegistrationScreen> {
       });
       return;
     }
+
+    try {
+      final isTaken = await _authService.isRegisteredPhone(phone);
+      if (isTaken) {
+        if (!mounted) return;
+        setState(() {
+          _busy = false;
+          _error = 'מספר הטלפון הזה כבר רשום במערכת. יש לעבור למסך ההתחברות.';
+        });
+        return;
+      }
+    } catch (e) {
+      debugPrint('[PhoneRegistrationScreen] isRegisteredPhone check error: $e');
+    }
+
     try {
       await ShareFlowLogService.log('PHONE_VERIFY_START | phone=$phone');
       await FirebaseAuth.instance.verifyPhoneNumber(
@@ -214,6 +230,7 @@ class _PhoneRegistrationScreenState extends State<PhoneRegistrationScreen> {
         lastName: _lastNameController.text,
       );
       if (!mounted) return;
+      AuthService.registrationFlowInProgress.value = true;
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
           builder: (_) => RegisterScreen(
@@ -228,6 +245,13 @@ class _PhoneRegistrationScreenState extends State<PhoneRegistrationScreen> {
         setState(() {
           _busy = false;
           _error = error.message ?? 'לא הצלחנו ליצור את החשבון.';
+        });
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _error = 'אירעה שגיאה ביצירת החשבון. נסה שוב.';
         });
       }
     }
@@ -268,6 +292,35 @@ class _PhoneRegistrationScreenState extends State<PhoneRegistrationScreen> {
           },
         ),
         _button('שליחת קוד', _sendCode),
+        const SizedBox(height: 16),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Text(
+              'כבר יש לך חשבון? ',
+              style: TextStyle(color: _muted, fontSize: 13),
+            ),
+            InkWell(
+              onTap: () {
+                if (Navigator.of(context).canPop()) {
+                  Navigator.of(context).pop();
+                } else {
+                  Navigator.of(context).pushReplacement(
+                    MaterialPageRoute(builder: (_) => const LoginScreen()),
+                  );
+                }
+              },
+              child: const Text(
+                'התחברות',
+                style: TextStyle(
+                  color: _accent,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        ),
       ]);
     }
     if (_step == 1) {
@@ -372,9 +425,35 @@ class _PhoneRegistrationScreenState extends State<PhoneRegistrationScreen> {
                   _content(),
                   if (_error != null) ...[
                     const SizedBox(height: 14),
-                    Text(_error!,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(color: Colors.redAccent)),
+                    Text(
+                      _error!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Colors.redAccent),
+                    ),
+                    if (_error!.contains('רשום במערכת')) ...[
+                      const SizedBox(height: 10),
+                      TextButton.icon(
+                        onPressed: () {
+                          if (Navigator.of(context).canPop()) {
+                            Navigator.of(context).pop();
+                          } else {
+                            Navigator.of(context).pushReplacement(
+                              MaterialPageRoute(
+                                builder: (_) => const LoginScreen(),
+                              ),
+                            );
+                          }
+                        },
+                        icon: const Icon(Icons.login, color: _accent, size: 18),
+                        label: const Text(
+                          'מעבר למסך ההתחברות',
+                          style: TextStyle(
+                            color: _accent,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
                   ],
                 ]),
               ),

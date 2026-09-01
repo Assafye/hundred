@@ -117,9 +117,11 @@ bool shouldTriggerExhaustedFeedMessageAfterOverscroll({
 class FeedScreen extends StatefulWidget {
   const FeedScreen({
     super.key,
+    this.allowSpontaneousPrompt = false,
     this.initialSpontaneousPromptDelay = Duration.zero,
   });
 
+  final bool allowSpontaneousPrompt;
   final Duration initialSpontaneousPromptDelay;
 
   @override
@@ -608,7 +610,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
   }
 
   void _scheduleSpontaneousPromptIfNeeded() {
-    if (_didScheduleSpontaneousPrompt) {
+    if (!widget.allowSpontaneousPrompt || _didScheduleSpontaneousPrompt) {
       return;
     }
 

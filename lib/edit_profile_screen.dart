@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:hundred_version1/age_restrictions.dart';
 import 'package:hundred_version1/services/auth_service.dart';
 import 'services/keyboard_dismiss_controller.dart';
 import 'widgets/swipe_back_wrapper.dart';
@@ -13,6 +14,8 @@ class EditProfileScreen extends StatefulWidget {
   final String currentName;
   final String currentHandle;
   final String currentBio;
+  final String currentLifeMotto;
+  final String currentBirthDate;
   final bool currentAllowGroupInvite;
   final String? currentImageUrl;
   final List<String> currentImageUrls;
@@ -22,6 +25,8 @@ class EditProfileScreen extends StatefulWidget {
     required this.currentName,
     required this.currentHandle,
     required this.currentBio,
+    this.currentLifeMotto = '',
+    this.currentBirthDate = '',
     required this.currentAllowGroupInvite,
     this.currentImageUrl,
     this.currentImageUrls = const <String>[],
@@ -44,7 +49,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
   late TextEditingController _nameController;
   late TextEditingController _handleController;
+  late TextEditingController _birthDateController;
+  late TextEditingController _lifeMottoController;
   late TextEditingController _bioController;
+  DateTime? _birthDate;
   late bool _allowGroupInvite;
   final List<String> _existingProfileImageUrls = <String>[];
   final List<XFile> _newProfileImageFiles = <XFile>[];
@@ -64,7 +72,18 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           ? widget.currentHandle.substring(1)
           : widget.currentHandle,
     );
+    _lifeMottoController = TextEditingController(text: widget.currentLifeMotto);
     _bioController = TextEditingController(text: widget.currentBio);
+
+    DateTime? initialBirthDate;
+    if (widget.currentBirthDate.trim().isNotEmpty) {
+      initialBirthDate = parseStoredBirthDate(widget.currentBirthDate.trim());
+    }
+    _birthDate = initialBirthDate;
+    _birthDateController = TextEditingController(
+      text: initialBirthDate == null ? '' : _formatDate(initialBirthDate),
+    );
+
     _allowGroupInvite = widget.currentAllowGroupInvite;
 
     final initialUrls = <String>[
@@ -73,7 +92,14 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         widget.currentImageUrl!.trim(),
     ];
     _existingProfileImageUrls.addAll(_normalizeProfileImageUrls(initialUrls));
-    _loadInitialProfileImages();
+    _loadInitialUserData();
+  }
+
+  String _formatDate(DateTime value) {
+    final day = value.day.toString().padLeft(2, '0');
+    final month = value.month.toString().padLeft(2, '0');
+    final year = value.year.toString();
+    return '$day/$month/$year';
   }
 
   List<String> _normalizeProfileImageUrls(Iterable<String> rawUrls) {
@@ -92,9 +118,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     return normalized;
   }
 
-  Future<void> _loadInitialProfileImages() async {
-    if (_existingProfileImageUrls.isNotEmpty) return;
-
+  Future<void> _loadInitialUserData() async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null || uid.isEmpty) return;
 
@@ -102,31 +126,53 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       final doc =
           await FirebaseFirestore.instance.collection('users').doc(uid).get();
       final data = doc.data();
-      if (data == null) return;
+      if (data == null || !mounted) return;
 
-      final profilePictureUrl =
-          (data['profilePictureUrl'] as String? ?? '').trim();
-      final profileImageUrls =
-          ((data['profileImageUrls'] as List?) ?? const <dynamic>[])
-              .whereType<String>()
-              .toList(growable: false);
-      final normalized = _normalizeProfileImageUrls(
-        <String>[
-          if (profilePictureUrl.isNotEmpty) profilePictureUrl,
-          ...profileImageUrls,
-        ],
-      );
-      if (normalized.isEmpty || !mounted) return;
+      if (_lifeMottoController.text.trim().isEmpty) {
+        final lm = (data['lifeMotto'] as String? ?? '').trim();
+        if (lm.isNotEmpty) {
+          setState(() {
+            _lifeMottoController.text = lm;
+          });
+        }
+      }
 
-      setState(() {
-        _existingProfileImageUrls
-          ..clear()
-          ..addAll(normalized);
-        _primaryCombinedImageIndex = 0;
-      });
-    } catch (_) {
-      // Keep silent: if remote image cannot be loaded, placeholder will be shown.
-    }
+      if (_birthDate == null) {
+        final bDateRaw = (data['birthDate'] as String? ?? '').trim();
+        if (bDateRaw.isNotEmpty) {
+          final parsed = parseStoredBirthDate(bDateRaw);
+          if (parsed != null) {
+            setState(() {
+              _birthDate = parsed;
+              _birthDateController.text = _formatDate(parsed);
+            });
+          }
+        }
+      }
+
+      if (_existingProfileImageUrls.isEmpty) {
+        final profilePictureUrl =
+            (data['profilePictureUrl'] as String? ?? '').trim();
+        final profileImageUrls =
+            ((data['profileImageUrls'] as List?) ?? const <dynamic>[])
+                .whereType<String>()
+                .toList(growable: false);
+        final normalized = _normalizeProfileImageUrls(
+          <String>[
+            if (profilePictureUrl.isNotEmpty) profilePictureUrl,
+            ...profileImageUrls,
+          ],
+        );
+        if (normalized.isNotEmpty && mounted) {
+          setState(() {
+            _existingProfileImageUrls
+              ..clear()
+              ..addAll(normalized);
+            _primaryCombinedImageIndex = 0;
+          });
+        }
+      }
+    } catch (_) {}
   }
 
   @override
@@ -134,6 +180,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     KeyboardDismissController.resume();
     _nameController.dispose();
     _handleController.dispose();
+    _birthDateController.dispose();
+    _lifeMottoController.dispose();
     _bioController.dispose();
     super.dispose();
   }
@@ -241,12 +289,53 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     });
   }
 
+  Future<void> _pickBirthDate() async {
+    final latestBirthDate = latestEligibleBirthDate();
+    final storedBirthDate = _birthDate;
+    final initialDate =
+        storedBirthDate != null && isAtLeastMinimumAge(storedBirthDate)
+            ? storedBirthDate
+            : latestBirthDate;
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initialDate,
+      firstDate: DateTime(1900),
+      lastDate: latestBirthDate,
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: ColorScheme.fromSeed(
+              seedColor: _accentPurple,
+              primary: _accentPurple,
+              secondary: _accentCyan,
+              surface: const Color(0xFF101826),
+            ),
+            dialogTheme:
+                const DialogThemeData(backgroundColor: Color(0xFF101826)),
+          ),
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
+    );
+
+    if (picked == null) return;
+    setState(() {
+      _birthDate = picked;
+      _birthDateController.text = _formatDate(picked);
+    });
+  }
+
   Future<void> _saveProfile() async {
     if (_isSaving) return;
 
     final nameValue = _nameController.text.trim();
     final handleValue = _handleController.text.trim();
+    final lifeMottoValue = _lifeMottoController.text.trim();
     final bioValue = _bioController.text.trim();
+    final birthDateValue = _birthDate;
+    final birthDateText = birthDateValue == null
+        ? ''
+        : '${birthDateValue.year.toString().padLeft(4, '0')}-${birthDateValue.month.toString().padLeft(2, '0')}-${birthDateValue.day.toString().padLeft(2, '0')}';
 
     if (nameValue.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -293,6 +382,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         displayName: nameValue,
         username: usernameForStorage,
         bio: bioValue,
+        lifeMotto: lifeMottoValue,
+        birthDate: birthDateText.isNotEmpty ? birthDateText : null,
         allowGroupInvite: _allowGroupInvite,
         existingProfileImageUrls: _existingProfileImageUrls,
         newProfileImageFiles: _newProfileImageFiles,
@@ -353,13 +444,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 child: Container(
                   decoration: BoxDecoration(
                     color: isLight
-                        ? Colors.white.withValues(alpha:  0.62)
+                        ? Colors.white.withValues(alpha: 0.62)
                         : const Color(0xFF121A2A),
                     borderRadius: BorderRadius.circular(18),
                     border: Border.all(
                       color: isLight
                           ? const Color(0xFFA7BFFF)
-                          : _accentPurple.withValues(alpha:  0.42),
+                          : _accentPurple.withValues(alpha: 0.42),
                     ),
                   ),
                   child: const Column(
@@ -397,7 +488,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                               ? _accentPurple
                               : (isLight
                                   ? const Color(0xFFA9C3FF)
-                                  : _accentCyan.withValues(alpha:  0.2)),
+                                  : _accentCyan.withValues(alpha: 0.2)),
                           width: isPrimary ? 2.2 : 1,
                         ),
                       ),
@@ -457,7 +548,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         width: 22,
                         height: 22,
                         decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha:  0.58),
+                          color: Colors.black.withValues(alpha: 0.58),
                           shape: BoxShape.circle,
                         ),
                         child: const Icon(
@@ -490,6 +581,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     required bool isLight,
     required String label,
     String? prefixText,
+    Widget? prefixIcon,
   }) {
     return InputDecoration(
       floatingLabelBehavior: FloatingLabelBehavior.never,
@@ -503,28 +595,32 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           ),
         ),
       ),
+      prefixIcon: prefixIcon,
       prefixText: prefixText,
       prefixStyle: TextStyle(
         color: isLight ? Colors.black : const Color(0xFFEAF4FF),
         fontWeight: FontWeight.w700,
       ),
       filled: true,
-      fillColor:
-          isLight ? Colors.white.withValues(alpha:  0.58) : const Color(0xFF142136),
+      fillColor: isLight
+          ? Colors.white.withValues(alpha: 0.58)
+          : const Color(0xFF142136),
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
         borderSide: BorderSide(
-          color:
-              isLight ? const Color(0xFFA9C3FF) : _accentCyan.withValues(alpha:  0.22),
+          color: isLight
+              ? const Color(0xFFA9C3FF)
+              : _accentCyan.withValues(alpha: 0.22),
           width: 1,
         ),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
         borderSide: BorderSide(
-          color:
-              isLight ? const Color(0xFFA9C3FF) : _accentCyan.withValues(alpha:  0.22),
+          color: isLight
+              ? const Color(0xFFA9C3FF)
+              : _accentCyan.withValues(alpha: 0.22),
           width: 1,
         ),
       ),
@@ -553,206 +649,256 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       textDirection: TextDirection.rtl,
       child: SwipeBackWrapper(
         child: Scaffold(
-        backgroundColor: isLight ? _bgBottom : _darkBgBottom,
-        extendBodyBehindAppBar: true,
-        extendBody: true,
-        appBar: AppBar(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          surfaceTintColor: Colors.transparent,
-          centerTitle: true,
-          leading: IconButton(
-            icon: Icon(Icons.arrow_back, color: titleColor),
-            onPressed: () => Navigator.of(context).pop(),
+          backgroundColor: isLight ? _bgBottom : _darkBgBottom,
+          extendBodyBehindAppBar: true,
+          extendBody: true,
+          appBar: AppBar(
+            backgroundColor: Colors.transparent,
+            elevation: 0,
+            surfaceTintColor: Colors.transparent,
+            centerTitle: true,
+            leading: IconButton(
+              icon: Icon(Icons.arrow_back, color: titleColor),
+              onPressed: () => Navigator.of(context).pop(),
+            ),
+            title: Text(
+              'עריכת פרופיל',
+              style: TextStyle(color: titleColor, fontWeight: FontWeight.w800),
+            ),
           ),
-          title: Text(
-            'עריכת פרופיל',
-            style: TextStyle(color: titleColor, fontWeight: FontWeight.w800),
-          ),
-        ),
-        body: Stack(
-          children: [
-            Positioned.fill(
-              child: Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: isLight
-                        ? const [_bgTop, _bgBottom]
-                        : const [_darkBgTop, Color(0xFF131B33), _darkBgBottom],
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                  ),
-                ),
-              ),
-            ),
-            Positioned(
-              top: -70,
-              right: -40,
-              child: Container(
-                width: orbSizeA,
-                height: orbSizeA,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: (isLight ? const Color(0xFF9EEBFF) : _accentCyan)
-                      .withValues(alpha:  isLight ? 0.14 : 0.08),
-                ),
-              ),
-            ),
-            Positioned(
-              bottom: -100,
-              left: -50,
-              child: Container(
-                width: orbSizeB,
-                height: orbSizeB,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: (isLight ? const Color(0xFFB9A9FF) : _accentPurple)
-                      .withValues(alpha:  isLight ? 0.14 : 0.09),
-                ),
-              ),
-            ),
-            Listener(
-              behavior: HitTestBehavior.translucent,
-              onPointerDown: _dismissKeyboardOnBackgroundTap,
-              child: SafeArea(
-                child: SingleChildScrollView(
-                padding:
-                    const EdgeInsets.fromLTRB(20, kToolbarHeight + 18, 20, 96),
+          body: Stack(
+            children: [
+              Positioned.fill(
                 child: Container(
-                  constraints: BoxConstraints(minHeight: minCardHeight),
-                  padding: const EdgeInsets.fromLTRB(16, 18, 16, 18),
                   decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(24),
-                    color: isLight ? Colors.white.withValues(alpha:  0.6) : null,
-                    gradient: isLight
-                        ? null
-                        : LinearGradient(
-                            colors: [
-                              _cardTop.withValues(alpha:  0.94),
-                              _cardBottom.withValues(alpha:  0.94),
+                    gradient: LinearGradient(
+                      colors: isLight
+                          ? const [_bgTop, _bgBottom]
+                          : const [
+                              _darkBgTop,
+                              Color(0xFF131B33),
+                              _darkBgBottom
                             ],
-                            begin: Alignment.topRight,
-                            end: Alignment.bottomLeft,
-                          ),
-                    border: Border.all(
-                      color: isLight
-                          ? const Color(0xFFA9C3FF)
-                          : _accentCyan.withValues(alpha:  0.24),
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
                     ),
-                    boxShadow: [
-                      BoxShadow(
+                  ),
+                ),
+              ),
+              Positioned(
+                top: -70,
+                right: -40,
+                child: Container(
+                  width: orbSizeA,
+                  height: orbSizeA,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: (isLight ? const Color(0xFF9EEBFF) : _accentCyan)
+                        .withValues(alpha: isLight ? 0.14 : 0.08),
+                  ),
+                ),
+              ),
+              Positioned(
+                bottom: -100,
+                left: -50,
+                child: Container(
+                  width: orbSizeB,
+                  height: orbSizeB,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: (isLight ? const Color(0xFFB9A9FF) : _accentPurple)
+                        .withValues(alpha: isLight ? 0.14 : 0.09),
+                  ),
+                ),
+              ),
+              Listener(
+                behavior: HitTestBehavior.translucent,
+                onPointerDown: _dismissKeyboardOnBackgroundTap,
+                child: SafeArea(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(
+                        20, kToolbarHeight + 18, 20, 96),
+                    child: Container(
+                      constraints: BoxConstraints(minHeight: minCardHeight),
+                      padding: const EdgeInsets.fromLTRB(16, 18, 16, 18),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(24),
                         color: isLight
-                            ? const Color(0xFF53C1F9).withValues(alpha:  0.1)
-                            : Colors.black.withValues(alpha:  0.22),
-                        blurRadius: 16,
-                        offset: const Offset(0, 8),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      _buildProfileImagesSection(isLight: isLight),
-                      const SizedBox(height: 18),
-                      TextField(
-                        controller: _nameController,
-                        onTapOutside: (_) {},
-                        textDirection: TextDirection.rtl,
-                        textAlign: TextAlign.right,
-                        style: TextStyle(
-                            color: bodyTextColor, fontWeight: FontWeight.w600),
-                        maxLength: 20,
-                        inputFormatters: [
-                          LengthLimitingTextInputFormatter(20),
+                            ? Colors.white.withValues(alpha: 0.6)
+                            : null,
+                        gradient: isLight
+                            ? null
+                            : LinearGradient(
+                                colors: [
+                                  _cardTop.withValues(alpha: 0.94),
+                                  _cardBottom.withValues(alpha: 0.94),
+                                ],
+                                begin: Alignment.topRight,
+                                end: Alignment.bottomLeft,
+                              ),
+                        border: Border.all(
+                          color: isLight
+                              ? const Color(0xFFA9C3FF)
+                              : _accentCyan.withValues(alpha: 0.24),
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: isLight
+                                ? const Color(0xFF53C1F9).withValues(alpha: 0.1)
+                                : Colors.black.withValues(alpha: 0.22),
+                            blurRadius: 16,
+                            offset: const Offset(0, 8),
+                          ),
                         ],
-                        decoration: _fieldDecoration(
-                            isLight: isLight, label: 'שם משתמש'),
                       ),
-                      const SizedBox(height: 14),
-                      TextField(
-                        controller: _handleController,
-                        onTapOutside: (_) {},
-                        textDirection: TextDirection.rtl,
-                        textAlign: TextAlign.right,
-                        style: TextStyle(
-                            color: bodyTextColor, fontWeight: FontWeight.w600),
-                        inputFormatters: [
-                          FilteringTextInputFormatter.deny(RegExp(r'@')),
-                          FilteringTextInputFormatter.deny(RegExp(r'\s')),
-                          LengthLimitingTextInputFormatter(20),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _buildProfileImagesSection(isLight: isLight),
+                          const SizedBox(height: 18),
+                          TextField(
+                            controller: _nameController,
+                            onTapOutside: (_) {},
+                            textDirection: TextDirection.rtl,
+                            textAlign: TextAlign.right,
+                            style: TextStyle(
+                                color: bodyTextColor,
+                                fontWeight: FontWeight.w600),
+                            maxLength: 20,
+                            inputFormatters: [
+                              LengthLimitingTextInputFormatter(20),
+                            ],
+                            decoration: _fieldDecoration(
+                                isLight: isLight, label: 'שם משתמש'),
+                          ),
+                          const SizedBox(height: 14),
+                          TextField(
+                            controller: _handleController,
+                            onTapOutside: (_) {},
+                            textDirection: TextDirection.rtl,
+                            textAlign: TextAlign.right,
+                            style: TextStyle(
+                                color: bodyTextColor,
+                                fontWeight: FontWeight.w600),
+                            inputFormatters: [
+                              FilteringTextInputFormatter.deny(RegExp(r'@')),
+                              FilteringTextInputFormatter.deny(RegExp(r'\s')),
+                              LengthLimitingTextInputFormatter(20),
+                            ],
+                            maxLength: 20,
+                            decoration: _fieldDecoration(
+                                isLight: isLight,
+                                label: 'יוזר',
+                                prefixText: '@'),
+                          ),
+                          const SizedBox(height: 14),
+                          TextField(
+                            controller: _birthDateController,
+                            onTapOutside: (_) {},
+                            readOnly: true,
+                            onTap: _pickBirthDate,
+                            textDirection: TextDirection.rtl,
+                            textAlign: TextAlign.right,
+                            style: TextStyle(
+                                color: bodyTextColor,
+                                fontWeight: FontWeight.w600),
+                            decoration: _fieldDecoration(
+                              isLight: isLight,
+                              label: 'תאריך לידה',
+                              prefixIcon: Icon(
+                                Icons.calendar_month_rounded,
+                                color: isLight
+                                    ? const Color(0xFF8C62FF)
+                                    : _accentPurple,
+                                size: 20,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 18),
+                          TextField(
+                            controller: _lifeMottoController,
+                            onTapOutside: (_) {},
+                            textDirection: TextDirection.rtl,
+                            textAlign: TextAlign.right,
+                            style: TextStyle(
+                                color: bodyTextColor,
+                                fontWeight: FontWeight.w500),
+                            maxLength: 90,
+                            inputFormatters: [
+                              LengthLimitingTextInputFormatter(90),
+                            ],
+                            decoration: _fieldDecoration(
+                                isLight: isLight, label: 'משפט מפתח לחיים'),
+                          ),
+                          const SizedBox(height: 14),
+                          TextField(
+                            controller: _bioController,
+                            onTapOutside: (_) {},
+                            textDirection: TextDirection.rtl,
+                            textAlign: TextAlign.right,
+                            style: TextStyle(
+                                color: bodyTextColor,
+                                fontWeight: FontWeight.w500),
+                            keyboardType: TextInputType.multiline,
+                            minLines: 3,
+                            maxLines: 5,
+                            maxLength: 80,
+                            inputFormatters: [
+                              LengthLimitingTextInputFormatter(80),
+                            ],
+                            decoration: _fieldDecoration(
+                                isLight: isLight, label: 'תיאור משתמש'),
+                          ),
                         ],
-                        maxLength: 20,
-                        decoration: _fieldDecoration(
-                            isLight: isLight, label: 'יוזר', prefixText: '@'),
                       ),
-                      const SizedBox(height: 14),
-                      TextField(
-                        controller: _bioController,
-                        onTapOutside: (_) {},
-                        textDirection: TextDirection.rtl,
-                        textAlign: TextAlign.right,
-                        style: TextStyle(
-                            color: bodyTextColor, fontWeight: FontWeight.w500),
-                        keyboardType: TextInputType.multiline,
-                        minLines: 3,
-                        maxLines: 5,
-                        maxLength: 80,
-                        inputFormatters: [
-                          LengthLimitingTextInputFormatter(80),
-                        ],
-                        decoration: _fieldDecoration(
-                            isLight: isLight, label: 'תיאור משתמש'),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
               ),
-              ),
-            ),
-          ],
-        ),
-        bottomNavigationBar: SafeArea(
-          top: false,
-          child: Container(
-            color: Colors.transparent,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 10, 20, 14),
-              child: ElevatedButton(
-                onPressed: _isSaving ? null : _saveProfile,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: isLight ? Colors.white : _accentPurple,
-                  foregroundColor:
-                      isLight ? const Color(0xFFB79BFF) : Colors.white,
-                  side: isLight
-                      ? const BorderSide(color: Color(0xFFB79BFF), width: 1)
-                      : BorderSide.none,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16)),
+            ],
+          ),
+          bottomNavigationBar: SafeArea(
+            top: false,
+            child: Container(
+              color: Colors.transparent,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 10, 20, 14),
+                child: ElevatedButton(
+                  onPressed: _isSaving ? null : _saveProfile,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: isLight ? Colors.white : _accentPurple,
+                    foregroundColor:
+                        isLight ? const Color(0xFFB79BFF) : Colors.white,
+                    side: isLight
+                        ? const BorderSide(color: Color(0xFFB79BFF), width: 1)
+                        : BorderSide.none,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16)),
+                  ),
+                  child: _isSaving
+                      ? SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: isLight
+                                  ? const Color(0xFFB79BFF)
+                                  : Colors.white),
+                        )
+                      : Text(
+                          'שמור',
+                          style: TextStyle(
+                              color: isLight
+                                  ? const Color(0xFFB79BFF)
+                                  : Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16),
+                        ),
                 ),
-                child: _isSaving
-                    ? SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: isLight
-                                ? const Color(0xFFB79BFF)
-                                : Colors.white),
-                      )
-                    : Text(
-                        'שמור',
-                        style: TextStyle(
-                            color: isLight
-                                ? const Color(0xFFB79BFF)
-                                : Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16),
-                      ),
               ),
             ),
           ),
-        ),
         ),
       ),
     );

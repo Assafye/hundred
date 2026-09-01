@@ -3,7 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import 'delete_account_screen.dart';
-import 'edit_profile_screen.dart';
+// import 'edit_profile_screen.dart';
 import 'login_screen.dart';
 import 'notification_settings_screen.dart';
 import 'personal_details_screen.dart';
@@ -245,6 +245,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     required String title,
     required String subtitle,
     required VoidCallback onTap,
+    bool showBadge = false,
   }) {
     return InkWell(
       onTap: onTap,
@@ -261,18 +262,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
         child: Row(
           children: [
-            Container(
-              width: 44,
-              height: 44,
-              decoration: const BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: LinearGradient(
-                  colors: [Color(0xFF8C62FF), Color(0xFF46D3FF)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: const BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: LinearGradient(
+                      colors: [Color(0xFF8C62FF), Color(0xFF46D3FF)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                  ),
+                  child: Icon(icon, color: Colors.white, size: 20),
                 ),
-              ),
-              child: Icon(icon, color: Colors.white, size: 20),
+                if (showBadge)
+                  const Positioned(
+                    top: -2,
+                    right: -2,
+                    child: Icon(
+                      Icons.error_rounded,
+                      color: Colors.redAccent,
+                      size: 16,
+                    ),
+                  ),
+              ],
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -405,22 +421,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         builder: (context, snapshot) {
                           final data =
                               snapshot.data?.data() ?? <String, dynamic>{};
-                          final displayName = (data['displayName'] as String? ??
-                                  data['firstName'] as String? ??
-                                  '')
-                              .trim();
-                          final username =
-                              (data['username'] as String? ?? '').trim();
-                          final bio = (data['bio'] as String? ?? '').trim();
                           final isPrivate =
                               (data['isPrivate'] as bool?) ?? false;
-                          final allowGroupInvite =
-                              (data['allowGroupInvite'] as bool?) ?? true;
-                          final currentName = displayName.isNotEmpty
-                              ? displayName
-                              : 'הפרופיל שלי';
-                          final currentHandle =
-                              username.isNotEmpty ? username : '@user';
+                          final storedEmail = (data['backupEmail'] as String? ??
+                                  data['email'] as String? ??
+                                  '')
+                              .trim();
+                          final missingBackupEmail = storedEmail.isEmpty ||
+                              storedEmail
+                                  .endsWith('@${AuthService.phoneAuthDomain}');
 
                           return ListView(
                             padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
@@ -459,6 +468,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                       title: 'עריכת פרטים אישיים',
                                       subtitle:
                                           'טלפון, מייל ותאריך לידה עם אימות',
+                                      showBadge: missingBackupEmail,
                                       onTap: () => Navigator.of(context).push(
                                         MaterialPageRoute(
                                           builder: (_) =>
@@ -466,29 +476,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                         ),
                                       ),
                                     ),
-                                    const SizedBox(height: 10),
-                                    _navTile(
-                                      isLight: isLight,
-                                      icon: Icons.edit_rounded,
-                                      title: 'עריכת פרופיל ציבורי',
-                                      subtitle: 'שם, יוזר, ביו ותמונת פרופיל',
-                                      onTap: () => Navigator.of(context).push(
-                                        MaterialPageRoute(
-                                          builder: (_) => EditProfileScreen(
-                                            currentName: currentName,
-                                            currentHandle: currentHandle,
-                                            currentBio: bio,
-                                            currentAllowGroupInvite:
-                                                allowGroupInvite,
-                                            currentImageUrl:
-                                                (data['profilePictureUrl']
-                                                            as String? ??
-                                                        '')
-                                                    .trim(),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
+                                    // עריכת פרופיל ציבורי - מוסתר כרגע כי ניתן להגיע אליו ישירות ממסך הפרופיל
+                                    // const SizedBox(height: 10),
+                                    // _navTile(
+                                    //   isLight: isLight,
+                                    //   icon: Icons.edit_rounded,
+                                    //   title: 'עריכת פרופיל ציבורי',
+                                    //   subtitle: 'שם, יוזר, ביו ותמונת פרופיל',
+                                    //   onTap: () => Navigator.of(context).push(
+                                    //     MaterialPageRoute(
+                                    //       builder: (_) => EditProfileScreen(
+                                    //         currentName: currentName,
+                                    //         currentHandle: currentHandle,
+                                    //         currentBio: bio,
+                                    //         currentAllowGroupInvite:
+                                    //             allowGroupInvite,
+                                    //         currentImageUrl:
+                                    //             (data['profilePictureUrl']
+                                    //                         as String? ??
+                                    //                     '')
+                                    //                 .trim(),
+                                    //       ),
+                                    //     ),
+                                    //   ),
+                                    // ),
                                     const SizedBox(height: 10),
                                     _navTile(
                                       isLight: isLight,

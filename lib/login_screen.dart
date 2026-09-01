@@ -47,6 +47,7 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
   bool _showError = false;
   bool _hidePassword = true;
   bool _animateBg = false;
+  bool _isLoggingIn = false;
   String? _errorMessage;
   double? _minObservedKeyboardInset;
   double? _maxObservedKeyboardInset;
@@ -224,7 +225,7 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
         case 'network-request-failed':
           return 'אין חיבור אינטרנט או יש בעיית רשת. / No internet connection or network problem. Check your connection and try again.';
         case 'email-not-verified':
-          return 'האימייל עדיין לא אומת. / Your email has not been verified yet. Please verify it and try again.';
+          return 'החשבון עדיין לא הושלם. / Your account is not complete yet. Please finish registration.';
         case 'registration-incomplete':
           return 'החשבון עדיין לא הושלם. / Your account is not complete yet. Please finish the registration steps and try again.';
         case AuthService.ageRestrictedCode:
@@ -260,6 +261,7 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _onLoginPressed() async {
+    if (_isLoggingIn) return;
     final emailOrUsername = _usernameController.text.trim();
     final password = _passwordController.text.trim();
 
@@ -279,6 +281,10 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
     final navigator = Navigator.of(context);
     final messenger = ScaffoldMessenger.maybeOf(context);
 
+    setState(() {
+      _isLoggingIn = true;
+    });
+
     try {
       final user = await _authService.loginWithEmailOrUsername(
         emailOrUsername,
@@ -296,6 +302,7 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
 
       if (shouldBlockLogin) {
         if (!mounted) return;
+        AuthService.registrationFlowInProgress.value = true;
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(
             builder: (_) => RegisterScreen(
@@ -342,11 +349,20 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
       final shouldOpenVerificationFlow = e.code == 'registration-incomplete';
 
       if (shouldOpenVerificationFlow) {
+        final currentEmail = FirebaseAuth.instance.currentUser?.email;
+        final isInputEmail =
+            RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(emailOrUsername);
+        final resolvedEmail = currentEmail != null && currentEmail.isNotEmpty
+            ? currentEmail
+            : (isInputEmail
+                ? emailOrUsername
+                : _authService.phoneAuthEmail(emailOrUsername));
+        AuthService.registrationFlowInProgress.value = true;
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(
             builder: (_) => RegisterScreen(
               initialStep: 1,
-              prefilledEmail: FirebaseAuth.instance.currentUser?.email,
+              prefilledEmail: resolvedEmail,
               prefilledPassword: password,
             ),
           ),
@@ -393,6 +409,12 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
             duration: const Duration(seconds: 4),
           ),
         );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoggingIn = false;
+        });
       }
     }
   }
@@ -627,7 +649,12 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
       if (!mounted) return;
       if (canAccess) {
         Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const FeedScreen()),
+          MaterialPageRoute(
+            builder: (_) => const FeedScreen(
+              allowSpontaneousPrompt: true,
+              initialSpontaneousPromptDelay: Duration(seconds: 1),
+            ),
+          ),
           (route) => false,
         );
       } else {
@@ -928,7 +955,9 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
                                           ),
                                           const SizedBox(height: 24),
                                           ElevatedButton(
-                                            onPressed: _onLoginPressed,
+                                            onPressed: _isLoggingIn
+                                                ? null
+                                                : _onLoginPressed,
                                             style: ElevatedButton.styleFrom(
                                               foregroundColor: Colors.white,
                                               padding:
@@ -949,12 +978,23 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
                                                     : const Color(0xFF6978FF),
                                               ),
                                             ),
-                                            child: const Text(
-                                              'כניסה',
-                                              style: TextStyle(
-                                                  fontWeight: FontWeight.bold,
-                                                  fontSize: 16),
-                                            ),
+                                            child: _isLoggingIn
+                                                ? const SizedBox(
+                                                    width: 22,
+                                                    height: 22,
+                                                    child:
+                                                        CircularProgressIndicator(
+                                                      strokeWidth: 2.4,
+                                                      color: Colors.white,
+                                                    ),
+                                                  )
+                                                : const Text(
+                                                    'כניסה',
+                                                    style: TextStyle(
+                                                        fontWeight:
+                                                            FontWeight.bold,
+                                                        fontSize: 16),
+                                                  ),
                                           ),
                                           AnimatedSwitcher(
                                             duration: const Duration(
@@ -1445,6 +1485,7 @@ class _PostLoginSplashScreenState extends State<_PostLoginSplashScreen> {
       children: [
         const ColoredBox(color: Color(0xFF000000)),
         const FeedScreen(
+          allowSpontaneousPrompt: true,
           initialSpontaneousPromptDelay: Duration(seconds: 3),
         ),
         if (_showOverlay)

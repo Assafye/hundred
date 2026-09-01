@@ -113,6 +113,9 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
   SpontaneousChallengeTask? _activeSpontaneousTask;
   Duration _activeSpontaneousRemaining = Duration.zero;
   Timer? _spontaneousCountdownTimer;
+  // Last non-empty merged profile snapshot, so a brief Firestore listener
+  // reconnect (e.g. after a token refresh) doesn't flash the placeholder.
+  Map<String, dynamic>? _lastGoodProfileData;
   String _selectedCategoryKey = 'general';
   final Map<String, Future<String?>> _resolvedMediaFutureByPostKey = {};
   final Map<String, Future<Uint8List?>> _videoPreviewFutureByUrl = {};
@@ -1332,6 +1335,10 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
     return '@${_uid.substring(0, _uid.length > 6 ? 6 : _uid.length)}';
   }
 
+  String _lifeMotto(Map<String, dynamic> data) {
+    return _stringValue(data, const ['lifeMotto']);
+  }
+
   String _bio(Map<String, dynamic> data) {
     final bio = _stringValue(data, const ['bio']);
     return bio.isNotEmpty ? bio : 'אין תיאור פרופיל עדיין.';
@@ -1907,13 +1914,18 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
   Future<void> _openEditProfile(Map<String, dynamic> profileData) async {
     final currentImageUrl = _profileImageUrl(profileData);
     final currentImageUrls = _profileImageUrls(profileData);
+    final currentBirthDate = _stringValue(profileData, const ['birthDate']);
     await Navigator.of(context).push(
       PageRouteBuilder(
         pageBuilder: (context, animation, secondaryAnimation) =>
             EditProfileScreen(
           currentName: _displayName(profileData),
           currentHandle: _username(profileData),
-          currentBio: _bio(profileData),
+          currentBio: _bio(profileData) == 'אין תיאור פרופיל עדיין.'
+              ? ''
+              : _bio(profileData),
+          currentLifeMotto: _lifeMotto(profileData),
+          currentBirthDate: currentBirthDate,
           currentAllowGroupInvite:
               (profileData['allowGroupInvite'] as bool?) ?? true,
           currentImageUrl: currentImageUrl,
@@ -3852,6 +3864,7 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
       required int unreadCount}) {
     final displayName = _displayName(profileData);
     final username = _username(profileData);
+    final lifeMotto = _lifeMotto(profileData);
     final bio = _bio(profileData);
     final profileImageUrl = _profileImageUrl(profileData);
     final profileImageUrls = _profileImageUrls(profileData);
@@ -4056,7 +4069,11 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 24),
                 child: Text(
-                  bio,
+                  lifeMotto.isNotEmpty
+                      ? (bio != 'אין תיאור פרופיל עדיין.'
+                          ? '$lifeMotto\n$bio'
+                          : lifeMotto)
+                      : bio,
                   textAlign: TextAlign.center,
                   style: TextStyle(
                       color: isLight ? Colors.black87 : Colors.grey[400],
@@ -4734,9 +4751,15 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                         privateData: privateData,
                         publicData: publicData,
                       );
-                      final profileData = mergedProfileData.isEmpty
-                          ? fallbackProfile
-                          : mergedProfileData;
+                      if (mergedProfileData.isNotEmpty) {
+                        _lastGoodProfileData = mergedProfileData;
+                      }
+                      // Prefer the last known-good snapshot over the generic
+                      // placeholder so a momentary listener reconnect (e.g.
+                      // after a silent re-auth) doesn't flash wrong info.
+                      final profileData = mergedProfileData.isNotEmpty
+                          ? mergedProfileData
+                          : (_lastGoodProfileData ?? fallbackProfile);
                       final unreadCount = _intValue(
                         privateData,
                         const ['unreadNotificationsCount'],

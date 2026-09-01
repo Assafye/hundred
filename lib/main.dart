@@ -714,7 +714,10 @@ class _AuthenticatedAppShellState extends State<AuthenticatedAppShell> {
 
   @override
   Widget build(BuildContext context) {
-    return const FeedScreen();
+    return const FeedScreen(
+      allowSpontaneousPrompt: true,
+      initialSpontaneousPromptDelay: Duration(seconds: 1),
+    );
   }
 }
 

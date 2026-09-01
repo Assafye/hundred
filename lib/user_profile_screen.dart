@@ -529,6 +529,10 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     return '@${widget.uid.substring(0, widget.uid.length > 6 ? 6 : widget.uid.length)}';
   }
 
+  String _lifeMotto(Map<String, dynamic> data) {
+    return (data['lifeMotto'] as String? ?? '').trim();
+  }
+
   String _bio(Map<String, dynamic> data) {
     final bio = (data['bio'] as String? ?? '').trim();
     return bio.isNotEmpty ? bio : 'אין תיאור פרופיל עדיין.';
@@ -6102,6 +6106,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       {required bool canViewFriendsOnlyPosts}) {
     final displayName = _displayName(profileData);
     final username = _username(profileData);
+    final lifeMotto = _lifeMotto(profileData);
     final bio = _bio(profileData);
     final profileImageUrl = _profileImageUrl(profileData);
     final profileImageUrls = _profileImageUrls(profileData);
@@ -6375,7 +6380,11 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                         ),
                         const SizedBox(height: 12),
                         Text(
-                          bio,
+                          lifeMotto.isNotEmpty
+                              ? (bio != 'אין תיאור פרופיל עדיין.'
+                                  ? '$lifeMotto\n$bio'
+                                  : lifeMotto)
+                              : bio,
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             color: isLight ? Colors.black87 : Colors.grey[300],

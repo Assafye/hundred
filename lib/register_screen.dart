@@ -11,6 +11,7 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 
 import 'age_restrictions.dart';
+import 'login_screen.dart';
 import 'privacy_policy_dialog.dart';
 import 'services/auth_service.dart';
 import 'services/keyboard_dismiss_controller.dart';
@@ -63,6 +64,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final TextEditingController _handleController = TextEditingController();
   final TextEditingController _lifeMottoController = TextEditingController();
   final TextEditingController _bioController = TextEditingController();
+  final TextEditingController _backupEmailController = TextEditingController();
 
   final AuthService _authService = AuthService();
 
@@ -76,7 +78,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _isRegistering = false;
   bool _isCheckingUsername = false;
   bool _isUsernameTaken = false;
-  bool _hasAcceptedPrivacyPolicy = false;
+  bool _isRestoringDraft = false;
   String? _usernameAvailabilityError;
 
   Timer? _usernameDebounce;
@@ -89,6 +91,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     super.initState();
     KeyboardDismissController.suspend();
     _currentStep = widget.initialStep.clamp(0, 1);
+    _isRestoringDraft = _currentStep == 1;
     if (widget.prefilledEmail != null &&
         widget.prefilledEmail!.trim().isNotEmpty) {
       _emailController.text = widget.prefilledEmail!.trim();
@@ -99,20 +102,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
+      await _restorePendingRegistrationDraft();
+      if (!mounted) return;
       setState(() {
         _animateBg = true;
+        _isRestoringDraft = false;
       });
-
-      if (widget.prefilledEmail != null &&
-          widget.prefilledEmail!.trim().isNotEmpty) {
-        await _restorePendingRegistrationDraft();
-        final stage = await _authService.currentUserOnboardingStage();
-        if (mounted) {
-          setState(() {
-            _profileStage = _profileStageFromName(stage);
-          });
-        }
-      }
     });
   }
 
@@ -133,42 +128,66 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   Future<void> _restorePendingRegistrationDraft() async {
+    final currentUser = FirebaseAuth.instance.currentUser;
     final email = (widget.prefilledEmail ?? _emailController.text).trim();
-    if (email.isEmpty) {
+
+    Map<String, dynamic> draft = <String, dynamic>{};
+    if (currentUser != null) {
+      draft =
+          await _authService.loadPendingRegistrationDraftByUid(currentUser.uid);
+    }
+    if (draft.isEmpty && email.isNotEmpty) {
+      draft = await _authService.loadPendingRegistrationDraftByEmail(email);
+    }
+    if (draft.isEmpty) {
       return;
     }
 
-    try {
-      final draft =
-          await _authService.loadPendingRegistrationDraftByEmail(email);
-      if (!mounted || draft.isEmpty) {
-        return;
-      }
+    final firstName = (draft['firstName'] as String? ?? '').trim();
+    final lastName = (draft['lastName'] as String? ?? '').trim();
+    final displayName = (draft['displayName'] as String? ?? '').trim();
+    final username = (draft['username'] as String? ?? '').trim();
+    final birthDate = (draft['birthDate'] as String? ?? '').trim();
+    final phone = (draft['phone'] as String? ?? '').trim();
+    final lifeMotto = (draft['lifeMotto'] as String? ?? '').trim();
+    final bio = (draft['bio'] as String? ?? '').trim();
+    final stage = (draft['onboardingStage'] as String? ?? '').trim();
 
-      final firstName = (draft['firstName'] as String? ?? '').trim();
-      final lastName = (draft['lastName'] as String? ?? '').trim();
-      final birthDate = (draft['birthDate'] as String? ?? '').trim();
-      final phone = (draft['phone'] as String? ?? '').trim();
-
-      if (firstName.isNotEmpty) {
-        _firstNameController.text = firstName;
-      }
-      if (lastName.isNotEmpty) {
-        _lastNameController.text = lastName;
-      }
+    if (firstName.isNotEmpty) {
+      _firstNameController.text = firstName;
+    }
+    if (lastName.isNotEmpty) {
+      _lastNameController.text = lastName;
+    }
+    if (displayName.isNotEmpty) {
+      _displayNameController.text = displayName;
+    } else if (firstName.isNotEmpty || lastName.isNotEmpty) {
       _displayNameController.text = _normalizedName('$firstName $lastName');
-      if (birthDate.isNotEmpty) {
-        _birthDateController.text = birthDate;
-        final parsed = _parseDdMmYyyy(birthDate);
-        if (parsed != null) {
-          _birthDate = parsed;
-        }
+    }
+    if (username.isNotEmpty) {
+      _handleController.text =
+          username.startsWith('@') ? username.substring(1) : username;
+    }
+    if (lifeMotto.isNotEmpty) {
+      _lifeMottoController.text = lifeMotto;
+    }
+    if (bio.isNotEmpty) {
+      _bioController.text = bio;
+    }
+    if (birthDate.isNotEmpty) {
+      _birthDateController.text = birthDate;
+      final parsed =
+          _parseDdMmYyyy(birthDate) ?? parseStoredBirthDate(birthDate);
+      if (parsed != null) {
+        _birthDate = parsed;
+        _birthDateController.text = _formatDate(parsed);
       }
-      if (phone.isNotEmpty) {
-        _phoneController.text = phone;
-      }
-    } catch (_) {
-      // Ignore restore failures and keep the screen as-is.
+    }
+    if (phone.isNotEmpty) {
+      _phoneController.text = phone;
+    }
+    if (stage.isNotEmpty && stage != 'credentials') {
+      _profileStage = _profileStageFromName(stage);
     }
   }
 
@@ -182,19 +201,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
     final password =
         (widget.prefilledPassword ?? _passwordController.text).trim();
 
-    if (email.isEmpty || password.isEmpty) {
-      throw FirebaseAuthException(
-        code: 'session-expired',
-        message: 'לא נוצרה התחברות פעילה לחשבון זה. יש להתחבר מחדש.',
-      );
+    if (email.isNotEmpty && password.isNotEmpty) {
+      try {
+        final credential =
+            await FirebaseAuth.instance.signInWithEmailAndPassword(
+          email: email,
+          password: password,
+        );
+        return credential.user;
+      } catch (_) {}
     }
 
-    final credential = await FirebaseAuth.instance.signInWithEmailAndPassword(
-      email: email,
-      password: password,
-    );
-
-    return credential.user;
+    return null;
   }
 
   DateTime? _resolvedBirthDate() {
@@ -245,6 +263,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _handleController.dispose();
     _lifeMottoController.dispose();
     _bioController.dispose();
+    _backupEmailController.dispose();
     super.dispose();
   }
 
@@ -655,6 +674,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     String? prefixText,
     int minLines = 1,
     int maxLines = 1,
+    ValueChanged<String>? onChanged,
   }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -668,6 +688,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         minLines: minLines,
         maxLines: maxLines,
         inputFormatters: inputFormatters,
+        onChanged: onChanged,
         style:
             const TextStyle(color: _textPrimary, fontWeight: FontWeight.w500),
         decoration: _inputDecoration(label).copyWith(
@@ -960,7 +981,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
     _usernameDebounce = Timer(const Duration(milliseconds: 450), () async {
       try {
-        final isTaken = await _authService.isUsernameTaken('@$clean');
+        final currentUid = FirebaseAuth.instance.currentUser?.uid;
+        final isTaken = await _authService.isUsernameTaken(
+          '@$clean',
+          excludeUid: currentUid,
+        );
         if (!mounted || _handleController.text.trim() != clean) return;
         setState(() {
           _isCheckingUsername = false;
@@ -1068,69 +1093,331 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   Future<bool> _showProfileSummary({required DateTime birthDate}) async {
     var accepted = false;
+    final displayName = _displayNameController.text.trim();
+    final username = '@${_handleController.text.trim()}';
+    final lifeMotto = _lifeMottoController.text.trim();
+    final bio = _bioController.text.trim();
+    final birthDateStr = _formatDate(birthDate);
+
     final result = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
       builder: (dialogContext) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
-            return AlertDialog(
-              backgroundColor: const Color(0xFF1A2435),
-              title: const Text('בדיקת הפרטים',
-                  textAlign: TextAlign.right,
-                  style: TextStyle(color: _textPrimary)),
-              content: SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text('שם: ${_displayNameController.text.trim()}',
-                        textAlign: TextAlign.right,
-                        style: const TextStyle(color: _textPrimary)),
-                    Text('יוזר: @${_handleController.text.trim()}',
-                        textAlign: TextAlign.right,
-                        style: const TextStyle(color: _textPrimary)),
-                    Text('תמונות: ${_profileImages.length}',
-                        textAlign: TextAlign.right,
-                        style: const TextStyle(color: _textPrimary)),
-                    Text('תאריך לידה: ${_formatDate(birthDate)}',
-                        textAlign: TextAlign.right,
-                        style: const TextStyle(color: _textPrimary)),
-                    if (_lifeMottoController.text.trim().isNotEmpty)
-                      Text('כותרת: ${_lifeMottoController.text.trim()}',
-                          textAlign: TextAlign.right,
-                          style: const TextStyle(color: _textPrimary)),
-                    if (_bioController.text.trim().isNotEmpty)
-                      Text('תיאור: ${_bioController.text.trim()}',
-                          textAlign: TextAlign.right,
-                          style: const TextStyle(color: _textPrimary)),
-                    const SizedBox(height: 12),
-                    CheckboxListTile(
-                      value: accepted,
-                      onChanged: (value) => setDialogState(
-                        () => accepted = value ?? false,
-                      ),
-                      controlAffinity: ListTileControlAffinity.leading,
-                      title: const Text(
-                        'אני מאשר/ת את תנאי השימוש ומדיניות הפרטיות',
-                        textAlign: TextAlign.right,
-                        style: TextStyle(color: _textSecondary, fontSize: 13),
-                      ),
+            return Directionality(
+              textDirection: TextDirection.rtl,
+              child: Dialog(
+                backgroundColor: Colors.transparent,
+                insetPadding:
+                    const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+                child: Container(
+                  constraints: const BoxConstraints(maxWidth: 420),
+                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(28),
+                    gradient: const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [Color(0xFF1B263B), Color(0xFF101726)],
                     ),
-                  ],
+                    border: Border.all(
+                      color: _accent.withValues(alpha: 0.25),
+                      width: 1.2,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.4),
+                        blurRadius: 32,
+                        offset: const Offset(0, 16),
+                      ),
+                    ],
+                  ),
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.person_outline_rounded,
+                                    color: _accent, size: 22),
+                                SizedBox(width: 8),
+                                Text(
+                                  'פרופיל משתמש',
+                                  style: TextStyle(
+                                    color: _textPrimary,
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            IconButton(
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                              onPressed: () =>
+                                  Navigator.of(dialogContext).pop(false),
+                              icon: const Icon(Icons.close_rounded,
+                                  color: _textSecondary, size: 22),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        const Text(
+                          'אלו פרטי הפרופיל שלך, ניתן לערוך אותם בכל עת מתוך האפליקציה.',
+                          textAlign: TextAlign.right,
+                          style: TextStyle(
+                            color: _textSecondary,
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w500,
+                            height: 1.35,
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        // Preview Card container
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 16),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF131D2F),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: _accent.withValues(alpha: 0.15),
+                              width: 0.9,
+                            ),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              // Avatar / Images row
+                              if (_profileImages.isNotEmpty) ...[
+                                SizedBox(
+                                  height: 84,
+                                  child: Center(
+                                    child: ListView.separated(
+                                      shrinkWrap: true,
+                                      scrollDirection: Axis.horizontal,
+                                      itemCount: _profileImages.length,
+                                      separatorBuilder: (_, __) =>
+                                          const SizedBox(width: 8),
+                                      itemBuilder: (context, index) {
+                                        final isPrimary = index == 0;
+                                        return Container(
+                                          width: isPrimary ? 80 : 64,
+                                          height: isPrimary ? 80 : 64,
+                                          decoration: BoxDecoration(
+                                            shape: BoxShape.circle,
+                                            border: Border.all(
+                                              color: isPrimary
+                                                  ? _accent
+                                                  : _primary.withValues(
+                                                      alpha: 0.5),
+                                              width: isPrimary ? 2.2 : 1.2,
+                                            ),
+                                          ),
+                                          child: ClipOval(
+                                            child: kIsWeb
+                                                ? Image.network(
+                                                    _profileImages[index].path,
+                                                    fit: BoxFit.cover,
+                                                  )
+                                                : Image.file(
+                                                    File(_profileImages[index]
+                                                        .path),
+                                                    fit: BoxFit.cover,
+                                                  ),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                              ],
+                              Text(
+                                displayName,
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  color: _textPrimary,
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                username,
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  color: _accent,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const Icon(
+                                    Icons.cake_outlined,
+                                    color: _textSecondary,
+                                    size: 15,
+                                  ),
+                                  const SizedBox(width: 5),
+                                  Text(
+                                    birthDateStr,
+                                    style: const TextStyle(
+                                      color: _textSecondary,
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              if (lifeMotto.isNotEmpty || bio.isNotEmpty) ...[
+                                const SizedBox(height: 12),
+                                Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 12, vertical: 10),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF0F1726),
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(
+                                      color: _accent.withValues(alpha: 0.1),
+                                    ),
+                                  ),
+                                  child: Text(
+                                    lifeMotto.isNotEmpty
+                                        ? (bio.isNotEmpty
+                                            ? '$lifeMotto\n$bio'
+                                            : lifeMotto)
+                                        : bio,
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(
+                                      color: _textPrimary,
+                                      fontSize: 13,
+                                      height: 1.4,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        // Terms & Privacy checkbox with links
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Checkbox(
+                              value: accepted,
+                              fillColor: const WidgetStatePropertyAll(_primary),
+                              checkColor: Colors.white,
+                              onChanged: (value) => setDialogState(
+                                () => accepted = value ?? false,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Padding(
+                                padding: const EdgeInsets.only(top: 10),
+                                child: Wrap(
+                                  alignment: WrapAlignment.start,
+                                  crossAxisAlignment: WrapCrossAlignment.center,
+                                  children: [
+                                    const Text(
+                                      'קראתי את ',
+                                      style: TextStyle(
+                                        color: _textSecondary,
+                                        fontSize: 12.5,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                    GestureDetector(
+                                      onTap: () =>
+                                          showPrivacyPolicyDialog(context),
+                                      child: const Text(
+                                        'מדיניות הפרטיות',
+                                        style: TextStyle(
+                                          color: _accent,
+                                          fontSize: 12.5,
+                                          fontWeight: FontWeight.w700,
+                                          decoration: TextDecoration.underline,
+                                          decorationColor: _accent,
+                                        ),
+                                      ),
+                                    ),
+                                    const Text(
+                                      ' ואת ',
+                                      style: TextStyle(
+                                        color: _textSecondary,
+                                        fontSize: 12.5,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                    GestureDetector(
+                                      onTap: () =>
+                                          showTermsOfUseDialog(context),
+                                      child: const Text(
+                                        'תנאי השימוש',
+                                        style: TextStyle(
+                                          color: _accent,
+                                          fontSize: 12.5,
+                                          fontWeight: FontWeight.w700,
+                                          decoration: TextDecoration.underline,
+                                          decorationColor: _accent,
+                                        ),
+                                      ),
+                                    ),
+                                    const Text(
+                                      ' ואני מאשר/ת אותם',
+                                      style: TextStyle(
+                                        color: _textSecondary,
+                                        fontSize: 12.5,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton(
+                            onPressed: accepted
+                                ? () => Navigator.of(dialogContext).pop(true)
+                                : null,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: _primary,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              elevation: 0,
+                            ),
+                            child: const Text(
+                              'צור חשבון',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(false),
-                  child: const Text('חזרה'),
-                ),
-                ElevatedButton(
-                  onPressed: accepted
-                      ? () => Navigator.of(dialogContext).pop(true)
-                      : null,
-                  child: const Text('צור חשבון'),
-                ),
-              ],
             );
           },
         );
@@ -1139,8 +1426,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
     return result == true;
   }
 
-  Future<void> _offerBackupEmail() async {
-    final emailController = TextEditingController();
+  /// Offers adding a backup email and waits for the user to confirm the
+  /// verification link before continuing. Returns true if the confirmation
+  /// forced a session re-login (registration must resume after login).
+  Future<bool> _offerBackupEmail() async {
+    _backupEmailController.clear();
     final wantsEmail = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
@@ -1158,7 +1448,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             ),
             const SizedBox(height: 14),
             TextField(
-              controller: emailController,
+              controller: _backupEmailController,
               keyboardType: TextInputType.emailAddress,
               textDirection: TextDirection.rtl,
               decoration: _inputDecoration('מייל גיבוי'),
@@ -1177,27 +1467,122 @@ class _RegisterScreenState extends State<RegisterScreen> {
         ],
       ),
     );
-    final email = emailController.text.trim();
-    emailController.dispose();
-    if (!mounted || wantsEmail != true || email.isEmpty) return;
+    final email = _backupEmailController.text.trim();
+    if (!mounted || wantsEmail != true || email.isEmpty) return false;
 
     try {
       await _authService.linkBackupEmailCredential(
         email: email,
         password: _passwordController.text.trim(),
       );
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('שלחנו מייל אימות. ניתן להשלים את האימות דרך ההגדרות.'),
-        ),
-      );
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted) return false;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('לא הצלחנו להוסיף מייל גיבוי: $error')),
       );
+      return false;
     }
+
+    if (!mounted) return false;
+    return _awaitBackupEmailConfirmation(email);
+  }
+
+  Future<bool> _awaitBackupEmailConfirmation(String email) async {
+    var isChecking = false;
+    String? dialogError;
+
+    final result = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              backgroundColor: const Color(0xFF1A2435),
+              title: const Text('אימות כתובת מייל',
+                  textAlign: TextAlign.right,
+                  style: TextStyle(color: _textPrimary)),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    'בדוק בתיבת הדואר ובספאם בכתובת:\n$email\nיש ללחוץ על הקישור שבמייל ואז ללחוץ "אימתתי".',
+                    textAlign: TextAlign.right,
+                    style: const TextStyle(color: _textSecondary),
+                  ),
+                  if (dialogError != null) ...[
+                    const SizedBox(height: 10),
+                    Text(
+                      dialogError!,
+                      textAlign: TextAlign.right,
+                      style: const TextStyle(
+                          color: Colors.redAccent, fontSize: 12.5),
+                    ),
+                  ],
+                  if (isChecking) ...[
+                    const SizedBox(height: 10),
+                    const Center(
+                      child: SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isChecking
+                      ? null
+                      : () => Navigator.of(dialogContext).pop('skip'),
+                  child: const Text('דילוג'),
+                ),
+                ElevatedButton(
+                  onPressed: isChecking
+                      ? null
+                      : () async {
+                          setDialogState(() {
+                            isChecking = true;
+                            dialogError = null;
+                          });
+                          try {
+                            final confirmation = await _authService
+                                .confirmBackupEmail(expectedEmail: email);
+                            if (!context.mounted) return;
+                            switch (confirmation) {
+                              case BackupEmailConfirmationResult.confirmed:
+                                Navigator.of(dialogContext).pop('confirmed');
+                              case BackupEmailConfirmationResult
+                                    .requiresRelogin:
+                                Navigator.of(dialogContext).pop('relogin');
+                              case BackupEmailConfirmationResult.pending:
+                                setDialogState(() {
+                                  isChecking = false;
+                                  dialogError =
+                                      'עדיין לא זיהינו אימות של המייל. יש ללחוץ על הקישור שנשלח אליך ולנסות שוב.';
+                                });
+                            }
+                          } catch (e) {
+                            if (context.mounted) {
+                              setDialogState(() {
+                                isChecking = false;
+                                dialogError = 'אירעה שגיאה בבדיקה: $e';
+                              });
+                            }
+                          }
+                        },
+                  child: const Text('אימתתי'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    return result == 'relogin';
   }
 
   Future<void> _continueProfileStage() async {
@@ -1211,24 +1596,51 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
     if (_profileStage == 2 && _resolvedBirthDate() == null) return;
 
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
-    final stages = const <String>['username', 'images', 'birth_date', 'bio'];
-    final data = <String, dynamic>{
-      if (_handleController.text.trim().isNotEmpty)
-        'username': '@${_handleController.text.trim()}',
-      if (_displayNameController.text.trim().isNotEmpty)
-        'displayName': _displayNameController.text.trim(),
-      if (_resolvedBirthDate() != null)
-        'birthDate': _formatDate(_resolvedBirthDate()!),
-      'lifeMotto': _lifeMottoController.text.trim(),
-      'bio': _bioController.text.trim(),
-    };
     setState(() => _isRegistering = true);
     try {
+      final user = await _ensureAuthenticatedForRegistration();
+      if (user == null) {
+        throw FirebaseAuthException(
+          code: 'session-expired',
+          message: 'יש להתחבר מחדש כדי להמשיך.',
+        );
+      }
+
+      if (_profileStage == 0) {
+        final clean = _handleController.text.trim();
+        final isTaken = await _authService.isUsernameTaken(
+          '@$clean',
+          excludeUid: user.uid,
+        );
+        if (isTaken) {
+          setState(() {
+            _isUsernameTaken = true;
+            _usernameAvailabilityError = 'היוזר תפוס';
+          });
+          _profileFormKey.currentState?.validate();
+          return;
+        }
+      }
+
+      final stages = const <String>['username', 'images', 'birth_date', 'bio'];
+      final data = <String, dynamic>{
+        if (_handleController.text.trim().isNotEmpty) ...{
+          'username': '@${_handleController.text.trim()}',
+          'usernameLowercase':
+              '@${_handleController.text.trim().toLowerCase()}',
+        },
+        if (_displayNameController.text.trim().isNotEmpty)
+          'displayName': _displayNameController.text.trim(),
+        if (_resolvedBirthDate() != null)
+          'birthDate': _formatDate(_resolvedBirthDate()!),
+        'lifeMotto': _lifeMottoController.text.trim(),
+        'bio': _bioController.text.trim(),
+      };
+
+      final nextStageIndex = (_profileStage + 1).clamp(0, stages.length - 1);
       await _authService.saveOnboardingCheckpoint(
         user.uid,
-        stage: stages[_profileStage + 1],
+        stage: stages[nextStageIndex],
         data: data,
       );
       if (!mounted) return;
@@ -1298,7 +1710,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
       }
 
       Future<bool> checkUsernameTakenWithRecovery() async {
-        return _authService.isUsernameTaken(usernameForStorage);
+        final currentUid = FirebaseAuth.instance.currentUser?.uid;
+        return _authService.isUsernameTaken(
+          usernameForStorage,
+          excludeUid: currentUid,
+        );
       }
 
       final isTaken = await checkUsernameTakenWithRecovery();
@@ -1345,7 +1761,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
       await completeRegistrationWithRecovery();
 
-      await _offerBackupEmail();
+      final requiresRelogin = await _offerBackupEmail();
+      if (requiresRelogin && mounted) {
+        // Rare fallback (no cached password for silent re-auth): the email
+        // was still verified successfully, just keep the normal success +
+        // explainer sequence below instead of skipping straight to login.
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('המייל אומת בהצלחה!'),
+          ),
+        );
+      }
 
       // Firebase Auth signs in automatically on account creation.
       // Sign out so the user returns to login instead of being routed to feed.
@@ -1572,6 +1998,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
       debugPrint('[RegisterScreen][_onRegisterPressed] error: $e');
       debugPrint(
           '[RegisterScreen][_onRegisterPressed] stackTrace: $stackTrace');
+      // Safety net: avoid leaving the app stuck on the neutral splash screen
+      // if an unexpected error occurs after the profile was already created.
+      AuthService.registrationFlowInProgress.value = false;
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(_registrationErrorMessage(e))),
@@ -1585,101 +2014,136 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
   }
 
-  Widget _buildPrivacyPolicyAcceptance() {
-    return Padding(
-      padding: const EdgeInsets.only(top: 8, bottom: 12),
-      child: Align(
-        alignment: Alignment.centerRight,
-        child: Row(
-          mainAxisSize: MainAxisSize.max,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          textDirection: TextDirection.rtl,
-          children: [
-            Checkbox(
-              value: _hasAcceptedPrivacyPolicy,
-              fillColor: const WidgetStatePropertyAll(_primary),
-              checkColor: Colors.white,
-              onChanged: (value) {
-                setState(() {
-                  _hasAcceptedPrivacyPolicy = value ?? false;
-                });
-              },
-            ),
-            const SizedBox(width: 2),
-            Flexible(
-              child: Directionality(
-                textDirection: TextDirection.rtl,
-                child: Wrap(
-                  alignment: WrapAlignment.start,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  textDirection: TextDirection.rtl,
-                  children: [
-                    const Text(
-                      'קראתי את ',
-                      textAlign: TextAlign.right,
-                      style: TextStyle(
-                        color: _textSecondary,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    GestureDetector(
-                      onTap: () => showPrivacyPolicyDialog(context),
-                      child: const Text(
-                        'מדיניות הפרטיות',
-                        textAlign: TextAlign.right,
-                        style: TextStyle(
-                          color: _accent,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                          decoration: TextDecoration.underline,
-                          decorationColor: _accent,
-                        ),
-                      ),
-                    ),
-                    const Text(
-                      ' ואת ',
-                      textAlign: TextAlign.right,
-                      style: TextStyle(
-                        color: _textSecondary,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    GestureDetector(
-                      onTap: () => showTermsOfUseDialog(context),
-                      child: const Text(
-                        'תנאי השימוש',
-                        textAlign: TextAlign.right,
-                        style: TextStyle(
-                          color: _accent,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                          decoration: TextDecoration.underline,
-                          decorationColor: _accent,
-                        ),
-                      ),
-                    ),
-                    const Text(
-                      ' ואני מאשר/ת אותם',
-                      textAlign: TextAlign.right,
-                      style: TextStyle(
-                        color: _textSecondary,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
+  bool _isStageFilled(int stage) {
+    switch (stage) {
+      case 0:
+        return _handleController.text.trim().length >= 3 && !_isUsernameTaken;
+      case 1:
+        return _profileImages.isNotEmpty;
+      case 2:
+        return _resolvedBirthDate() != null;
+      case 3:
+        return _lifeMottoController.text.trim().isNotEmpty ||
+            _bioController.text.trim().isNotEmpty;
+      default:
+        return false;
+    }
+  }
+
+  void _onStageTap(int targetStage) {
+    if (_isRegistering || targetStage == _profileStage) return;
+    if (targetStage < _profileStage) {
+      setState(() => _profileStage = targetStage);
+      return;
+    }
+    final formState = _profileFormKey.currentState;
+    if (formState != null && !formState.validate()) return;
+    if (_profileStage == 1 && _profileImages.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('יש לבחור לפחות תמונת פרופיל אחת.')),
+      );
+      return;
+    }
+    if (_profileStage == 2 && _resolvedBirthDate() == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('יש לבחור תאריך לידה.')),
+      );
+      return;
+    }
+    setState(() => _profileStage = targetStage);
   }
 
   Widget _buildStepHeader() {
+    if (_currentStep == 1) {
+      const stageTitles = ['יוזר', 'תמונות', 'תאריך לידה', 'אודות'];
+      final stageIcons = <IconData>[
+        Icons.alternate_email_rounded,
+        Icons.photo_library_rounded,
+        Icons.calendar_month_rounded,
+        Icons.person_rounded,
+      ];
+
+      Widget stageDot({
+        required int stage,
+        required String title,
+        required IconData icon,
+      }) {
+        final isActive = _profileStage == stage;
+        final isFilled = _isStageFilled(stage);
+        return Expanded(
+          child: InkWell(
+            onTap: () => _onStageTap(stage),
+            borderRadius: BorderRadius.circular(16),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Column(
+                children: [
+                  Container(
+                    width: 34,
+                    height: 34,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: isActive
+                          ? _accent
+                          : (isFilled ? _primary : const Color(0xFF2D386E)),
+                      boxShadow: isActive
+                          ? [
+                              BoxShadow(
+                                color: _accent.withValues(alpha: 0.32),
+                                blurRadius: 12,
+                                spreadRadius: 0.8,
+                              ),
+                            ]
+                          : null,
+                    ),
+                    child: Center(
+                      child: isFilled
+                          ? const Icon(
+                              Icons.check_rounded,
+                              color: Colors.white,
+                              size: 18,
+                            )
+                          : Icon(
+                              icon,
+                              color: Colors.white,
+                              size: 16,
+                            ),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    title,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: isActive
+                          ? _accent
+                          : (isFilled ? _textPrimary : _textSecondary),
+                      fontSize: 11,
+                      fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      }
+
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 16),
+        child: Row(
+          children: [
+            for (var i = 0; i < stageTitles.length; i++)
+              stageDot(
+                stage: i,
+                title: stageTitles[i],
+                icon: stageIcons[i],
+              ),
+          ],
+        ),
+      );
+    }
+
     Widget stepDot({
       required int step,
       required String title,
@@ -2009,7 +2473,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           if (_profileStage == 1) ...[
             const SizedBox(height: 6),
             const Text(
-              'אלו התמונות שיופיעו בפרופיל שלך.',
+              'אפשר לבחור עד 6 תמונות פרופיל!',
               textAlign: TextAlign.right,
               style: TextStyle(color: _textSecondary, fontSize: 12.5),
             ),
@@ -2090,6 +2554,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             _buildField(
               controller: _lifeMottoController,
               label: 'משפט מפתח לחיים (אופציונלי)',
+              onChanged: (_) => setState(() {}),
               validator: (v) {
                 if (v != null && v.trim().length > 90) {
                   return 'עד 90 תווים';
@@ -2110,6 +2575,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               label: 'כמה מילים שיעזרו לאנשים ללמוד עליך',
               maxLines: 4,
               minLines: 3,
+              onChanged: (_) => setState(() {}),
               validator: (v) {
                 if (v != null && v.trim().length > 350) {
                   return 'עד 350 תווים';
@@ -2178,213 +2644,264 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
   }
 
+  Future<void> _exitToLogin() async {
+    await _authService.endPendingRegistrationFlow(signOut: true);
+    if (!mounted) return;
+    if (widget.onExitToLogin != null) {
+      widget.onExitToLogin!();
+    } else {
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+        (route) => false,
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
     final orbSizeA = (screenWidth * 0.8).clamp(230.0, 310.0);
     final orbSizeB = (screenWidth * 0.92).clamp(260.0, 360.0);
-    return SwipeBackWrapper(
-      child: Scaffold(
-        backgroundColor: _bgBottom,
-        body: SafeArea(
-          child: Listener(
-            behavior: HitTestBehavior.translucent,
-            onPointerDown: _dismissKeyboardOnBackgroundTap,
-            child: Stack(
-              children: [
-                Positioned.fill(
-                  child: AnimatedContainer(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        if (_currentStep == 1 && _profileStage > 0) {
+          setState(() {
+            _profileStage -= 1;
+          });
+        } else {
+          _exitToLogin();
+        }
+      },
+      child: SwipeBackWrapper(
+        child: Scaffold(
+          backgroundColor: _bgBottom,
+          body: SafeArea(
+            child: Listener(
+              behavior: HitTestBehavior.translucent,
+              onPointerDown: _dismissKeyboardOnBackgroundTap,
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                    child: AnimatedContainer(
+                      duration: const Duration(seconds: 8),
+                      curve: Curves.easeInOut,
+                      onEnd: _toggleBgAnimation,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: _animateBg
+                              ? Alignment.topLeft
+                              : Alignment.topRight,
+                          end: _animateBg
+                              ? Alignment.bottomRight
+                              : Alignment.bottomLeft,
+                          colors: const [_bgTop, Color(0xFF0E1627), _bgBottom],
+                        ),
+                      ),
+                    ),
+                  ),
+                  AnimatedPositioned(
                     duration: const Duration(seconds: 8),
                     curve: Curves.easeInOut,
-                    onEnd: _toggleBgAnimation,
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin:
-                            _animateBg ? Alignment.topLeft : Alignment.topRight,
-                        end: _animateBg
-                            ? Alignment.bottomRight
-                            : Alignment.bottomLeft,
-                        colors: const [_bgTop, Color(0xFF0E1627), _bgBottom],
+                    top: _animateBg ? -130 : -95,
+                    left: _animateBg ? -95 : -55,
+                    child: Container(
+                      width: orbSizeA,
+                      height: orbSizeA,
+                      decoration: const BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: RadialGradient(
+                          colors: [Color(0x3853D9FF), Color(0x0053D9FF)],
+                        ),
                       ),
                     ),
                   ),
-                ),
-                AnimatedPositioned(
-                  duration: const Duration(seconds: 8),
-                  curve: Curves.easeInOut,
-                  top: _animateBg ? -130 : -95,
-                  left: _animateBg ? -95 : -55,
-                  child: Container(
-                    width: orbSizeA,
-                    height: orbSizeA,
-                    decoration: const BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: RadialGradient(
-                        colors: [Color(0x3853D9FF), Color(0x0053D9FF)],
+                  AnimatedPositioned(
+                    duration: const Duration(seconds: 8),
+                    curve: Curves.easeInOut,
+                    bottom: _animateBg ? -155 : -115,
+                    right: _animateBg ? -110 : -65,
+                    child: Container(
+                      width: orbSizeB,
+                      height: orbSizeB,
+                      decoration: const BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: RadialGradient(
+                          colors: [Color(0x3B7B79FF), Color(0x007B79FF)],
+                        ),
                       ),
                     ),
                   ),
-                ),
-                AnimatedPositioned(
-                  duration: const Duration(seconds: 8),
-                  curve: Curves.easeInOut,
-                  bottom: _animateBg ? -155 : -115,
-                  right: _animateBg ? -110 : -65,
-                  child: Container(
-                    width: orbSizeB,
-                    height: orbSizeB,
-                    decoration: const BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: RadialGradient(
-                        colors: [Color(0x3B7B79FF), Color(0x007B79FF)],
-                      ),
-                    ),
-                  ),
-                ),
-                ListView(
-                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.fromLTRB(18, 22, 18, 20),
-                      decoration: BoxDecoration(
-                        color: const Color(0xD0121A2B),
-                        borderRadius: BorderRadius.circular(30),
-                        border: Border.all(
-                            color: _accent.withValues(alpha: 0.12), width: 0.8),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.24),
-                            blurRadius: 28,
-                            offset: const Offset(0, 14),
-                          ),
-                        ],
-                      ),
-                      child: Column(
-                        children: [
-                          const Text(
-                            'הרשמה',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: _textPrimary,
-                              fontSize: 30,
-                              fontWeight: FontWeight.w700,
+                  ListView(
+                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.fromLTRB(18, 22, 18, 20),
+                        decoration: BoxDecoration(
+                          color: const Color(0xD0121A2B),
+                          borderRadius: BorderRadius.circular(30),
+                          border: Border.all(
+                              color: _accent.withValues(alpha: 0.12),
+                              width: 0.8),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.24),
+                              blurRadius: 28,
+                              offset: const Offset(0, 14),
                             ),
-                          ),
-                          const SizedBox(height: 10),
-                          if (_currentStep == 0)
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                const Text(
-                                  'אם כבר יש לך משתמש - ',
-                                  style: TextStyle(
-                                      color: _textSecondary,
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w400),
-                                ),
-                                InkWell(
-                                  onTap: () => Navigator.of(context).pop(),
-                                  child: const Text(
-                                    'התחבר',
+                          ],
+                        ),
+                        child: Column(
+                          children: [
+                            const Text(
+                              'הרשמה',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: _textPrimary,
+                                fontSize: 30,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            if (_currentStep == 0)
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const Text(
+                                    'אם כבר יש לך משתמש - ',
                                     style: TextStyle(
-                                      color: _accent,
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w700,
+                                        color: _textSecondary,
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w400),
+                                  ),
+                                  InkWell(
+                                    onTap: _exitToLogin,
+                                    child: const Text(
+                                      'התחבר',
+                                      style: TextStyle(
+                                        color: _accent,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            const SizedBox(height: 14),
+                            _buildStepHeader(),
+                            if (_isRestoringDraft)
+                              const Padding(
+                                padding: EdgeInsets.symmetric(vertical: 40),
+                                child: Center(
+                                  child: SizedBox(
+                                    width: 28,
+                                    height: 28,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2.2,
+                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                          _accent),
                                     ),
                                   ),
                                 ),
-                              ],
-                            ),
-                          const SizedBox(height: 14),
-                          _buildStepHeader(),
-                          if (_currentStep == 0)
-                            _buildDetailsStep()
-                          else
-                            _buildProfileStep(),
-                          if (_currentStep == 1 && _profileStage == 3)
-                            _buildPrivacyPolicyAcceptance(),
-                          const SizedBox(height: 8),
-                          SizedBox(
-                            width: double.infinity,
-                            child: ElevatedButton(
-                              onPressed: _isRegistering
-                                  ? null
-                                  : (_currentStep == 0
-                                      ? _continueFromDetailsStep
-                                      : (_profileStage < 3
-                                          ? _continueProfileStage
-                                          : _onRegisterPressed)),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: _primary,
-                                foregroundColor: Colors.white,
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 16),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(20),
-                                ),
-                                elevation: 0,
-                              ),
-                              child: _isRegistering
-                                  ? const SizedBox(
-                                      width: 20,
-                                      height: 20,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        valueColor:
-                                            AlwaysStoppedAnimation<Color>(
-                                                Colors.white),
-                                      ),
-                                    )
-                                  : Text(
-                                      _currentStep == 0
-                                          ? 'המשך'
+                              )
+                            else ...[
+                              if (_currentStep == 0)
+                                _buildDetailsStep()
+                              else
+                                _buildProfileStep(),
+                              const SizedBox(height: 8),
+                              SizedBox(
+                                width: double.infinity,
+                                child: ElevatedButton(
+                                  onPressed: _isRegistering
+                                      ? null
+                                      : (_currentStep == 0
+                                          ? _continueFromDetailsStep
                                           : (_profileStage < 3
-                                              ? 'המשך'
-                                              : 'צור חשבון'),
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 16,
-                                      ),
+                                              ? _continueProfileStage
+                                              : _onRegisterPressed)),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: _primary,
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(
+                                        vertical: 16),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(20),
                                     ),
-                            ),
-                          ),
-                          if (_currentStep == 1)
-                            if (widget.onExitToLogin == null)
-                              TextButton(
-                                onPressed: _isRegistering
-                                    ? null
-                                    : () {
-                                        setState(() {
-                                          _currentStep = 0;
-                                        });
-                                      },
-                                child: const Text(
-                                  'חזרה לשלב הקודם',
-                                  style: TextStyle(color: _textSecondary),
+                                    elevation: 0,
+                                  ),
+                                  child: _isRegistering
+                                      ? const SizedBox(
+                                          width: 20,
+                                          height: 20,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            valueColor:
+                                                AlwaysStoppedAnimation<Color>(
+                                                    Colors.white),
+                                          ),
+                                        )
+                                      : Text(
+                                          _currentStep == 0
+                                              ? 'המשך'
+                                              : (_profileStage < 3
+                                                  ? 'המשך'
+                                                  : 'צור חשבון'),
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 16,
+                                          ),
+                                        ),
                                 ),
                               ),
-                        ],
+                              if (_currentStep == 1 && _profileStage > 0)
+                                TextButton(
+                                  onPressed: _isRegistering
+                                      ? null
+                                      : () {
+                                          setState(() {
+                                            _profileStage -= 1;
+                                          });
+                                        },
+                                  child: const Text(
+                                    'חזרה לשלב הקודם',
+                                    style: TextStyle(color: _textSecondary),
+                                  ),
+                                ),
+                            ],
+                          ],
+                        ),
                       ),
-                    ),
-                  ],
-                ),
-                Positioned(
-                  top: 2,
-                  right: 6,
-                  child: Material(
-                    color: Colors.transparent,
-                    child: IconButton(
-                      onPressed: widget.onExitToLogin ??
-                          () => Navigator.of(context).maybePop(),
-                      icon: const Icon(
-                        Icons.arrow_back_rounded,
-                        color: _textPrimary,
+                    ],
+                  ),
+                  Positioned(
+                    top: 2,
+                    right: 6,
+                    child: Material(
+                      color: Colors.transparent,
+                      child: IconButton(
+                        onPressed: _isRegistering
+                            ? null
+                            : () {
+                                if (_currentStep == 1 && _profileStage > 0) {
+                                  setState(() {
+                                    _profileStage -= 1;
+                                  });
+                                } else {
+                                  _exitToLogin();
+                                }
+                              },
+                        icon: const Icon(
+                          Icons.arrow_back_rounded,
+                          color: _textPrimary,
+                        ),
+                        tooltip: 'חזרה',
                       ),
-                      tooltip: 'חזרה',
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),

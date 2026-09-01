@@ -1,12 +1,14 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
-import 'age_restrictions.dart';
 import 'services/auth_service.dart';
 import 'services/keyboard_dismiss_controller.dart';
+import 'login_screen.dart';
 import 'widgets/swipe_back_wrapper.dart';
 
 class PersonalDetailsScreen extends StatefulWidget {
@@ -25,15 +27,12 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
   final AuthService _authService = AuthService();
   final TextEditingController _phoneController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
-  final TextEditingController _emailPasswordController =
-      TextEditingController();
-  final TextEditingController _birthDateController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
 
   bool _isLoading = true;
   bool _isSaving = false;
+  bool _isEmailVerified = false;
   String _currentEmail = '';
-  DateTime? _birthDate;
 
   @override
   void initState() {
@@ -47,8 +46,6 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
     KeyboardDismissController.resume();
     _phoneController.dispose();
     _emailController.dispose();
-    _emailPasswordController.dispose();
-    _birthDateController.dispose();
     super.dispose();
   }
 
@@ -88,35 +85,30 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
     final data = snapshot.data() ?? <String, dynamic>{};
     final phone = (data['phone'] as String? ?? '').trim();
     final authEmail = (user.email ?? '').trim();
+    final storedBackupEmail = (data['backupEmail'] as String? ?? '').trim();
     final storedEmail = (data['email'] as String? ?? '').trim();
     final isSyntheticEmail =
         authEmail.endsWith('@${AuthService.phoneAuthDomain}');
-    final email = isSyntheticEmail
-        ? ''
-        : (authEmail.isNotEmpty ? authEmail : storedEmail);
-    final birthDateRaw = (data['birthDate'] as String? ?? '').trim();
-    DateTime? birthDate;
-    if (birthDateRaw.isNotEmpty) {
-      birthDate = parseStoredBirthDate(birthDateRaw);
-    }
+    final effectiveRealEmail = !isSyntheticEmail && authEmail.isNotEmpty
+        ? authEmail
+        : (storedBackupEmail.isNotEmpty
+            ? storedBackupEmail
+            : (storedEmail.isNotEmpty &&
+                    !storedEmail.endsWith('@${AuthService.phoneAuthDomain}')
+                ? storedEmail
+                : ''));
+    final isBackupVerified = data['backupEmailVerified'] == true;
+    final isEmailVerified = effectiveRealEmail.isNotEmpty &&
+        (isBackupVerified || (!isSyntheticEmail && user.emailVerified));
 
     if (!mounted) return;
     setState(() {
-      _currentEmail = email;
-      _birthDate = birthDate;
+      _currentEmail = effectiveRealEmail;
+      _isEmailVerified = isEmailVerified;
       _phoneController.text = phone;
-      _emailController.text = email;
-      _birthDateController.text =
-          birthDate == null ? '' : _formatDate(birthDate);
+      _emailController.text = effectiveRealEmail;
       _isLoading = false;
     });
-  }
-
-  String _formatDate(DateTime value) {
-    final day = value.day.toString().padLeft(2, '0');
-    final month = value.month.toString().padLeft(2, '0');
-    final year = value.year.toString();
-    return '$day/$month/$year';
   }
 
   InputDecoration _fieldDecoration({
@@ -161,40 +153,263 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
     );
   }
 
-  Future<void> _pickBirthDate() async {
-    final latestBirthDate = latestEligibleBirthDate();
-    final storedBirthDate = _birthDate;
-    final initialDate =
-        storedBirthDate != null && isAtLeastMinimumAge(storedBirthDate)
-            ? storedBirthDate
-            : latestBirthDate;
-    final picked = await showDatePicker(
+  Future<String?> _showEmailVerificationDialog({
+    required String email,
+  }) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return null;
+
+    var isChecking = false;
+    var isResending = false;
+    String? dialogError;
+    var resendAvailableAt = DateTime.now().add(const Duration(seconds: 45));
+    Timer? resendTimer;
+
+    final result = await showDialog<String>(
       context: context,
-      initialDate: initialDate,
-      firstDate: DateTime(1900),
-      lastDate: latestBirthDate,
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: ColorScheme.fromSeed(
-              seedColor: _accentPurple,
-              primary: _accentPurple,
-              secondary: _accentCyan,
-              surface: const Color(0xFF101826),
-            ),
-            dialogTheme:
-                const DialogThemeData(backgroundColor: Color(0xFF101826)),
-          ),
-          child: child ?? const SizedBox.shrink(),
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final remainingSeconds =
+                resendAvailableAt.difference(DateTime.now()).inSeconds;
+            final canResend = remainingSeconds <= 0;
+
+            if (resendTimer == null && !canResend) {
+              resendTimer = Timer.periodic(const Duration(seconds: 1), (t) {
+                if (!context.mounted) {
+                  t.cancel();
+                  return;
+                }
+                setDialogState(() {});
+                if (DateTime.now().isAfter(resendAvailableAt)) {
+                  t.cancel();
+                }
+              });
+            }
+
+            return Directionality(
+              textDirection: TextDirection.rtl,
+              child: Dialog(
+                backgroundColor: const Color(0xFF161E2E),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(24),
+                  side: BorderSide(
+                    color: _accentCyan.withValues(alpha: 0.25),
+                  ),
+                ),
+                insetPadding:
+                    const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 18),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.mark_email_unread_rounded,
+                                  color: _accentCyan, size: 24),
+                              SizedBox(width: 8),
+                              Text(
+                                'אימות כתובת מייל',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 17,
+                                ),
+                              ),
+                            ],
+                          ),
+                          IconButton(
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
+                            onPressed: isChecking
+                                ? null
+                                : () => Navigator.of(dialogContext).pop(),
+                            icon: const Icon(Icons.close_rounded,
+                                color: Colors.white60, size: 22),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'שלחנו הודעת אימות לכתובת:\n$email',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w600,
+                          height: 1.35,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'בדוק בתיבת הדואר הנכנס ובתיבת הספאם ולחץ אישור לאחר האימות במייל.',
+                        style: TextStyle(
+                          color: Color(0xFFB5C4DE),
+                          fontSize: 13,
+                          height: 1.35,
+                        ),
+                      ),
+                      if (dialogError != null) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          dialogError!,
+                          style: const TextStyle(
+                            color: Colors.redAccent,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                      if (isChecking) ...[
+                        const SizedBox(height: 10),
+                        const Center(
+                          child: SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: _accentCyan,
+                            ),
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 14),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: isChecking
+                                  ? null
+                                  : () async {
+                                      setDialogState(() {
+                                        isChecking = true;
+                                        dialogError = null;
+                                      });
+                                      try {
+                                        final confirmation = await _authService
+                                            .confirmBackupEmail(
+                                          expectedEmail: email,
+                                        );
+                                        if (!context.mounted) return;
+                                        switch (confirmation) {
+                                          case BackupEmailConfirmationResult
+                                                .confirmed:
+                                            Navigator.of(dialogContext)
+                                                .pop('confirmed');
+                                          case BackupEmailConfirmationResult
+                                                .requiresRelogin:
+                                            Navigator.of(dialogContext)
+                                                .pop('relogin');
+                                          case BackupEmailConfirmationResult
+                                                .pending:
+                                            setDialogState(() {
+                                              isChecking = false;
+                                              dialogError =
+                                                  'עדיין לא זיהינו אימות של המייל. יש ללחוץ על הקישור שנשלח אליך במייל ולנסות שוב.';
+                                            });
+                                        }
+                                      } catch (e) {
+                                        if (context.mounted) {
+                                          setDialogState(() {
+                                            isChecking = false;
+                                            dialogError =
+                                                'אירעה שגיאה בבדיקה: $e';
+                                          });
+                                        }
+                                      }
+                                    },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: _accentPurple,
+                                foregroundColor: Colors.white,
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 12),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                              ),
+                              child: const Text('אישור',
+                                  style:
+                                      TextStyle(fontWeight: FontWeight.bold)),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: (isChecking ||
+                                      isResending ||
+                                      !canResend)
+                                  ? null
+                                  : () async {
+                                      setDialogState(() {
+                                        isResending = true;
+                                        dialogError = null;
+                                      });
+                                      try {
+                                        await user
+                                            .verifyBeforeUpdateEmail(email);
+                                        resendAvailableAt = DateTime.now()
+                                            .add(const Duration(seconds: 45));
+                                        if (context.mounted) {
+                                          setDialogState(() {
+                                            isResending = false;
+                                            dialogError =
+                                                'הודעת אימות נשלחה שוב בהצלחה.';
+                                          });
+                                        }
+                                      } catch (e) {
+                                        if (context.mounted) {
+                                          setDialogState(() {
+                                            isResending = false;
+                                            dialogError =
+                                                'לא הצלחנו לשלוח שוב כרגע.';
+                                          });
+                                        }
+                                      }
+                                    },
+                              style: OutlinedButton.styleFrom(
+                                side: BorderSide(
+                                  color: canResend
+                                      ? _accentCyan.withValues(alpha: 0.5)
+                                      : Colors.white12,
+                                ),
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 12),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                              ),
+                              child: Text(
+                                canResend
+                                    ? 'שליחה חוזרת'
+                                    : 'שליחה חוזרת ($remainingSeconds)',
+                                style: TextStyle(
+                                  color:
+                                      canResend ? _accentCyan : Colors.white38,
+                                  fontSize: 12.5,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
         );
       },
     );
 
-    if (picked == null) return;
-    setState(() {
-      _birthDate = picked;
-      _birthDateController.text = _formatDate(picked);
-    });
+    resendTimer?.cancel();
+    return result;
   }
 
   Future<void> _saveDetails() async {
@@ -210,93 +425,100 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
 
     final phoneValue = _phoneController.text.trim();
     final emailValue = _emailController.text.trim();
-    final birthDateValue = _birthDate;
-    final birthDateText = birthDateValue == null
-        ? ''
-        : '${birthDateValue.year.toString().padLeft(4, '0')}-${birthDateValue.month.toString().padLeft(2, '0')}-${birthDateValue.day.toString().padLeft(2, '0')}';
 
     setState(() {
       _isSaving = true;
     });
 
     try {
-      await user!.reload();
-      final refreshedUser = FirebaseAuth.instance.currentUser ?? user;
-      final authEmail = (refreshedUser.email ?? '').trim();
+      final normalizedEmail = emailValue.toLowerCase();
+      final normalizedCurrent = _currentEmail.trim().toLowerCase();
+      final isEmailChangedOrUnverified = normalizedEmail.isNotEmpty &&
+          (normalizedEmail != normalizedCurrent || !_isEmailVerified);
 
-      if (authEmail.isNotEmpty &&
-          !authEmail.endsWith('@${AuthService.phoneAuthDomain}') &&
-          !refreshedUser.emailVerified) {
-        final confirmed = await _authService.confirmBackupEmail();
-        if (!confirmed) {
+      if (isEmailChangedOrUnverified) {
+        final isTaken =
+            await _authService.isEmailTaken(emailValue, excludeUid: uid);
+        if (isTaken) {
           if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('יש לאמת את המייל לפני שמירתו כפרטי גיבוי.'),
+              content: Text('כתובת המייל הזו כבר משויכת לחשבון אחר.'),
             ),
           );
           return;
         }
-      }
 
-      final didRequestNewEmail = emailValue.isNotEmpty &&
-          emailValue != _currentEmail &&
-          emailValue != authEmail;
-      if (didRequestNewEmail) {
-        if (authEmail.endsWith('@${AuthService.phoneAuthDomain}')) {
-          await _authService.linkBackupEmailCredential(
-            email: emailValue,
-            password: _emailPasswordController.text.trim(),
-          );
-          if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content:
-                  Text('שלחנו מייל אימות. לאחר האימות חזור/י ולחץ/י שמור שוב.'),
-            ),
-          );
-          return;
+        try {
+          await user!.verifyBeforeUpdateEmail(emailValue);
+        } on FirebaseAuthException catch (e) {
+          if (e.code == 'requires-recent-login') {
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('לצורך שינוי מייל יש להתחבר מחדש לאפליקציה.'),
+              ),
+            );
+            return;
+          }
+          if (e.code == 'email-already-in-use') {
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('כתובת המייל הזו כבר משויכת לחשבון אחר.'),
+              ),
+            );
+            return;
+          }
+          await user!.sendEmailVerification();
         }
-        await refreshedUser.verifyBeforeUpdateEmail(emailValue);
+
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'שלחנו הודעת אימות למייל החדש. לאחר האימות חזור/י למסך ושמור/י שוב.',
-            ),
-          ),
+        final confirmation = await _showEmailVerificationDialog(
+          email: emailValue,
         );
+
+        if (!mounted) return;
+        if (confirmation == 'confirmed') {
+          setState(() {
+            _currentEmail = emailValue;
+            _isEmailVerified = true;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('המייל אומת ועודכן בהצלחה!')),
+          );
+          Navigator.of(context).pop(true);
+        } else if (confirmation == 'relogin') {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'המייל אומת בהצלחה! מסיבות אבטחה יש להתחבר מחדש כדי להשלים את השמירה.',
+              ),
+            ),
+          );
+          try {
+            await FirebaseAuth.instance.signOut();
+          } catch (_) {}
+          if (!mounted) return;
+          // Use the root navigator: any screens still on nested stacks hold a
+          // now-dead session and must not remain mounted after this reset.
+          Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => const LoginScreen()),
+            (route) => false,
+          );
+        }
         return;
-      }
-
-      final resolvedEmailForSave =
-          authEmail.isNotEmpty ? authEmail : emailValue;
-      final didSyncVerifiedEmail = resolvedEmailForSave.isNotEmpty &&
-          resolvedEmailForSave != _currentEmail;
-
-      if (didSyncVerifiedEmail) {
-        _emailController.text = resolvedEmailForSave;
       }
 
       await _authService.updateContactDetails(
         uid: uid,
         phone: phoneValue,
-        email: resolvedEmailForSave,
-        birthDate: birthDateText,
+        email: normalizedCurrent.isNotEmpty ? normalizedCurrent : null,
       );
-
-      _currentEmail = resolvedEmailForSave;
-      _birthDate = birthDateValue;
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            didSyncVerifiedEmail
-                ? 'הפרטים נשמרו בהצלחה והמייל עודכן לאחר אימות.'
-                : 'הפרטים נשמרו בהצלחה.',
-          ),
-        ),
+        const SnackBar(content: Text('הפרטים נשמרו בהצלחה.')),
       );
       Navigator.of(context).pop(true);
     } catch (error) {
@@ -405,7 +627,7 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
                                           CrossAxisAlignment.stretch,
                                       children: [
                                         Text(
-                                          'טלפון, מייל ותאריך לידה',
+                                          'טלפון ומייל',
                                           style: TextStyle(
                                             color: titleColor,
                                             fontSize: 22,
@@ -414,7 +636,7 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
                                         ),
                                         const SizedBox(height: 8),
                                         Text(
-                                          'שינוי מייל ישלח לאימות לפני עדכון הפרטים.',
+                                          ' ',
                                           style: TextStyle(
                                               color: mutedColor,
                                               fontWeight: FontWeight.w400),
@@ -425,6 +647,8 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
                                           readOnly: true,
                                           onTapOutside: (_) {},
                                           keyboardType: TextInputType.phone,
+                                          textDirection: TextDirection.ltr,
+                                          textAlign: TextAlign.right,
                                           style: TextStyle(color: bodyColor),
                                           decoration: _fieldDecoration(
                                             isLight: isLight,
@@ -443,7 +667,7 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
                                         Align(
                                           alignment: Alignment.centerRight,
                                           child: Text(
-                                            'מספר הטלפון הוא מזהה הכניסה ואינו ניתן לשינוי כאן.',
+                                            'מספר הטלפון הוא מזהה הכניסה ואינו ניתן לשינוי .',
                                             textAlign: TextAlign.right,
                                             style: TextStyle(
                                               color: mutedColor,
@@ -452,42 +676,13 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
                                           ),
                                         ),
                                         const SizedBox(height: 14),
-                                        if (FirebaseAuth
-                                                .instance.currentUser?.email
-                                                ?.endsWith(
-                                                    '@${AuthService.phoneAuthDomain}') ??
-                                            false)
-                                          TextFormField(
-                                            controller:
-                                                _emailPasswordController,
-                                            obscureText: true,
-                                            style: TextStyle(color: bodyColor),
-                                            decoration: _fieldDecoration(
-                                              isLight: isLight,
-                                              label: 'סיסמה לקישור המייל',
-                                            ),
-                                            validator: (value) {
-                                              final email =
-                                                  _emailController.text.trim();
-                                              if (email.isNotEmpty &&
-                                                  (value?.trim().isEmpty ??
-                                                      true)) {
-                                                return 'יש להזין סיסמה כדי לקשר את המייל';
-                                              }
-                                              return null;
-                                            },
-                                          ),
-                                        if (FirebaseAuth
-                                                .instance.currentUser?.email
-                                                ?.endsWith(
-                                                    '@${AuthService.phoneAuthDomain}') ??
-                                            false)
-                                          const SizedBox(height: 14),
                                         TextFormField(
                                           controller: _emailController,
                                           onTapOutside: (_) {},
                                           keyboardType:
                                               TextInputType.emailAddress,
+                                          textDirection: TextDirection.ltr,
+                                          textAlign: TextAlign.right,
                                           style: TextStyle(color: bodyColor),
                                           decoration: _fieldDecoration(
                                             isLight: isLight,
@@ -506,31 +701,21 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
                                             return null;
                                           },
                                         ),
-                                        const SizedBox(height: 14),
-                                        TextFormField(
-                                          controller: _birthDateController,
-                                          onTapOutside: (_) {},
-                                          readOnly: true,
-                                          onTap: _pickBirthDate,
-                                          style: TextStyle(color: bodyColor),
-                                          decoration: _fieldDecoration(
-                                            isLight: isLight,
-                                            label: 'תאריך לידה',
+                                        if (!_isEmailVerified) ...[
+                                          const SizedBox(height: 6),
+                                          const Align(
+                                            alignment: Alignment.centerRight,
+                                            child: Text(
+                                              'יש לאמת מייל למשתמש',
+                                              textAlign: TextAlign.right,
+                                              style: TextStyle(
+                                                color: Colors.redAccent,
+                                                fontSize: 12.5,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
                                           ),
-                                          validator: (value) {
-                                            final birthDate =
-                                                parseStoredBirthDate(
-                                                    value ?? '');
-                                            if (birthDate == null) {
-                                              return 'יש לבחור תאריך לידה';
-                                            }
-                                            if (!isAtLeastMinimumAge(
-                                                birthDate)) {
-                                              return 'הגיל המינימלי הוא $minimumUserAge';
-                                            }
-                                            return null;
-                                          },
-                                        ),
+                                        ],
                                         const SizedBox(height: 18),
                                         ElevatedButton.icon(
                                           onPressed:

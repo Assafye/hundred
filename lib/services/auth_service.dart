@@ -57,6 +57,12 @@ class PendingRegistrationState {
   final bool didSendVerificationEmail;
 }
 
+enum BackupEmailConfirmationResult {
+  pending,
+  confirmed,
+  requiresRelogin,
+}
+
 enum LoginPreflightGate {
   allow,
   ageRestricted,
@@ -84,6 +90,11 @@ class AuthService {
   static const String onboardingStageField = 'onboardingStage';
   static const String privacyAcceptedAtField = 'privacyAcceptedAt';
   static const String privacyPolicyVersionField = 'privacyPolicyVersion';
+
+  // In-memory only (never persisted): lets us silently re-authenticate after
+  // Firebase revokes the session on email-change confirmation, without
+  // prompting the user again. Cleared on explicit sign-out.
+  static String? _cachedSignInPassword;
 
   final NotificationService _notificationService = NotificationService();
 
@@ -114,14 +125,15 @@ class AuthService {
       );
     }
 
+    final normalizedPhone = normalizePhoneNumber(phone);
     final payload = {
       'firstName': firstName.trim(),
       'lastName': lastName.trim(),
-      'phone': phone.trim(),
+      'phone': normalizedPhone.isNotEmpty ? normalizedPhone : phone.trim(),
       'pendingRegistrationDraft': <String, dynamic>{
         'firstName': firstName.trim(),
         'lastName': lastName.trim(),
-        'phone': phone.trim(),
+        'phone': normalizedPhone.isNotEmpty ? normalizedPhone : phone.trim(),
         'updatedAt': FieldValue.serverTimestamp(),
       },
     };
@@ -130,6 +142,29 @@ class AuthService {
           payload,
           SetOptions(merge: true),
         );
+    if (normalizedPhone.isNotEmpty) {
+      await registerPhoneNumber(normalizedPhone, currentUser.uid);
+    }
+  }
+
+  Future<Map<String, dynamic>> loadPendingRegistrationDraftByUid(
+    String uid,
+  ) async {
+    if (uid.isEmpty) return const <String, dynamic>{};
+    try {
+      final doc = await _db.collection('users').doc(uid).get();
+      if (!doc.exists) return const <String, dynamic>{};
+      final data = doc.data() ?? <String, dynamic>{};
+      final draft = data['pendingRegistrationDraft'];
+      final draftMap =
+          draft is Map ? Map<String, dynamic>.from(draft) : <String, dynamic>{};
+      return {
+        ...data,
+        ...draftMap,
+      };
+    } catch (_) {
+      return const <String, dynamic>{};
+    }
   }
 
   Future<Map<String, dynamic>> loadPendingRegistrationDraftByEmail(
@@ -140,23 +175,36 @@ class AuthService {
       return const <String, dynamic>{};
     }
 
-    final snapshot = await _db
-        .collection('users')
-        .where('email', isEqualTo: normalizedEmail)
-        .limit(1)
-        .get();
+    try {
+      var snapshot = await _db
+          .collection('users')
+          .where('email', isEqualTo: normalizedEmail)
+          .limit(1)
+          .get();
 
-    if (snapshot.docs.isEmpty) {
+      if (snapshot.docs.isEmpty) {
+        snapshot = await _db
+            .collection('users')
+            .where('phoneAuthEmail', isEqualTo: normalizedEmail)
+            .limit(1)
+            .get();
+      }
+
+      if (snapshot.docs.isEmpty) {
+        return const <String, dynamic>{};
+      }
+
+      final data = snapshot.docs.first.data();
+      final draft = data['pendingRegistrationDraft'];
+      final draftMap =
+          draft is Map ? Map<String, dynamic>.from(draft) : <String, dynamic>{};
+      return {
+        ...data,
+        ...draftMap,
+      };
+    } catch (_) {
       return const <String, dynamic>{};
     }
-
-    final data = snapshot.docs.first.data();
-    final draft = data['pendingRegistrationDraft'];
-    if (draft is! Map) {
-      return const <String, dynamic>{};
-    }
-
-    return Map<String, dynamic>.from(draft);
   }
 
   FirebaseApp _defaultApp() {
@@ -314,15 +362,111 @@ class AuthService {
     return trimmed.isNotEmpty && !trimmed.contains('@');
   }
 
+  /// Resolves the email that should actually be used against Firebase Auth
+  /// for a given login input ("phone or email").
+  ///
+  /// When a real email is later added to the account (see
+  /// [linkBackupEmailCredential]/`confirmBackupEmail`), Firebase Auth's
+  /// primary email switches from the synthetic phone-based address to the
+  /// real one. The lookup must go through `registered_phones/{phone}`
+  /// (publicly `get`-able, see firestore.rules) rather than querying the
+  /// `users` collection, because reading/listing `users` requires an
+  /// authenticated caller and this runs *before* login succeeds.
+  Future<String> resolveSignInEmail(String input) async {
+    final trimmed = input.trim();
+    final isEmail = RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(trimmed);
+    if (isEmail) {
+      debugPrint('[AuthService][resolveSignInEmail] input="$trimmed" is an email, using as-is');
+      return trimmed;
+    }
+
+    final normalizedPhone = normalizePhoneNumber(trimmed);
+    final syntheticEmail = phoneAuthEmail(trimmed);
+    if (syntheticEmail.isEmpty) {
+      debugPrint('[AuthService][resolveSignInEmail] input="$trimmed" produced empty synthetic email');
+      return syntheticEmail;
+    }
+
+    try {
+      final doc = await _db
+          .collection('registered_phones')
+          .doc(normalizedPhone)
+          .get();
+      final storedEmail =
+          _normalizeEmail(doc.data()?['authEmail'] as String? ?? '');
+      debugPrint(
+        '[AuthService][resolveSignInEmail] phone=$normalizedPhone docExists=${doc.exists} '
+        'storedAuthEmail="$storedEmail" syntheticEmail="$syntheticEmail"',
+      );
+      if (storedEmail.isNotEmpty) {
+        return storedEmail;
+      }
+    } catch (e) {
+      debugPrint('[AuthService][resolveSignInEmail] registered_phones lookup failed: $e');
+    }
+
+    debugPrint('[AuthService][resolveSignInEmail] falling back to synthetic email "$syntheticEmail"');
+    return syntheticEmail;
+  }
+
+  Future<void> registerPhoneNumber(
+    String phone,
+    String uid, {
+    String? authEmail,
+  }) async {
+    final normalizedPhone = normalizePhoneNumber(phone);
+    if (normalizedPhone.isEmpty || uid.isEmpty) return;
+    try {
+      final normalizedAuthEmail =
+          authEmail != null ? _normalizeEmail(authEmail) : '';
+      await _db.collection('registered_phones').doc(normalizedPhone).set({
+        'uid': uid,
+        if (normalizedAuthEmail.isNotEmpty) 'authEmail': normalizedAuthEmail,
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint('[AuthService] registerPhoneNumber error: $e');
+    }
+  }
+
+  Future<void> unregisterPhoneNumber(String phone) async {
+    final normalizedPhone = normalizePhoneNumber(phone);
+    if (normalizedPhone.isEmpty) return;
+    try {
+      await _db.collection('registered_phones').doc(normalizedPhone).delete();
+    } catch (e) {
+      debugPrint('[AuthService] unregisterPhoneNumber error: $e');
+    }
+  }
+
   Future<bool> isRegisteredPhone(String phone) async {
     final normalizedPhone = normalizePhoneNumber(phone);
     if (normalizedPhone.isEmpty) return false;
-    final snapshot = await _db
-        .collection('users')
-        .where('phone', isEqualTo: normalizedPhone)
-        .limit(1)
-        .get();
-    return snapshot.docs.isNotEmpty;
+
+    try {
+      final doc =
+          await _db.collection('registered_phones').doc(normalizedPhone).get();
+      if (doc.exists) {
+        return true;
+      }
+    } catch (_) {}
+
+    try {
+      final snapshot = await _db
+          .collection('users')
+          .where('phone', isEqualTo: normalizedPhone)
+          .limit(1)
+          .get();
+      if (snapshot.docs.isNotEmpty) {
+        final data = snapshot.docs.first.data();
+        if (data['isDeleted'] != true) {
+          return true;
+        }
+      }
+    } catch (_) {}
+
+    return false;
   }
 
   void logAuthFailure(String source, Object error, [StackTrace? stackTrace]) {
@@ -478,7 +622,7 @@ class AuthService {
     }
 
     try {
-      final snapshot = await _db
+      var snapshot = await _db
           .collection('users')
           .where(
             isEmail ? 'email' : 'phoneAuthEmail',
@@ -486,6 +630,14 @@ class AuthService {
           )
           .limit(1)
           .get();
+
+      if (snapshot.docs.isEmpty && isEmail) {
+        snapshot = await _db
+            .collection('users')
+            .where('backupEmail', isEqualTo: normalizedEmail)
+            .limit(1)
+            .get();
+      }
 
       if (snapshot.docs.isEmpty) {
         return LoginPreflightGate.allow;
@@ -782,30 +934,62 @@ class AuthService {
               .limit(1)
               .get();
 
-      if (snapshot.docs.isEmpty) return false;
-      if (excludeUid == null) return true;
-      return snapshot.docs.first.id != excludeUid;
+      if (snapshot.docs.isNotEmpty) {
+        final doc = snapshot.docs.first;
+        if (doc.data()['isDeleted'] != true) {
+          if (excludeUid == null || doc.id != excludeUid) {
+            return true;
+          }
+        }
+      }
+
+      final userDocSnapshot = await _db
+          .collection('users')
+          .where('usernameLowercase', isEqualTo: normalized)
+          .limit(1)
+          .get();
+
+      final userDocs = userDocSnapshot.docs.isNotEmpty
+          ? userDocSnapshot
+          : await _db
+              .collection('users')
+              .where('username', isEqualTo: normalized)
+              .limit(1)
+              .get();
+
+      if (userDocs.docs.isNotEmpty) {
+        final doc = userDocs.docs.first;
+        if (doc.data()['isDeleted'] != true) {
+          if (excludeUid == null || doc.id != excludeUid) {
+            return true;
+          }
+        }
+      }
+
+      return false;
     } on FirebaseException catch (e) {
       if (e.code == 'permission-denied') {
-        if (_auth.currentUser == null) {
-          throw FirebaseAuthException(
-            code: 'session-expired',
-            message: 'פג תוקף תהליך האימות. יש להתחיל שוב.',
-          );
-        }
-
-        throw FirebaseAuthException(
-          code: 'permission-denied',
-          message: 'אין הרשאה לבדוק זמינות שם משתמש כרגע.',
-        );
+        return false;
       }
       rethrow;
     }
   }
 
   Future<bool> isPhoneTaken(String phone, {String? excludeUid}) async {
-    final normalized = phone.trim();
+    final normalized = normalizePhoneNumber(phone);
     if (normalized.isEmpty) return false;
+
+    try {
+      final doc =
+          await _db.collection('registered_phones').doc(normalized).get();
+      if (doc.exists) {
+        final registeredUid = doc.data()?['uid'] as String?;
+        if (excludeUid == null ||
+            (registeredUid != null && registeredUid != excludeUid)) {
+          return true;
+        }
+      }
+    } catch (_) {}
 
     try {
       final snapshot = await _db
@@ -814,15 +998,16 @@ class AuthService {
           .limit(1)
           .get();
 
-      if (snapshot.docs.isEmpty) return false;
-      if (excludeUid == null) return true;
-      return snapshot.docs.first.id != excludeUid;
-    } on FirebaseException catch (e) {
-      if (e.code == 'permission-denied') {
-        return false;
+      if (snapshot.docs.isNotEmpty) {
+        final docData = snapshot.docs.first.data();
+        if (docData['isDeleted'] != true) {
+          if (excludeUid == null) return true;
+          return snapshot.docs.first.id != excludeUid;
+        }
       }
-      rethrow;
-    }
+    } catch (_) {}
+
+    return false;
   }
 
   Future<bool> isEmailTaken(String email, {String? excludeUid}) async {
@@ -836,9 +1021,28 @@ class AuthService {
           .limit(1)
           .get();
 
-      if (snapshot.docs.isEmpty) return false;
-      if (excludeUid == null) return true;
-      return snapshot.docs.first.id != excludeUid;
+      if (snapshot.docs.isNotEmpty) {
+        if (excludeUid == null || snapshot.docs.first.id != excludeUid) {
+          final isDeleted = snapshot.docs.first.data()['isDeleted'] == true;
+          if (!isDeleted) return true;
+        }
+      }
+
+      final backupSnapshot = await _db
+          .collection('users')
+          .where('backupEmail', isEqualTo: normalized)
+          .limit(1)
+          .get();
+
+      if (backupSnapshot.docs.isNotEmpty) {
+        if (excludeUid == null || backupSnapshot.docs.first.id != excludeUid) {
+          final isDeleted =
+              backupSnapshot.docs.first.data()['isDeleted'] == true;
+          if (!isDeleted) return true;
+        }
+      }
+
+      return false;
     } on FirebaseException catch (e) {
       if (e.code == 'permission-denied') {
         return false;
@@ -945,6 +1149,7 @@ class AuthService {
       },
       SetOptions(merge: true),
     );
+    await registerPhoneNumber(normalizedPhone, user.uid, authEmail: internalEmail);
     return user;
   }
 
@@ -971,6 +1176,18 @@ class AuthService {
     return (snapshot.data()?[onboardingStageField] as String?) ?? 'credentials';
   }
 
+  /// Adds/updates the account's real email.
+  ///
+  /// The user already has a `password` provider bound to the synthetic
+  /// phone-based email created at registration, and Firebase Auth only
+  /// allows a single email/password credential per account — so this
+  /// cannot be implemented via `linkWithCredential` (it would fail with
+  /// `provider-already-linked`). Instead we send a verification link to the
+  /// real address via `verifyBeforeUpdateEmail`; Firebase swaps the
+  /// account's primary email in place once the user confirms it. Phone
+  /// login keeps working afterwards because the original synthetic email is
+  /// preserved separately in Firestore's `phoneAuthEmail` field and is used
+  /// to look up the (now real) sign-in email at login time.
   Future<void> linkBackupEmailCredential({
     required String email,
     required String password,
@@ -991,24 +1208,18 @@ class AuthService {
       );
     }
 
-    final hasPasswordProvider = user.providerData.any(
-      (provider) => provider.providerId == 'password',
-    );
-    if (hasPasswordProvider &&
-        !_normalizeEmail(user.email ?? '').endsWith('@$phoneAuthDomain')) {
+    final currentAuthEmail = _normalizeEmail(user.email ?? '');
+    if (currentAuthEmail.isNotEmpty &&
+        !currentAuthEmail.endsWith('@$phoneAuthDomain') &&
+        currentAuthEmail != normalizedEmail) {
       throw FirebaseAuthException(
         code: 'email-already-in-use',
         message: 'כבר קיים מייל מקושר לחשבון.',
       );
     }
 
-    final credential = EmailAuthProvider.credential(
-      email: normalizedEmail,
-      password: password,
-    );
-    final linkedUser = (await user.linkWithCredential(credential)).user ?? user;
-    await linkedUser.sendEmailVerification();
-    await _db.collection('users').doc(linkedUser.uid).set(
+    await user.verifyBeforeUpdateEmail(normalizedEmail);
+    await _db.collection('users').doc(user.uid).set(
       {
         'pendingBackupEmail': normalizedEmail,
         'updatedAt': FieldValue.serverTimestamp(),
@@ -1017,17 +1228,143 @@ class AuthService {
     );
   }
 
-  Future<bool> confirmBackupEmail() async {
+  /// Checks whether a pending `verifyBeforeUpdateEmail` link has been
+  /// confirmed by the user and, if so, syncs Firestore.
+  ///
+  /// Firebase revokes the user's refresh tokens the moment the email link is
+  /// confirmed, killing the local session — so any Firestore read attempted
+  /// with the *old* token (before we've re-established a valid one) can
+  /// silently fail with permission-denied. That's why [expectedEmail] must
+  /// be passed in by the caller (who already knows which address it asked
+  /// the user to verify) instead of being read from Firestore up front; and
+  /// why the `phone` lookup needed for `registered_phones` sync is deferred
+  /// until *after* a valid session (reload or silent re-auth) is confirmed.
+  Future<BackupEmailConfirmationResult> confirmBackupEmail({
+    String? expectedEmail,
+  }) async {
     final user = _auth.currentUser;
-    if (user == null) return false;
-    await user.reload();
-    final refreshedUser = _auth.currentUser ?? user;
-    final email = _normalizeEmail(refreshedUser.email ?? '');
-    if (!refreshedUser.emailVerified ||
-        email.isEmpty ||
-        email.endsWith('@$phoneAuthDomain')) {
-      return false;
+    if (user == null) {
+      return BackupEmailConfirmationResult.requiresRelogin;
     }
+
+    var pendingEmail = _normalizeEmail(expectedEmail ?? '');
+    if (pendingEmail.isEmpty) {
+      // Best-effort only: safe here since this call site (post-login) still
+      // has a fresh, valid token.
+      try {
+        final snapshot = await _db.collection('users').doc(user.uid).get();
+        pendingEmail = _normalizeEmail(
+            snapshot.data()?['pendingBackupEmail'] as String? ?? '');
+      } catch (_) {}
+    }
+
+    try {
+      await user.reload();
+    } on FirebaseAuthException catch (e) {
+      debugPrint('[AuthService][confirmBackupEmail] reload failed: code=${e.code}');
+      if (e.code == 'user-token-expired' ||
+          e.code == 'user-not-found' ||
+          e.code == 'user-mismatch') {
+        final silentUser =
+            await _trySilentReauthAfterEmailChange(pendingEmail);
+        if (silentUser == null) {
+          return BackupEmailConfirmationResult.requiresRelogin;
+        }
+        return _finalizeBackupEmailConfirmation(
+          silentUser,
+          pendingEmail: pendingEmail,
+        );
+      }
+      rethrow;
+    }
+
+    final refreshedUser = _auth.currentUser;
+    if (refreshedUser == null) {
+      return BackupEmailConfirmationResult.requiresRelogin;
+    }
+
+    // reload() alone doesn't always surface a revoked token — Firebase can
+    // keep serving the cached ID token for up to ~1h before actually
+    // re-validating it. Force a refresh now, while we can still silently
+    // recover, instead of letting the user get logged out unexpectedly
+    // later during normal app use.
+    var effectiveUser = refreshedUser;
+    try {
+      await refreshedUser.getIdToken(true);
+    } on FirebaseAuthException catch (e) {
+      debugPrint('[AuthService][confirmBackupEmail] forced token refresh failed: code=${e.code}');
+      if (e.code == 'user-token-expired' ||
+          e.code == 'user-not-found' ||
+          e.code == 'user-mismatch') {
+        final silentUser =
+            await _trySilentReauthAfterEmailChange(pendingEmail);
+        if (silentUser == null) {
+          return BackupEmailConfirmationResult.requiresRelogin;
+        }
+        effectiveUser = silentUser;
+      } else {
+        rethrow;
+      }
+    }
+
+    return _finalizeBackupEmailConfirmation(
+      effectiveUser,
+      pendingEmail: pendingEmail,
+    );
+  }
+
+  /// Uses the in-memory cached password (set at last login) to silently
+  /// restore a session that Firebase killed after an email-change
+  /// confirmation. Returns null if there's no cached password or it fails.
+  Future<User?> _trySilentReauthAfterEmailChange(String pendingEmail) async {
+    final cachedPassword = _cachedSignInPassword;
+    if (cachedPassword == null ||
+        cachedPassword.isEmpty ||
+        pendingEmail.isEmpty) {
+      debugPrint(
+        '[AuthService][_trySilentReauthAfterEmailChange] cannot silently reauth: '
+        'hasCachedPassword=${cachedPassword != null}, pendingEmail="$pendingEmail"',
+      );
+      return null;
+    }
+    try {
+      final result = await _auth.signInWithEmailAndPassword(
+        email: pendingEmail,
+        password: cachedPassword,
+      );
+      return result.user;
+    } catch (e) {
+      debugPrint('[AuthService][_trySilentReauthAfterEmailChange] silent sign-in failed: $e');
+      return null;
+    }
+  }
+
+  Future<BackupEmailConfirmationResult> _finalizeBackupEmailConfirmation(
+    User refreshedUser, {
+    required String pendingEmail,
+  }) async {
+    final email = _normalizeEmail(refreshedUser.email ?? '');
+    final isRealEmail = email.isNotEmpty && !email.endsWith('@$phoneAuthDomain');
+    // Require emailVerified (set only once the link is confirmed) and, when
+    // known, that the change matches the address we actually sent it to —
+    // otherwise a stale/leftover Auth email must not be treated as success.
+    final isConfirmed = isRealEmail &&
+        refreshedUser.emailVerified &&
+        (pendingEmail.isEmpty || email == pendingEmail);
+    if (!isConfirmed) {
+      return BackupEmailConfirmationResult.pending;
+    }
+
+    // Only read `phone` now: refreshedUser has a valid, fresh token here.
+    String phone = '';
+    try {
+      final snapshot =
+          await _db.collection('users').doc(refreshedUser.uid).get();
+      phone = normalizePhoneNumber(snapshot.data()?['phone'] as String? ?? '');
+    } catch (e) {
+      debugPrint('[AuthService][_finalizeBackupEmailConfirmation] phone lookup failed: $e');
+    }
+
     await _db.collection('users').doc(refreshedUser.uid).set(
       {
         'email': email,
@@ -1038,7 +1375,26 @@ class AuthService {
       },
       SetOptions(merge: true),
     );
-    return true;
+    // Keep the publicly-gettable phone -> sign-in-email mapping current so
+    // phone-number login keeps resolving to the right Auth email.
+    if (phone.isNotEmpty) {
+      await registerPhoneNumber(phone, refreshedUser.uid, authEmail: email);
+      debugPrint(
+        '[AuthService][_finalizeBackupEmailConfirmation] synced registered_phones/$phone authEmail="$email"',
+      );
+    } else {
+      debugPrint(
+        '[AuthService][_finalizeBackupEmailConfirmation] no phone found for uid=${refreshedUser.uid}, registered_phones NOT updated',
+      );
+    }
+
+    // Give Firestore listeners on other screens (e.g. the settings badge) a
+    // moment to catch up with the write before the caller navigates back,
+    // so they don't briefly flash stale data. A plain delay — not another
+    // network round trip, which can itself stall/fail and block the UI.
+    await Future.delayed(const Duration(seconds: 2));
+
+    return BackupEmailConfirmationResult.confirmed;
   }
 
   Future<PendingRegistrationState> beginEmailVerificationRegistration({
@@ -1259,7 +1615,7 @@ class AuthService {
     await _auth.signOut();
     throw FirebaseAuthException(
       code: registrationIncompleteCode,
-      message: 'יש להשלים את שלב ההרשמה לאחר אימות המייל לפני הכניסה.',
+      message: 'יש להשלים את שלב ההרשמה לפני הכניסה.',
     );
   }
 
@@ -1278,19 +1634,8 @@ class AuthService {
           await _resolveOnboardingStepForUid(currentUser.uid);
       switch (onboardingStep) {
         case OnboardingStep.pendingVerification:
-          setPendingAuthUiMessage(
-            'האימייל עדיין לא אומת. נא לאמת את המייל כדי להמשיך.',
-          );
-          return false;
         case OnboardingStep.pendingProfile:
-          setPendingAuthUiMessage(
-            'ההרשמה לא הושלמה. נא להשלים את פרטי הפרופיל.',
-          );
-          return false;
         case OnboardingStep.expired:
-          setPendingAuthUiMessage(
-            'תהליך ההרשמה פג תוקפו. נא להתחיל מחדש.',
-          );
           return false;
         case OnboardingStep.active:
           await requireCompletedRegistration(
@@ -1357,7 +1702,10 @@ class AuthService {
         );
       }
 
-      final usernameAlreadyTaken = await isUsernameTaken(normalizedUsername);
+      final usernameAlreadyTaken = await isUsernameTaken(
+        normalizedUsername,
+        excludeUid: user.uid,
+      );
       if (usernameAlreadyTaken) {
         throw FirebaseAuthException(
           code: 'username-already-in-use',
@@ -1389,6 +1737,7 @@ class AuthService {
 
       final userRef = _db.collection('users').doc(user.uid);
       final userPublicRef = _db.collection('users_public').doc(user.uid);
+      final phoneRef = _db.collection('registered_phones').doc(normalizedPhone);
       final batch = _db.batch();
 
       batch.set(userRef, {
@@ -1439,17 +1788,33 @@ class AuthService {
         'createdAt': FieldValue.serverTimestamp(),
       });
 
+      if (normalizedPhone.isNotEmpty) {
+        batch.set(
+          phoneRef,
+          {
+            'uid': user.uid,
+            'authEmail': (user.email ?? '').trim().toLowerCase(),
+            'createdAt': FieldValue.serverTimestamp(),
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
+      }
+
       await batch.commit();
       await _setOnboardingStepForUid(user.uid, step: OnboardingStep.active);
 
       await _notificationService.initializeCurrentUserNotificationSettings();
+      _cachedSignInPassword = password;
       return user;
     } catch (e) {
       debugPrint("Error in registration: ${e.toString()}");
-      rethrow;
-    } finally {
       registrationFlowInProgress.value = false;
+      rethrow;
     }
+    // Deliberately not cleared here on success: the caller still has to
+    // offer a backup email and sign out before the app is safe to route to
+    // the authenticated shell — see AuthService.endPendingRegistrationFlow.
   }
 
   Future<List<String>> _uploadRegistrationProfileImages({
@@ -1499,8 +1864,6 @@ class AuthService {
   // פונקציית התחברות (Login)
   Future<User?> loginWithEmailAndPassword(String email, String password) async {
     final resolvedEmail = _normalizeEmail(email);
-    final isRealEmailLogin = resolvedEmail.isNotEmpty &&
-        !resolvedEmail.endsWith('@$phoneAuthDomain');
     if (resolvedEmail.isNotEmpty) {
       final preflight = await preflightLoginGate(resolvedEmail);
       if (preflight == LoginPreflightGate.ageRestricted) {
@@ -1510,33 +1873,6 @@ class AuthService {
         throw FirebaseAuthException(
           code: ageRestrictedCode,
           message: 'האפליקציה מיועדת לגילאי $minimumUserAge ומעלה בלבד.',
-        );
-      }
-      if (preflight == LoginPreflightGate.pendingVerification) {
-        if (_auth.currentUser != null) {
-          await _auth.signOut();
-        }
-        throw FirebaseAuthException(
-          code: emailNotVerifiedCode,
-          message: 'האימייל שלך עדיין לא אומת. שלחנו קישור/קוד אימות שוב.',
-        );
-      }
-      if (preflight == LoginPreflightGate.pendingProfile) {
-        if (_auth.currentUser != null) {
-          await _auth.signOut();
-        }
-        throw FirebaseAuthException(
-          code: registrationIncompleteCode,
-          message: 'המשתמש קיים אבל תהליך ההרשמה לא הושלם.',
-        );
-      }
-      if (preflight == LoginPreflightGate.expired) {
-        if (_auth.currentUser != null) {
-          await _auth.signOut();
-        }
-        throw FirebaseAuthException(
-          code: emailNotVerifiedCode,
-          message: 'תהליך ההרשמה פג תוקפו. שלחנו מייל אימות חדש כדי להמשיך.',
         );
       }
     }
@@ -1551,13 +1887,7 @@ class AuthService {
         return null;
       }
 
-      if (isRealEmailLogin && !user.emailVerified) {
-        await _auth.signOut();
-        throw FirebaseAuthException(
-          code: emailNotVerifiedCode,
-          message: 'יש לאמת את מייל הגיבוי לפני התחברות באמצעותו.',
-        );
-      }
+      _cachedSignInPassword = password;
 
       final onboardingStep = await _resolveOnboardingStepForUid(user.uid);
       if (onboardingStep == OnboardingStep.expired ||
@@ -1612,10 +1942,7 @@ class AuthService {
       );
     }
 
-    final isEmail = RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(input);
-    final email = isEmail ? input : phoneAuthEmail(input);
-    final isRealEmailLogin =
-        isEmail && !_normalizeEmail(email).endsWith('@$phoneAuthDomain');
+    final email = await resolveSignInEmail(input);
     if (email.isEmpty) {
       throw FirebaseAuthException(
         code: 'invalid-phone-number',
@@ -1623,7 +1950,7 @@ class AuthService {
       );
     }
 
-    final preflight = await preflightLoginGate(email);
+    final preflight = await preflightLoginGate(input);
     if (preflight == LoginPreflightGate.ageRestricted) {
       if (_auth.currentUser != null) {
         await _auth.signOut();
@@ -1633,35 +1960,11 @@ class AuthService {
         message: 'האפליקציה מיועדת לגילאי $minimumUserAge ומעלה בלבד.',
       );
     }
-    if (preflight == LoginPreflightGate.pendingVerification) {
-      if (_auth.currentUser != null) {
-        await _auth.signOut();
-      }
-      throw FirebaseAuthException(
-        code: emailNotVerifiedCode,
-        message: 'האימייל שלך עדיין לא אומת. שלחנו קישור/קוד אימות שוב.',
-      );
-    }
-    if (preflight == LoginPreflightGate.pendingProfile) {
-      if (_auth.currentUser != null) {
-        await _auth.signOut();
-      }
-      throw FirebaseAuthException(
-        code: registrationIncompleteCode,
-        message: 'המשתמש קיים אבל תהליך ההרשמה לא הושלם.',
-      );
-    }
-    if (preflight == LoginPreflightGate.expired) {
-      if (_auth.currentUser != null) {
-        await _auth.signOut();
-      }
-      throw FirebaseAuthException(
-        code: emailNotVerifiedCode,
-        message: 'תהליך ההרשמה פג תוקפו. שלחנו מייל אימות חדש כדי להמשיך.',
-      );
-    }
 
     try {
+      debugPrint(
+        '[AuthService][loginWithEmailOrUsername] input="$input" -> resolvedEmail="$email"',
+      );
       final result = await _auth.signInWithEmailAndPassword(
         email: email,
         password: password,
@@ -1671,13 +1974,13 @@ class AuthService {
         return null;
       }
 
-      if (isRealEmailLogin && !user.emailVerified) {
-        await _auth.signOut();
-        throw FirebaseAuthException(
-          code: emailNotVerifiedCode,
-          message: 'יש לאמת את מייל הגיבוי לפני התחברות באמצעותו.',
-        );
-      }
+      _cachedSignInPassword = password;
+
+      // Best-effort: if this login follows a verifyBeforeUpdateEmail
+      // confirmation that killed the previous session, sync Firestore now.
+      try {
+        await confirmBackupEmail();
+      } catch (_) {}
 
       final onboardingStep = await _resolveOnboardingStepForUid(user.uid);
       if (onboardingStep == OnboardingStep.expired ||
@@ -1866,6 +2169,8 @@ class AuthService {
     required String displayName,
     required String username,
     required String bio,
+    String? lifeMotto,
+    String? birthDate,
     required bool allowGroupInvite,
     bool? isPrivate,
     List<String> existingProfileImageUrls = const <String>[],
@@ -1878,6 +2183,10 @@ class AuthService {
         code: 'invalid-username',
         message: 'שם משתמש לא תקין.',
       );
+    }
+
+    if (birthDate != null && birthDate.trim().isNotEmpty) {
+      _validateBirthDate(birthDate, required: false);
     }
 
     final usernameAlreadyTaken = await isUsernameTaken(
@@ -1950,12 +2259,18 @@ class AuthService {
 
     final normalizedDisplayName = displayName.trim();
     final normalizedBio = bio.trim();
+    final normalizedLifeMotto =
+        (lifeMotto ?? (currentData['lifeMotto'] as String? ?? '')).trim();
+    final normalizedBirthDate =
+        (birthDate ?? (currentData['birthDate'] as String? ?? '')).trim();
 
     final payload = <String, dynamic>{
       'firstName': firstName,
       'lastName': lastName,
       'displayName': normalizedDisplayName,
       'bio': normalizedBio,
+      'lifeMotto': normalizedLifeMotto,
+      if (normalizedBirthDate.isNotEmpty) 'birthDate': normalizedBirthDate,
       'username': normalizedUsername,
       'usernameLowercase': normalizedUsername,
       'allowGroupInvite': allowGroupInvite,
@@ -1977,6 +2292,7 @@ class AuthService {
         firstName: firstName,
         lastName: lastName,
         displayName: normalizedDisplayName,
+        lifeMotto: normalizedLifeMotto,
         profilePictureUrl: profilePictureUrl,
         profileImageUrls: combinedProfileImageUrls,
         bio: normalizedBio,
@@ -2014,14 +2330,34 @@ class AuthService {
     final payload = <String, dynamic>{
       'updatedAt': FieldValue.serverTimestamp()
     };
-    if (phone != null) {
-      payload['phone'] = phone.trim();
+    String? normalizedPhone;
+    if (phone != null && phone.trim().isNotEmpty) {
+      normalizedPhone = normalizePhoneNumber(phone);
+      payload['phone'] =
+          normalizedPhone.isNotEmpty ? normalizedPhone : phone.trim();
     }
-    if (email != null) {
-      payload['email'] = email.trim();
+    if (email != null && email.trim().isNotEmpty) {
+      final normalizedEmail = _normalizeEmail(email);
+      payload['email'] = normalizedEmail;
+      payload['backupEmail'] = normalizedEmail;
+      payload['backupEmailVerified'] = true;
     }
     if (birthDate != null) {
       payload['birthDate'] = birthDate.trim();
+    }
+
+    if (normalizedPhone != null && normalizedPhone.isNotEmpty) {
+      String? currentAuthEmail = payload['email'] as String?;
+      try {
+        final currentDoc = await _db.collection('users').doc(uid).get();
+        final data = currentDoc.data() ?? <String, dynamic>{};
+        final prevPhone = normalizePhoneNumber(data['phone'] as String? ?? '');
+        if (prevPhone.isNotEmpty && prevPhone != normalizedPhone) {
+          await unregisterPhoneNumber(prevPhone);
+        }
+        currentAuthEmail ??= data['email'] as String?;
+      } catch (_) {}
+      await registerPhoneNumber(normalizedPhone, uid, authEmail: currentAuthEmail);
     }
 
     await _db
@@ -2100,12 +2436,22 @@ class AuthService {
       SetOptions(merge: true),
     );
 
+    final phoneBefore =
+        (userBeforeDelete.data()?['phone'] as String? ?? '').trim();
+    if (phoneBefore.isNotEmpty) {
+      await unregisterPhoneNumber(phoneBefore);
+    }
+
     try {
       // Remove the Firebase Authentication account as well,
       // otherwise the email remains reserved by Auth.
       await user.delete();
     } on FirebaseAuthException catch (e) {
-      // Avoid partial state: if auth deletion fails, restore profile docs.
+      // Avoid partial state: if auth deletion fails, restore profile docs and phone registry.
+      if (phoneBefore.isNotEmpty) {
+        await registerPhoneNumber(phoneBefore, uid);
+      }
+
       if (userBeforeDelete.exists) {
         await userRef.set(userBeforeDelete.data()!);
       } else {
@@ -2132,6 +2478,7 @@ class AuthService {
 
   // התנתקות מהמערכת
   Future<void> signOut() async {
+    _cachedSignInPassword = null;
     await _auth.signOut();
   }
 }
