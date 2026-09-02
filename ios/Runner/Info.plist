@@ -48,6 +48,8 @@
 	</array>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>המיקום שלך משמש להצגת פופים ופעילויות קרובים ולדירוגם לפי קרבה. משתמשים אחרים רואים רק טווח מרחק כללי, ולא את מיקומך המדויק. הטווח הכללי מוצג רק כאשר בוחרים לפרסם פופ.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>המיקום שלך משמש להצגת פופים ופעילויות קרובים ולדירוגם לפי קרבה. משתמשים אחרים רואים רק טווח מרחק כללי, ולא את מיקומך המדויק.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>המצלמה משמשת לצילום תמונות וסרטונים לפוסטים, צ׳אטים ותמונות קבוצה.</string>
 	<key>NSMicrophoneUsageDescription</key>
