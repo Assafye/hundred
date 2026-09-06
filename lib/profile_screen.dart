@@ -110,6 +110,7 @@ class MyProfileScreen extends MainUserProfileScreen {
 class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
   static const int _subCategoryGoal = 100;
   late final String _uid;
+  late final ScrollController _profileScrollController;
   late final ScrollController _sidebarScrollController;
   SpontaneousChallengeTask? _activeSpontaneousTask;
   Duration _activeSpontaneousRemaining = Duration.zero;
@@ -127,13 +128,11 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
   final PublicUserProfileService _publicUserProfileService =
       PublicUserProfileService();
   StreamSubscription<String>? _scoreDeltaSubscription;
-  Timer? _periodicRefreshTimer;
+  StreamSubscription<String>? _postOverlaySubscription;
+  DateTime? _lastProfileRefreshAt;
   bool _isRefreshingProfile = false;
 
-  /// Background refresh cadence. Deliberately coarse: the live listeners
-  /// already push real changes, so this only reconciles counters that were
-  /// applied server-side, without waking the radio every second.
-  static const Duration _periodicRefreshInterval = Duration(minutes: 1);
+  static const Duration _minimumRefreshInterval = Duration(seconds: 3);
 
   static final List<_ProfileCategoryNavItem> _categoryItems = [
     const _ProfileCategoryNavItem(
@@ -161,6 +160,7 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
             .any((item) => item.key == widget.initialCategoryKey.trim())
         ? widget.initialCategoryKey.trim()
         : 'general';
+    _profileScrollController = ScrollController();
     _sidebarScrollController = ScrollController();
     _loadActiveSpontaneousTask();
     // Own-profile score must react as fast as other screens (e.g.
@@ -173,14 +173,27 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
       if (!mounted || changedUid != _uid) return;
       setState(() {});
     });
-    _periodicRefreshTimer = Timer.periodic(
-      _periodicRefreshInterval,
-      (_) => _refreshProfileData(),
-    );
+    _postOverlaySubscription =
+        PostInteractionOverlayService.changes.listen((_) {
+      if (!mounted) return;
+      setState(() {});
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(_refreshProfileData(force: true));
+    });
   }
 
-  Future<void> _refreshProfileData() async {
+  Future<void> _refreshProfileData({bool force = false}) async {
     if (_isRefreshingProfile) return;
+    final now = DateTime.now();
+    final lastRefreshAt = _lastProfileRefreshAt;
+    if (!force &&
+        lastRefreshAt != null &&
+        now.difference(lastRefreshAt) < _minimumRefreshInterval) {
+      return;
+    }
+    _lastProfileRefreshAt = now;
     _isRefreshingProfile = true;
     try {
       await _publicUserProfileService.refreshScoreSources(_uid);
@@ -196,9 +209,10 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
   void dispose() {
     KeyboardDismissController.resume();
     _spontaneousCountdownTimer?.cancel();
-    _periodicRefreshTimer?.cancel();
+    _profileScrollController.dispose();
     _sidebarScrollController.dispose();
     _scoreDeltaSubscription?.cancel();
+    _postOverlaySubscription?.cancel();
     super.dispose();
   }
 
@@ -3819,17 +3833,29 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
       List<QueryDocumentSnapshot<Map<String, dynamic>>> docs) {
     if (docs.isEmpty) {
       final isDraftFilter = _selectedCategoryKey == 'drafts';
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 28),
-          child: Text(
-            isDraftFilter
-                ? 'אין טיוטות שמורות להצגה'
-                : 'אין פוסטים להצגה בקטגוריה הזו',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.grey[400], fontSize: 14),
-          ),
+      return CustomScrollView(
+        primary: true,
+        physics: const AlwaysScrollableScrollPhysics(
+          parent: BouncingScrollPhysics(),
         ),
+        slivers: [
+          SliverFillRemaining(
+            hasScrollBody: false,
+            child: Align(
+              alignment: const Alignment(0, -0.18),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 28),
+                child: Text(
+                  isDraftFilter
+                      ? 'אין טיוטות שמורות להצגה'
+                      : 'אין פוסטים להצגה בקטגוריה הזו',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.grey[400], fontSize: 14),
+                ),
+              ),
+            ),
+          ),
+        ],
       );
     }
 
@@ -4880,8 +4906,19 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
 
                           return RefreshIndicator(
                             onRefresh: _refreshProfileData,
+                            notificationPredicate: (notification) {
+                              if (notification.metrics.axis != Axis.vertical) {
+                                return false;
+                              }
+                              if (_profileScrollController.hasClients &&
+                                  _profileScrollController.offset > 0) {
+                                return false;
+                              }
+                              return notification.metrics.extentBefore == 0;
+                            },
                             edgeOffset: 0,
                             child: NestedScrollView(
+                              controller: _profileScrollController,
                               physics: const AlwaysScrollableScrollPhysics(
                                 parent: BouncingScrollPhysics(),
                               ),

@@ -932,6 +932,8 @@ class _NotificationsPreviewScreenState
     final actorAvatarUrl = _actorAvatarUrl(data);
     final recentLikeAvatarUrls =
         _stringList(data, 'recentLikeActorAvatarUrls').take(3).toList();
+    final recentLikeActorUids =
+        _stringList(data, 'recentLikeActorUids').take(3).toList();
     final dynamicNewBorder = _dynamicNewBorderColor(
       isLight: isLight,
       docId: doc.id,
@@ -941,6 +943,19 @@ class _NotificationsPreviewScreenState
     final avatarUrls = <String>[...recentLikeAvatarUrls];
     if (avatarUrls.isEmpty && actorAvatarUrl.isNotEmpty) {
       avatarUrls.add(actorAvatarUrl);
+    }
+    var targetAvatarCount = recentLikeActorUids.length;
+    if (likeCount > targetAvatarCount) {
+      targetAvatarCount = likeCount;
+    }
+    if (targetAvatarCount < 1) {
+      targetAvatarCount = 1;
+    }
+    if (targetAvatarCount > 3) {
+      targetAvatarCount = 3;
+    }
+    while (avatarUrls.length < targetAvatarCount) {
+      avatarUrls.add('');
     }
 
     final avatarStack = <Widget>[];

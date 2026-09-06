@@ -43,9 +43,82 @@ function collectFcmTokens(data) {
   return [...tokens];
 }
 
-function notificationDataPayload(notificationId, data) {
+function notificationImageUrlFromData(data = {}) {
+  const type = String(data.type ?? '').trim();
+  const postImageUrl = String(data.postImageUrl ?? '').trim();
+  const actorAvatarUrl = String(data.actorAvatarUrl ?? '').trim();
+  const chatAvatarUrl = String(data.chatAvatarUrl ?? data.groupImageUrl ?? '').trim();
+  const isGroupChat = data.isGroupChat === true || String(data.isGroupChat ?? '').toLowerCase() === 'true';
+
+  if (['post_like', 'post_comment', 'comment_reply', 'post_save', 'weekly_stars'].includes(type)) {
+    return postImageUrl;
+  }
+  if (type === 'pop_join' || type === 'new_follower' || type === 'new_friend') {
+    return actorAvatarUrl;
+  }
+  if (type === 'group_join' || type === 'added_to_group') {
+    return chatAvatarUrl || actorAvatarUrl;
+  }
+  if (type === 'new_message') {
+    return isGroupChat ? (chatAvatarUrl || actorAvatarUrl) : actorAvatarUrl;
+  }
+  return postImageUrl || chatAvatarUrl || actorAvatarUrl;
+}
+
+function isHttpUrl(value) {
+  try {
+    const url = new URL(String(value ?? '').trim());
+    return url.protocol === 'https:' || url.protocol === 'http:';
+  } catch (_) {
+    return false;
+  }
+}
+
+async function resolveNotificationImageUrlForFcm(rawUrl) {
+  const candidate = String(rawUrl ?? '').trim();
+  if (!candidate || !isHttpUrl(candidate)) return '';
+
+  try {
+    const response = await fetch(candidate, {
+      method: 'GET',
+      redirect: 'follow',
+      signal: AbortSignal.timeout(2500),
+      headers: { range: 'bytes=0-0' },
+    });
+    await response.body?.cancel?.();
+
+    const contentType = String(response.headers.get('content-type') ?? '').toLowerCase();
+    if (!response.ok || !contentType.startsWith('image/')) {
+      return '';
+    }
+    return response.url || candidate;
+  } catch (_) {
+    return candidate;
+  }
+}
+
+function notificationDataPayload(notificationId, data, recipientUid = '', imageUrl = '') {
   const payload = { notificationId };
-  for (const key of ['type', 'postId', 'chatId', 'groupId', 'commentId']) {
+  const normalizedRecipientUid = String(recipientUid ?? data.recipientUid ?? '').trim();
+  if (normalizedRecipientUid) payload.recipientUid = normalizedRecipientUid;
+  const notificationImageUrl = String(imageUrl || notificationImageUrlFromData(data)).trim();
+  if (notificationImageUrl) payload.notificationImageUrl = notificationImageUrl;
+  for (const key of [
+    'type',
+    'postId',
+    'chatId',
+    'groupId',
+    'commentId',
+    'actorUid',
+    'actorName',
+    'actorAvatarUrl',
+    'postImageUrl',
+    'chatName',
+    'chatAvatarUrl',
+    'groupName',
+    'groupImageUrl',
+    'isGroupChat',
+  ]) {
     const value = String(data[key] ?? '').trim();
     if (value) payload[key] = value;
   }
@@ -194,24 +267,36 @@ exports.sendPushForNotification = onDocumentCreated(
     const tokens = collectFcmTokens(userSnap.data() || {});
     if (!tokens.length) return;
 
+    const notificationImageUrl = await resolveNotificationImageUrlForFcm(
+      notificationImageUrlFromData(data)
+    );
     const response = await messaging.sendEachForMulticast({
       tokens,
-      notification: { title, body },
-      data: notificationDataPayload(snapshot.id, data),
+      notification: {
+        title,
+        body,
+        ...(notificationImageUrl ? { imageUrl: notificationImageUrl } : {}),
+      },
+      data: notificationDataPayload(snapshot.id, data, uid, notificationImageUrl),
       android: {
         priority: 'high',
         notification: {
           channelId: 'hundred_notifications',
           priority: 'high',
           defaultSound: true,
+          ...(notificationImageUrl ? { imageUrl: notificationImageUrl } : {}),
         },
       },
       apns: {
         payload: {
           aps: {
             sound: 'default',
+            ...(notificationImageUrl ? { mutableContent: true } : {}),
           },
         },
+        ...(notificationImageUrl
+          ? { fcmOptions: { imageUrl: notificationImageUrl } }
+          : {}),
       },
     });
 

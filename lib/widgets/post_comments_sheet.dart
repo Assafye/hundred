@@ -20,6 +20,7 @@ class PostCommentsSheet extends StatefulWidget {
   final String initialCommentId;
   final VoidCallback? onCommentSubmitted;
   final ValueChanged<int>? onCommentsDeleted;
+  final ValueChanged<int>? onCommentsRestored;
 
   const PostCommentsSheet({
     super.key,
@@ -28,6 +29,7 @@ class PostCommentsSheet extends StatefulWidget {
     this.initialCommentId = '',
     this.onCommentSubmitted,
     this.onCommentsDeleted,
+    this.onCommentsRestored,
   });
 
   @override
@@ -47,6 +49,8 @@ class _PostCommentsSheetState extends State<PostCommentsSheet> {
   final Set<String> _expandedCommentIds = <String>{};
   final Set<String> _deletingCommentIds = <String>{};
   final Set<String> _optimisticallyDeletedCommentIds = <String>{};
+  List<Map<String, dynamic>> _latestVisibleComments =
+      const <Map<String, dynamic>>[];
 
   String _replyToCommentId = '';
   String _replyToHandle = '';
@@ -252,6 +256,107 @@ class _PostCommentsSheetState extends State<PostCommentsSheet> {
     return 0;
   }
 
+  Map<String, Map<String, dynamic>> _commentsById(
+    Iterable<Map<String, dynamic>> comments,
+  ) {
+    return <String, Map<String, dynamic>>{
+      for (final comment in comments)
+        if (((comment['id'] as String?) ?? '').trim().isNotEmpty)
+          ((comment['id'] as String?) ?? '').trim(): comment,
+    };
+  }
+
+  List<String> _knownDescendantIdsFor(
+    String commentId,
+    Iterable<Map<String, dynamic>> comments,
+  ) {
+    final childrenByParent = <String, List<String>>{};
+    for (final comment in comments) {
+      final id = ((comment['id'] as String?) ?? '').trim();
+      final parentId = ((comment['parentId'] as String?) ?? '').trim();
+      if (id.isEmpty || parentId.isEmpty) continue;
+      childrenByParent.putIfAbsent(parentId, () => <String>[]).add(id);
+    }
+
+    final result = <String>[];
+    final stack = <String>[commentId];
+    while (stack.isNotEmpty) {
+      final current = stack.removeLast();
+      final children = childrenByParent[current] ?? const <String>[];
+      for (final child in children) {
+        result.add(child);
+        stack.add(child);
+      }
+    }
+    return result;
+  }
+
+  Map<String, int> _profileScoreDeltasForDeletedComments(Set<String> ids) {
+    final byId = _commentsById(_latestVisibleComments);
+    final deltas = <String, int>{};
+
+    void addDelta(String uid, int delta) {
+      final normalizedUid = uid.trim();
+      if (normalizedUid.isEmpty || delta == 0) return;
+      deltas.update(
+        normalizedUid,
+        (value) => value + delta,
+        ifAbsent: () => delta,
+      );
+    }
+
+    for (final id in ids) {
+      final comment = byId[id];
+      if (comment == null) continue;
+
+      final commentAuthorId = ((comment['authorId'] as String?) ?? '').trim();
+      final likesCount = _likesCount(comment);
+      if (commentAuthorId.isNotEmpty && likesCount > 0) {
+        addDelta(commentAuthorId, -likesCount);
+      }
+
+      addDelta(widget.postAuthorId,
+          PostService.commentReplyScoreDelta(isAdding: false));
+
+      final parentId = ((comment['parentId'] as String?) ?? '').trim();
+      if (parentId.isEmpty) continue;
+      final parentAuthorId =
+          ((byId[parentId]?['authorId'] as String?) ?? '').trim();
+      addDelta(
+          parentAuthorId, PostService.commentReplyScoreDelta(isAdding: false));
+    }
+
+    deltas.removeWhere((_, delta) => delta == 0);
+    return deltas;
+  }
+
+  Map<String, int> _profileScoreDeltasForAddedComment(String parentCommentId) {
+    final byId = _commentsById(_latestVisibleComments);
+    final deltas = <String, int>{};
+
+    void addDelta(String uid, int delta) {
+      final normalizedUid = uid.trim();
+      if (normalizedUid.isEmpty || delta == 0) return;
+      deltas.update(
+        normalizedUid,
+        (value) => value + delta,
+        ifAbsent: () => delta,
+      );
+    }
+
+    final delta = PostService.commentReplyScoreDelta(isAdding: true);
+    addDelta(widget.postAuthorId, delta);
+    final normalizedParentId = parentCommentId.trim();
+    if (normalizedParentId.isNotEmpty) {
+      final parentAuthorId =
+          ((byId[normalizedParentId]?['authorId'] as String?) ?? '').trim();
+      addDelta(parentAuthorId, delta);
+    }
+
+    deltas.removeWhere((_, delta) => delta == 0);
+    return deltas;
+  }
+
   Future<void> _applyInitialCommentReplyTarget(
     Map<String, dynamic> targetComment,
     String normalizedInitialCommentId,
@@ -281,12 +386,22 @@ class _PostCommentsSheetState extends State<PostCommentsSheet> {
     }
 
     setState(() => _isSubmitting = true);
+    final parentCommentId = _replyToCommentId.trim();
+    final profileScoreDeltas =
+        _profileScoreDeltasForAddedComment(parentCommentId);
+    PostInteractionOverlayService.addDelta(
+      postId: widget.postId,
+      comments: 1,
+    );
+    PublicUserProfileService.addOptimisticScoreDeltas(profileScoreDeltas);
+    widget.onCommentSubmitted?.call();
     try {
       await _postService.addPostComment(
         postId: widget.postId,
         postAuthorId: widget.postAuthorId,
         text: text,
-        parentCommentId: _replyToCommentId.isEmpty ? null : _replyToCommentId,
+        parentCommentId: parentCommentId.isEmpty ? null : parentCommentId,
+        applyOptimisticProfileDeltas: false,
       );
 
       if (!mounted) return;
@@ -294,7 +409,6 @@ class _PostCommentsSheetState extends State<PostCommentsSheet> {
       if (kDebugMode) {
         debugPrint('[COMMENT_UI] submit success postId=${widget.postId}');
       }
-      widget.onCommentSubmitted?.call();
       setState(() {
         _replyToCommentId = '';
         _replyToHandle = '';
@@ -308,9 +422,25 @@ class _PostCommentsSheetState extends State<PostCommentsSheet> {
       }
       if (!mounted) return;
       if (error is PostActionLimitException) {
+        PostInteractionOverlayService.addDelta(
+          postId: widget.postId,
+          comments: -1,
+        );
+        PublicUserProfileService.addOptimisticScoreDeltas(
+          profileScoreDeltas.map((uid, delta) => MapEntry(uid, -delta)),
+        );
+        widget.onCommentsDeleted?.call(1);
         _showCenteredLimitAlert(error.message);
         return;
       }
+      PostInteractionOverlayService.addDelta(
+        postId: widget.postId,
+        comments: -1,
+      );
+      PublicUserProfileService.addOptimisticScoreDeltas(
+        profileScoreDeltas.map((uid, delta) => MapEntry(uid, -delta)),
+      );
+      widget.onCommentsDeleted?.call(1);
       final message = FirestoreRuleFeedback.actionMessage(
         error,
         error is FirebaseException
@@ -384,7 +514,12 @@ class _PostCommentsSheetState extends State<PostCommentsSheet> {
     // so every screen showing this post updates instantly) — even though
     // the underlying Firestore bookkeeping for cross-user threads may only
     // complete a moment later via the secure-actions worker.
-    final idsToHide = <String>{normalizedId, ...descendantIds};
+    final idsToHide = <String>{
+      normalizedId,
+      ...descendantIds,
+      ..._knownDescendantIdsFor(normalizedId, _latestVisibleComments),
+    };
+    final profileScoreDeltas = _profileScoreDeltasForDeletedComments(idsToHide);
     setState(() {
       _optimisticallyDeletedCommentIds.addAll(idsToHide);
       _deletingCommentIds.add(normalizedId);
@@ -393,6 +528,7 @@ class _PostCommentsSheetState extends State<PostCommentsSheet> {
       postId: widget.postId,
       comments: -idsToHide.length,
     );
+    PublicUserProfileService.addOptimisticScoreDeltas(profileScoreDeltas);
     widget.onCommentsDeleted?.call(idsToHide.length);
 
     try {
@@ -400,6 +536,7 @@ class _PostCommentsSheetState extends State<PostCommentsSheet> {
         postId: widget.postId,
         postAuthorId: widget.postAuthorId,
         commentId: normalizedId,
+        applyOptimisticProfileDeltas: false,
       );
       if (!mounted) return;
       if (_replyToCommentId == normalizedId) {
@@ -417,6 +554,10 @@ class _PostCommentsSheetState extends State<PostCommentsSheet> {
         postId: widget.postId,
         comments: idsToHide.length,
       );
+      PublicUserProfileService.addOptimisticScoreDeltas(
+        profileScoreDeltas.map((uid, delta) => MapEntry(uid, -delta)),
+      );
+      widget.onCommentsRestored?.call(idsToHide.length);
       final message = FirestoreRuleFeedback.isPermissionDenied(error)
           ? 'אין לך הרשאה למחוק תגובה זו.'
           : 'מחיקת תגובה נכשלה. נסה שוב בעוד רגע.';
@@ -686,10 +827,42 @@ class _PostCommentsSheetState extends State<PostCommentsSheet> {
                               GestureDetector(
                                 onTap: () async {
                                   if (commentId.isEmpty) return;
-                                  await _postService.toggleCommentLike(
-                                    postId: widget.postId,
-                                    commentId: commentId,
+                                  final delta =
+                                      PostService.commentLikeScoreDelta(
+                                    isAdding: !likedByMe,
                                   );
+                                  if (authorId.isNotEmpty && delta != 0) {
+                                    PublicUserProfileService
+                                        .addOptimisticScoreDelta(
+                                      uid: authorId,
+                                      delta: delta,
+                                    );
+                                  }
+                                  try {
+                                    await _postService.toggleCommentLike(
+                                      postId: widget.postId,
+                                      commentId: commentId,
+                                      applyOptimisticProfileDelta: false,
+                                    );
+                                  } catch (error) {
+                                    if (authorId.isNotEmpty && delta != 0) {
+                                      PublicUserProfileService
+                                          .addOptimisticScoreDelta(
+                                        uid: authorId,
+                                        delta: -delta,
+                                      );
+                                    }
+                                    if (!mounted) return;
+                                    final message =
+                                        FirestoreRuleFeedback.actionMessage(
+                                      error,
+                                      'עדכון לייק לתגובה נכשל. נסה שוב בעוד רגע.',
+                                    );
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(content: Text(message)),
+                                    );
+                                    return;
+                                  }
                                 },
                                 child: Row(
                                   children: [
@@ -909,6 +1082,7 @@ class _PostCommentsSheetState extends State<PostCommentsSheet> {
                           return authorId.isEmpty ||
                               !blockedUids.contains(authorId);
                         }).toList(growable: false);
+                        _latestVisibleComments = comments;
                         final normalizedInitialCommentId =
                             widget.initialCommentId.trim();
 

@@ -74,6 +74,9 @@ class NotificationRuntimeService with WidgetsBindingObserver {
     if (title.isEmpty && body.isEmpty) {
       return;
     }
+    if (!_isPayloadForCurrentSignedInUser(payload)) {
+      return;
+    }
 
     final localPlugin = FlutterLocalNotificationsPlugin();
     const androidSettings =
@@ -131,7 +134,7 @@ class NotificationRuntimeService with WidgetsBindingObserver {
       fallbackTitle: title,
       fallbackBody: body,
     );
-    final previewUrl = _resolvePostPreviewUrl(payload);
+    final previewUrl = _resolveNotificationImageUrl(payload);
     final previewPath = await _downloadImageToTemp(
       imageUrl: previewUrl,
       filePrefix:
@@ -240,9 +243,9 @@ class NotificationRuntimeService with WidgetsBindingObserver {
         alert: true, badge: true, sound: true);
     debugPrint('FCM permission status: ${permission.authorizationStatus.name}');
     await _messaging.setForegroundNotificationPresentationOptions(
-      alert: true,
+      alert: false,
       badge: true,
-      sound: true,
+      sound: false,
     );
     _onMessageSub = FirebaseMessaging.onMessage.listen((message) {
       final notification = message.notification;
@@ -250,6 +253,9 @@ class NotificationRuntimeService with WidgetsBindingObserver {
       final body = (notification?.body ?? '').trim();
       final payload = Map<String, dynamic>.from(message.data);
       if (title.isEmpty && body.isEmpty) {
+        return;
+      }
+      if (!_isPayloadForCurrentSignedInUser(payload)) {
         return;
       }
 
@@ -277,6 +283,9 @@ class NotificationRuntimeService with WidgetsBindingObserver {
     _onMessageOpenedAppSub = FirebaseMessaging.onMessageOpenedApp.listen(
       (message) {
         final payload = Map<String, dynamic>.from(message.data);
+        if (!_isPayloadForCurrentSignedInUser(payload)) {
+          return;
+        }
         unawaited(NotificationNavigationService.openFromData(payload));
       },
     );
@@ -291,11 +300,14 @@ class NotificationRuntimeService with WidgetsBindingObserver {
 
     final initialMessage = await _messaging.getInitialMessage();
     if (initialMessage != null) {
-      unawaited(
-        NotificationNavigationService.openFromData(
-          Map<String, dynamic>.from(initialMessage.data),
-        ),
-      );
+      final payload = Map<String, dynamic>.from(initialMessage.data);
+      if (_isPayloadForCurrentSignedInUser(payload)) {
+        unawaited(
+          NotificationNavigationService.openFromData(
+            payload,
+          ),
+        );
+      }
     }
 
     _authSub = _auth.authStateChanges().listen((user) {
@@ -317,6 +329,15 @@ class NotificationRuntimeService with WidgetsBindingObserver {
     await _inAppEventsController.close();
   }
 
+  static bool _isPayloadForCurrentSignedInUser(Map<String, dynamic> payload) {
+    final recipientUid = (payload['recipientUid'] as String? ?? '').trim();
+    if (recipientUid.isEmpty) {
+      return true;
+    }
+    final currentUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    return currentUid.isNotEmpty && recipientUid == currentUid;
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _lifecycleState = state;
@@ -325,6 +346,11 @@ class NotificationRuntimeService with WidgetsBindingObserver {
   Future<void> _bindUser(String uid) async {
     if (_activeUid == uid) {
       return;
+    }
+
+    final previousUid = _activeUid.trim();
+    if (previousUid.isNotEmpty) {
+      await _removeMessagingTokenFromUid(previousUid);
     }
 
     _activeUid = uid;
@@ -421,6 +447,48 @@ class NotificationRuntimeService with WidgetsBindingObserver {
     }
   }
 
+  Future<void> unbindCurrentUserForSignOut() async {
+    final uid = _activeUid.trim().isNotEmpty
+        ? _activeUid.trim()
+        : (_auth.currentUser?.uid ?? '').trim();
+
+    _activeUid = '';
+    _knownDocIds.clear();
+    _pendingInAppEvents.clear();
+    await _notificationsSub?.cancel();
+    _notificationsSub = null;
+
+    if (uid.isEmpty) {
+      return;
+    }
+
+    await _removeMessagingTokenFromUid(uid);
+  }
+
+  Future<void> _removeMessagingTokenFromUid(String uid) async {
+    final normalizedUid = uid.trim();
+    if (normalizedUid.isEmpty) {
+      return;
+    }
+
+    try {
+      final token = (await _messaging.getToken() ?? '').trim();
+      if (token.isEmpty) {
+        return;
+      }
+
+      await _db.collection('users').doc(normalizedUid).set(
+        <String, dynamic>{
+          'fcmTokenList': FieldValue.arrayRemove(<String>[token]),
+          'fcmTokenUpdatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+    } catch (_) {
+      // Best effort: sign-out must not be blocked by notification cleanup.
+    }
+  }
+
   Future<void> showDeviceNotification({
     required String id,
     required String title,
@@ -442,7 +510,7 @@ class NotificationRuntimeService with WidgetsBindingObserver {
       fallbackBody: body,
     );
     final previewPath = await _downloadImageToTemp(
-      imageUrl: _resolvePostPreviewUrl(data),
+      imageUrl: _resolveNotificationImageUrl(data),
       filePrefix: id,
     );
     final details = _buildExternalNotificationDetails(
@@ -471,10 +539,14 @@ class NotificationRuntimeService with WidgetsBindingObserver {
       importance: Importance.max,
       priority: Priority.high,
       ticker: 'Hundred',
+      largeIcon: previewImagePath.isNotEmpty
+          ? FilePathAndroidBitmap(previewImagePath)
+          : null,
       styleInformation: previewImagePath.isNotEmpty
           ? BigPictureStyleInformation(
               FilePathAndroidBitmap(previewImagePath),
-              hideExpandedLargeIcon: true,
+              largeIcon: FilePathAndroidBitmap(previewImagePath),
+              hideExpandedLargeIcon: false,
               summaryText: body,
             )
           : BigTextStyleInformation(body),
@@ -501,12 +573,42 @@ class NotificationRuntimeService with WidgetsBindingObserver {
     );
   }
 
-  static String _resolvePostPreviewUrl(Map<String, dynamic> data) {
-    final type = (data['type'] as String? ?? '').trim();
-    if (!_postPreviewTypes.contains(type)) {
-      return '';
+  static String _resolveNotificationImageUrl(Map<String, dynamic> data) {
+    final direct = (data['notificationImageUrl'] as String? ?? '').trim();
+    if (direct.isNotEmpty) {
+      return direct;
     }
-    return (data['postImageUrl'] as String? ?? '').trim();
+
+    final type = (data['type'] as String? ?? '').trim();
+    if (_postPreviewTypes.contains(type)) {
+      return (data['postImageUrl'] as String? ?? '').trim();
+    }
+
+    final actorAvatarUrl = (data['actorAvatarUrl'] as String? ?? '').trim();
+    final chatAvatarUrl = (data['chatAvatarUrl'] as String? ??
+            data['groupImageUrl'] as String? ??
+            '')
+        .trim();
+    final isGroupChatRaw = data['isGroupChat'];
+    final isGroupChat = isGroupChatRaw == true ||
+        isGroupChatRaw?.toString().trim().toLowerCase() == 'true';
+
+    switch (type) {
+      case NotificationTypes.popJoin:
+      case NotificationTypes.newFollower:
+      case NotificationTypes.newFriend:
+        return actorAvatarUrl;
+      case NotificationTypes.groupJoin:
+      case NotificationTypes.addedToGroup:
+        return chatAvatarUrl.isNotEmpty ? chatAvatarUrl : actorAvatarUrl;
+      case NotificationTypes.newMessage:
+        if (isGroupChat) {
+          return chatAvatarUrl.isNotEmpty ? chatAvatarUrl : actorAvatarUrl;
+        }
+        return actorAvatarUrl;
+      default:
+        return chatAvatarUrl.isNotEmpty ? chatAvatarUrl : actorAvatarUrl;
+    }
   }
 
   static Future<String> _downloadImageToTemp({

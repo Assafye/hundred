@@ -77,13 +77,6 @@ class ChatService {
     required String senderUid,
     required Stopwatch sw,
   }) {
-    if (NotificationService.notificationsSuspendedSessionWide) {
-      _trace(
-        'send_message_notification_skipped chatId=$chatId reason=session_suspended elapsedMs=${sw.elapsedMilliseconds}',
-      );
-      return;
-    }
-
     unawaited(
       _notificationService
           .sendNewMessageNotification(
@@ -794,6 +787,115 @@ class ChatService {
       }
 
       emit();
+
+      controller.onCancel = () async {
+        for (final sub in subscriptions) {
+          await sub.cancel();
+        }
+      };
+    });
+  }
+
+  Stream<Map<String, int>> streamMyUnreadCounts({
+    required String userId,
+    required List<String> chatIds,
+  }) {
+    final normalizedUid = userId.trim();
+    final sortedChatIds = chatIds
+        .map((chatId) => chatId.trim())
+        .where((chatId) => chatId.isNotEmpty)
+        .toSet()
+        .toList(growable: false)
+      ..sort();
+
+    if (normalizedUid.isEmpty || sortedChatIds.isEmpty) {
+      return Stream.value(const <String, int>{});
+    }
+
+    return Stream.multi((controller) {
+      final unreadCounts = <String, int>{
+        for (final chatId in sortedChatIds) chatId: 0,
+      };
+      final lastReadAtByChatId = <String, DateTime?>{};
+      final messagesByChatId = <String, List<Map<String, dynamic>>>{};
+      final subscriptions = <StreamSubscription<dynamic>>[];
+
+      DateTime? messageTime(Map<String, dynamic> data) {
+        final timestamp = data['timestamp'];
+        if (timestamp is Timestamp) return timestamp.toDate();
+        final createdAt = data['createdAt'];
+        if (createdAt is Timestamp) return createdAt.toDate();
+        return null;
+      }
+
+      void recompute(String chatId) {
+        final lastReadAt = lastReadAtByChatId[chatId];
+        final messages =
+            messagesByChatId[chatId] ?? const <Map<String, dynamic>>[];
+        var unread = 0;
+        for (final message in messages) {
+          final senderId = (message['senderId'] as String? ?? '').trim();
+          if (senderId.isEmpty || senderId == normalizedUid) continue;
+
+          final sentAt = messageTime(message);
+          if (lastReadAt == null) {
+            unread += 1;
+            continue;
+          }
+          if (sentAt != null && sentAt.isAfter(lastReadAt)) {
+            unread += 1;
+          }
+        }
+        unreadCounts[chatId] = unread;
+        controller.add(Map<String, int>.unmodifiable(unreadCounts));
+      }
+
+      for (final chatId in sortedChatIds) {
+        final receiptSub = _chats
+            .doc(chatId)
+            .collection('readReceipts')
+            .doc(normalizedUid)
+            .snapshots()
+            .listen(
+          (snapshot) {
+            lastReadAtByChatId[chatId] =
+                (snapshot.data()?['lastReadAt'] as Timestamp?)?.toDate();
+            recompute(chatId);
+          },
+          onError: (error, stackTrace) {
+            if (_isRecoverableStreamError(error)) {
+              recompute(chatId);
+              return;
+            }
+            controller.addError(error, stackTrace);
+          },
+        );
+        subscriptions.add(receiptSub);
+
+        final messagesSub = _chats
+            .doc(chatId)
+            .collection('messages')
+            .orderBy('createdAt', descending: true)
+            .snapshots()
+            .listen(
+          (snapshot) {
+            messagesByChatId[chatId] = snapshot.docs
+                .map((doc) => <String, dynamic>{'id': doc.id, ...doc.data()})
+                .toList(growable: false);
+            recompute(chatId);
+          },
+          onError: (error, stackTrace) {
+            if (_isRecoverableStreamError(error)) {
+              recompute(chatId);
+              return;
+            }
+            controller.addError(error, stackTrace);
+          },
+        );
+        subscriptions.add(messagesSub);
+      }
+
+      controller.add(Map<String, int>.unmodifiable(unreadCounts));
 
       controller.onCancel = () async {
         for (final sub in subscriptions) {

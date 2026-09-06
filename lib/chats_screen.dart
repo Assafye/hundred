@@ -1752,130 +1752,144 @@ class _ChatsScreenState extends State<ChatsScreen> {
 
                 final summaries = summarySnapshot.data ??
                     const <String, Map<String, String>>{};
+                final chatIds =
+                    visibleDocs.map((doc) => doc.id).toList(growable: false);
 
-                return ListView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: visibleDocs.length,
-                  itemBuilder: (context, index) {
-                    final chatDoc = visibleDocs[index];
-                    final chatData = chatDoc.data();
-                    final description =
-                        (chatData['description'] as String?) ?? '';
-                    final lastMessage =
-                        (chatData['lastMessage'] as String?) ?? '';
-                    final isPublic = (chatData['isPublic'] as bool?) ?? false;
-                    final participants = List<String>.from(
-                      (chatData['participants'] as List<dynamic>?) ??
-                          const <String>[],
-                    );
-                    final isDirectChat = (chatData['isDirect'] as bool?) ??
-                        (!isPublic && participants.length == 2);
-                    final otherUserId =
-                        _directChatOtherUserId(chatData, currentUser.uid);
+                return StreamBuilder<Map<String, int>>(
+                  stream: _chatService.streamMyUnreadCounts(
+                    userId: currentUser.uid,
+                    chatIds: chatIds,
+                  ),
+                  builder: (context, unreadSnapshot) {
+                    final unreadCounts =
+                        unreadSnapshot.data ?? const <String, int>{};
 
-                    if (isDirectChat && !summaries.containsKey(otherUserId)) {
-                      return const Padding(
-                        padding:
-                            EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                        child: _ChatLoadingTile(),
-                      );
-                    }
+                    return ListView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: visibleDocs.length,
+                      itemBuilder: (context, index) {
+                        final chatDoc = visibleDocs[index];
+                        final chatData = chatDoc.data();
+                        final description =
+                            (chatData['description'] as String?) ?? '';
+                        final lastMessage =
+                            (chatData['lastMessage'] as String?) ?? '';
+                        final isPublic =
+                            (chatData['isPublic'] as bool?) ?? false;
+                        final participants = List<String>.from(
+                          (chatData['participants'] as List<dynamic>?) ??
+                              const <String>[],
+                        );
+                        final isDirectChat = (chatData['isDirect'] as bool?) ??
+                            (!isPublic && participants.length == 2);
+                        final otherUserId =
+                            _directChatOtherUserId(chatData, currentUser.uid);
 
-                    final otherUserSummary =
-                        summaries[otherUserId] ?? const <String, String>{};
-                    final chatName = isDirectChat
-                        ? ((otherUserSummary['name'] ?? '').trim().isNotEmpty
-                            ? (otherUserSummary['name'] ?? '').trim()
-                            : 'טוען...')
-                        : ((chatData['name'] as String?) ?? 'Chat');
-                    final imageUrl = isDirectChat
-                        ? ((otherUserSummary['avatarUrl'] ?? '').trim())
-                        : ((chatData['groupImageUrl'] as String?) ?? '').trim();
-                    final activityDate = _chatActivityDate(chatData);
+                        if (isDirectChat &&
+                            !summaries.containsKey(otherUserId)) {
+                          return const Padding(
+                            padding: EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 8),
+                            child: _ChatLoadingTile(),
+                          );
+                        }
 
-                    final subtitleText = lastMessage.isNotEmpty
-                        ? lastMessage
-                        : (description.isEmpty ? 'צאט פעיל' : description);
+                        final otherUserSummary =
+                            summaries[otherUserId] ?? const <String, String>{};
+                        final chatName = isDirectChat
+                            ? ((otherUserSummary['name'] ?? '')
+                                    .trim()
+                                    .isNotEmpty
+                                ? (otherUserSummary['name'] ?? '').trim()
+                                : 'טוען...')
+                            : ((chatData['name'] as String?) ?? 'Chat');
+                        final imageUrl = isDirectChat
+                            ? ((otherUserSummary['avatarUrl'] ?? '').trim())
+                            : ((chatData['groupImageUrl'] as String?) ?? '')
+                                .trim();
+                        final activityDate = _chatActivityDate(chatData);
+                        final unreadCount = unreadCounts[chatDoc.id] ?? 0;
+                        final hasUnread = unreadCount > 0;
 
-                    final tile = Container(
-                      decoration: BoxDecoration(
-                        color: isLight
-                            ? Colors.white.withValues(alpha: 0.62)
-                            : const Color(0xFF1E2632),
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Material(
-                        type: MaterialType.transparency,
-                        child: ListTile(
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => ChatRoomScreen(
-                                  chatName: chatName,
-                                  avatarUrl: imageUrl.isEmpty ? null : imageUrl,
-                                  chatId: chatDoc.id,
-                                  isDirectChat: isDirectChat,
-                                  directOtherUserId:
-                                      isDirectChat ? otherUserId : null,
+                        final subtitleText = lastMessage.isNotEmpty
+                            ? lastMessage
+                            : (description.isEmpty ? 'צאט פעיל' : description);
+
+                        final tile = Container(
+                          decoration: BoxDecoration(
+                            color: isLight
+                                ? Colors.white.withValues(alpha: 0.62)
+                                : const Color(0xFF1E2632),
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Material(
+                            type: MaterialType.transparency,
+                            child: ListTile(
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => ChatRoomScreen(
+                                      chatName: chatName,
+                                      avatarUrl:
+                                          imageUrl.isEmpty ? null : imageUrl,
+                                      chatId: chatDoc.id,
+                                      isDirectChat: isDirectChat,
+                                      directOtherUserId:
+                                          isDirectChat ? otherUserId : null,
+                                    ),
+                                  ),
+                                );
+                              },
+                              leading: isDirectChat
+                                  ? _buildChatAvatar(
+                                      name: chatName,
+                                      imageUrl: imageUrl,
+                                    )
+                                  : _buildLiveGroupAvatar(
+                                      groupId: chatDoc.id,
+                                      fallbackImageUrl: imageUrl,
+                                    ),
+                              title: Text(
+                                chatName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.right,
+                                style: TextStyle(
+                                  fontFamily: 'Segoe UI',
+                                  color: isLight ? Colors.black : Colors.white,
+                                  fontWeight: FontWeight.bold,
                                 ),
                               ),
-                            );
-                          },
-                          leading: isDirectChat
-                              ? _buildChatAvatar(
-                                  name: chatName,
-                                  imageUrl: imageUrl,
-                                )
-                              : _buildLiveGroupAvatar(
-                                  groupId: chatDoc.id,
-                                  fallbackImageUrl: imageUrl,
+                              subtitle: Text(
+                                subtitleText,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.right,
+                                style: TextStyle(
+                                  color: isLight
+                                      ? Colors.black87
+                                      : Colors.grey[400],
                                 ),
-                          title: Text(
-                            chatName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.right,
-                            style: TextStyle(
-                              fontFamily: 'Segoe UI',
-                              color: isLight ? Colors.black : Colors.white,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          subtitle: Text(
-                            subtitleText,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.right,
-                            style: TextStyle(
-                              color:
-                                  isLight ? Colors.black87 : Colors.grey[400],
-                            ),
-                          ),
-                          trailing: SizedBox(
-                            width: 92,
-                            child: Text(
-                              _formatRelativeTime(activityDate),
-                              textAlign: TextAlign.end,
-                              style: TextStyle(
-                                color:
-                                    isLight ? Colors.black54 : Colors.grey[500],
-                                fontSize: 12,
+                              ),
+                              trailing: _buildChatTrailing(
+                                activityDate: activityDate,
+                                unreadCount: unreadCount,
                               ),
                             ),
                           ),
-                        ),
-                      ),
-                    );
+                        );
 
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 8),
-                      child: _buildChatFrame(
-                        child: tile,
-                        hasUnread: false,
-                      ),
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 8),
+                          child: _buildChatFrame(
+                            child: tile,
+                            hasUnread: hasUnread,
+                          ),
+                        );
+                      },
                     );
                   },
                 );
@@ -3515,17 +3529,17 @@ class _ChatsScreenState extends State<ChatsScreen> {
             final chatIds =
                 approvedDocs.map((doc) => doc.id).toList(growable: false);
 
-            return StreamBuilder<Map<String, DateTime?>>(
-              stream: _chatService.streamMyReadReceipts(
+            return StreamBuilder<Map<String, int>>(
+              stream: _chatService.streamMyUnreadCounts(
                 userId: currentUser.uid,
                 chatIds: chatIds,
               ),
-              builder: (context, readSnapshot) {
-                if (readSnapshot.hasError) {
+              builder: (context, unreadSnapshot) {
+                if (unreadSnapshot.hasError) {
                   return _buildCenteredMessage('אין עדיין קבוצות');
                 }
-                final readReceipts =
-                    readSnapshot.data ?? const <String, DateTime?>{};
+                final unreadCounts =
+                    unreadSnapshot.data ?? const <String, int>{};
 
                 return ListView.builder(
                   shrinkWrap: true,
@@ -3546,12 +3560,8 @@ class _ChatsScreenState extends State<ChatsScreen> {
                         ((chatData['lastMessageSenderName'] as String?) ?? '')
                             .trim();
                     final activityDate = _chatActivityDate(chatData);
-                    final lastReadAt = readReceipts[chatDoc.id];
-                    final hasUnread = _hasUnreadMessages(
-                      lastMessageAt: _timestampToDate(
-                          chatData['lastMessageAt'] as Timestamp?),
-                      lastReadAt: lastReadAt,
-                    );
+                    final unreadCount = unreadCounts[chatDoc.id] ?? 0;
+                    final hasUnread = unreadCount > 0;
 
                     final subtitleText = lastMessage.isNotEmpty
                         ? (lastMessageSenderName.isNotEmpty
@@ -3607,27 +3617,9 @@ class _ChatsScreenState extends State<ChatsScreen> {
                                   isLight ? Colors.black87 : Colors.grey[400],
                             ),
                           ),
-                          trailing: SizedBox(
-                            height: double.infinity,
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.start,
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              children: [
-                                SizedBox(
-                                  width: 92,
-                                  child: Text(
-                                    _formatRelativeTime(activityDate),
-                                    textAlign: TextAlign.end,
-                                    style: TextStyle(
-                                      color: isLight
-                                          ? Colors.black54
-                                          : Colors.grey[500],
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
+                          trailing: _buildChatTrailing(
+                            activityDate: activityDate,
+                            unreadCount: unreadCount,
                           ),
                         ),
                       ),
@@ -3768,6 +3760,61 @@ class _ChatsScreenState extends State<ChatsScreen> {
     );
   }
 
+  Widget _buildChatTrailing({
+    required DateTime? activityDate,
+    required int unreadCount,
+  }) {
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final hasUnread = unreadCount > 0;
+
+    return SizedBox(
+      width: 92,
+      height: double.infinity,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Text(
+            _formatRelativeTime(activityDate),
+            textAlign: TextAlign.end,
+            style: TextStyle(
+              color: isLight ? Colors.black54 : Colors.grey[500],
+              fontSize: 12,
+            ),
+          ),
+          if (hasUnread) ...[
+            const SizedBox(height: 7),
+            Container(
+              constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+              decoration: BoxDecoration(
+                color: const Color(0xFF8C62FF),
+                borderRadius: BorderRadius.circular(999),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF8C62FF).withValues(alpha: 0.28),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Center(
+                child: Text(
+                  unreadCount > 99 ? '99+' : unreadCount.toString(),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   Widget _buildChatsLoadingSkeleton() {
     return ListView.builder(
       shrinkWrap: true,
@@ -3780,17 +3827,6 @@ class _ChatsScreenState extends State<ChatsScreen> {
         );
       },
     );
-  }
-
-  bool _hasUnreadMessages(
-      {required DateTime? lastMessageAt, required DateTime? lastReadAt}) {
-    if (lastMessageAt == null) {
-      return false;
-    }
-    if (lastReadAt == null) {
-      return true;
-    }
-    return lastMessageAt.isAfter(lastReadAt);
   }
 
   DateTime? _chatActivityDate(Map<String, dynamic> data) {

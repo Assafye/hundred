@@ -35,7 +35,7 @@ class OnlineScreen extends StatefulWidget {
 }
 
 class _OnlineScreenState extends State<OnlineScreen>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   static const Color _bg = Color(0xFF0B1019);
   static const Color _purple = Color(0xFFA487FF);
   static const Color _cyan = Color(0xFF6EADE8);
@@ -43,6 +43,8 @@ class _OnlineScreenState extends State<OnlineScreen>
   static const Color _surfaceSoft = Color(0xFF1B2433);
   static const Duration _meetNowPostLifetime = Duration(hours: 24);
   static const Duration _meetNowRefreshInterval = Duration(seconds: 15);
+  static const Duration _meetNowPublishLocationSyncTimeout =
+      Duration(seconds: 6);
   static const double _friendItemExtent = 88;
   static const int _initialMeetNowVisibleCount = 60;
   static const int _meetNowVisibleCountStep = 30;
@@ -108,6 +110,7 @@ class _OnlineScreenState extends State<OnlineScreen>
   DateTime _lastFrameTelemetryAt = DateTime.now();
   List<MeetNowPostEntry> _cachedMeetNowEntries = const <MeetNowPostEntry>[];
   bool _isMeetNowRefreshing = false;
+  bool? _hasMeetNowLocationAccess;
 
   int get _meetNowQueryTargetCount {
     return _visibleMeetNowPostCount;
@@ -163,6 +166,7 @@ class _OnlineScreenState extends State<OnlineScreen>
   void initState() {
     super.initState();
     KeyboardDismissController.suspend();
+    WidgetsBinding.instance.addObserver(this);
     _sectionRefreshTick = ValueNotifier<int>(0);
     _mainScrollController = ScrollController()..addListener(_handleMainScroll);
     _spaceUsersController = AnimationController(
@@ -199,11 +203,13 @@ class _OnlineScreenState extends State<OnlineScreen>
         });
       },
     );
+    unawaited(_refreshMeetNowLocationAccessStatus());
   }
 
   @override
   void dispose() {
     KeyboardDismissController.resume();
+    WidgetsBinding.instance.removeObserver(this);
     _forceOnlineRefreshTimer?.cancel();
     _joinedMeetPostsSub?.cancel();
     WidgetsBinding.instance.removeTimingsCallback(_onFrameTimings);
@@ -216,6 +222,13 @@ class _OnlineScreenState extends State<OnlineScreen>
     _meetTitleController.dispose();
     _meetDetailsController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_refreshMeetNowLocationAccessStatus());
+    }
   }
 
   bool _tapHitsEditable(PointerDownEvent event) {
@@ -1832,6 +1845,26 @@ class _OnlineScreenState extends State<OnlineScreen>
     return Geolocator.isLocationServiceEnabled();
   }
 
+  Future<bool> _checkLocationAccessForMeetNow() async {
+    final permission = await Geolocator.checkPermission();
+    if (permission != LocationPermission.always &&
+        permission != LocationPermission.whileInUse) {
+      return false;
+    }
+
+    return Geolocator.isLocationServiceEnabled();
+  }
+
+  Future<void> _refreshMeetNowLocationAccessStatus() async {
+    final hasAccess = await _checkLocationAccessForMeetNow();
+    if (!mounted || _hasMeetNowLocationAccess == hasAccess) {
+      return;
+    }
+    setState(() {
+      _hasMeetNowLocationAccess = hasAccess;
+    });
+  }
+
   Future<void> _showMeetNowLocationAccessDialog() async {
     final isLight = Theme.of(context).brightness == Brightness.light;
     await showDialog<void>(
@@ -2268,11 +2301,15 @@ class _OnlineScreenState extends State<OnlineScreen>
                               }
                               FocusScope.of(sheetContext).unfocus();
                               try {
-                                // Guarantee a fresh, persisted location before
-                                // creating the post so it always gets a geohash.
+                                // Fresh GPS is best-effort at publish time: a
+                                // stored location is enough to create a geohash,
+                                // so don't let a slow fix block posting.
                                 try {
                                   await _locationService.syncCurrentLocation(
-                                      force: true);
+                                    force: true,
+                                  ).timeout(
+                                    _meetNowPublishLocationSyncTimeout,
+                                  );
                                 } catch (_) {
                                   // Best-effort; createMeetNowPost still works
                                   // with whatever location doc already exists.
@@ -4430,6 +4467,8 @@ class _OnlineScreenState extends State<OnlineScreen>
                     final pagedEntries = entries
                         .take(_visibleMeetNowPostCount)
                         .toList(growable: false);
+                    final showLocationAccessCard =
+                        _hasMeetNowLocationAccess == false;
                     _reportMeetNowFirstPaintIfNeeded(pagedEntries.length);
                     return Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -4446,7 +4485,9 @@ class _OnlineScreenState extends State<OnlineScreen>
                             child: GridView.builder(
                               shrinkWrap: true,
                               physics: const NeverScrollableScrollPhysics(),
-                              itemCount: pagedEntries.length + 1,
+                              itemCount: pagedEntries.length +
+                                  1 +
+                                  (showLocationAccessCard ? 1 : 0),
                               gridDelegate:
                                   const SliverGridDelegateWithFixedCrossAxisCount(
                                 crossAxisCount: 3,
@@ -4459,7 +4500,13 @@ class _OnlineScreenState extends State<OnlineScreen>
                                   return _buildStaticDiscoverPopCard();
                                 }
 
-                                final entry = pagedEntries[index - 1];
+                                if (showLocationAccessCard && index == 1) {
+                                  return _buildLocationAccessCard();
+                                }
+
+                                final entry = pagedEntries[index -
+                                    1 -
+                                    (showLocationAccessCard ? 1 : 0)];
                                 final card = Container(
                                   decoration: BoxDecoration(
                                     color: isLight ? Colors.white : null,
@@ -4792,6 +4839,99 @@ class _OnlineScreenState extends State<OnlineScreen>
                 overflow: TextOverflow.visible,
                 style: TextStyle(fontSize: 12.2, fontWeight: FontWeight.w800),
               ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLocationAccessCard() {
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    return Container(
+      decoration: BoxDecoration(
+        color: isLight ? Colors.white : null,
+        gradient: isLight
+            ? null
+            : LinearGradient(
+                colors: [
+                  const Color(0xFF14233A).withValues(alpha: 0.96),
+                  const Color(0xFF263557).withValues(alpha: 0.96),
+                ],
+                begin: Alignment.topRight,
+                end: Alignment.bottomLeft,
+              ),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color:
+              isLight ? const Color(0xFFA9C3FF) : _cyan.withValues(alpha: 0.22),
+        ),
+      ),
+      padding: const EdgeInsets.all(10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: _cyan.withValues(alpha: isLight ? 0.14 : 0.18),
+                    ),
+                    child: Icon(
+                      Icons.location_off_rounded,
+                      color: isLight ? const Color(0xFF5A6CFF) : _cyanSoft,
+                      size: 23,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    'בכדי לצפות בפופים סביבכם יש לאשר מיקום לאפליקציה',
+                    textAlign: TextAlign.center,
+                    textDirection: TextDirection.rtl,
+                    maxLines: 4,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: isLight ? const Color(0xFF273A5D) : Colors.white,
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w800,
+                      height: 1.25,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: () async {
+              await Geolocator.openAppSettings();
+              if (!mounted) return;
+              unawaited(_refreshMeetNowLocationAccessStatus());
+            },
+            style: OutlinedButton.styleFrom(
+              foregroundColor: isLight ? const Color(0xFF5A6CFF) : _cyanSoft,
+              side: BorderSide(
+                color: isLight ? const Color(0xFF8EA3FF) : _cyanSoft,
+              ),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              minimumSize: const Size(0, 38),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(999),
+              ),
+            ),
+            icon: const Icon(Icons.settings_rounded, size: 16),
+            label: const Text(
+              'הגדרות',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
             ),
           ),
         ],

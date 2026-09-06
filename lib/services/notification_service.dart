@@ -319,8 +319,9 @@ class NotificationService {
     String groupName = '',
     String commentId = '',
     Map<String, dynamic> extra = const <String, dynamic>{},
+    bool allowWhenWritesSuspended = false,
   }) async {
-    if (_writesSuspended) {
+    if (_writesSuspended && !allowWhenWritesSuspended) {
       return;
     }
 
@@ -586,10 +587,6 @@ class NotificationService {
     required String messageText,
     String? senderUid,
   }) async {
-    if (_writesSuspended) {
-      return;
-    }
-
     final actor = await _actorSummary(senderUid: senderUid);
     final sender = actor.uid;
     final normalizedChatId = chatId.trim();
@@ -629,6 +626,7 @@ class NotificationService {
         actorName: actor.name,
         actorAvatarUrl: actor.avatarUrl,
         chatId: normalizedChatId,
+        allowWhenWritesSuspended: true,
         extra: <String, dynamic>{
           'isGroupChat': isGroupChat,
           'chatName': normalizedChatName,
@@ -730,6 +728,7 @@ class NotificationService {
     String? joiningUid,
   }) async {
     final actor = await _actorSummary(senderUid: joiningUid);
+    final groupImageUrl = await _groupImageUrl(groupId);
     await createNotification(
       recipientUid: recipientUid,
       type: NotificationTypes.groupJoin,
@@ -744,6 +743,10 @@ class NotificationService {
       actorAvatarUrl: actor.avatarUrl,
       groupId: groupId,
       groupName: groupName,
+      extra: <String, dynamic>{
+        if (groupImageUrl.isNotEmpty) 'groupImageUrl': groupImageUrl,
+        if (groupImageUrl.isNotEmpty) 'chatAvatarUrl': groupImageUrl,
+      },
     );
   }
 
@@ -757,6 +760,7 @@ class NotificationService {
   }) async {
     final actor = await _actorSummary(senderUid: addedByUid);
     final addedUser = await _actorSummary(senderUid: addedUserUid);
+    final groupImageUrl = await _groupImageUrl(groupId);
     final normalizedAddedUserName = addedUser.name.trim();
     final normalizedAddedUserAvatarUrl = addedUser.avatarUrl.trim();
     final groupLabel = groupName.trim().isEmpty ? 'קבוצה' : '"$groupName"';
@@ -774,6 +778,8 @@ class NotificationService {
       groupId: groupId,
       groupName: groupName,
       extra: <String, dynamic>{
+        if (groupImageUrl.isNotEmpty) 'groupImageUrl': groupImageUrl,
+        if (groupImageUrl.isNotEmpty) 'chatAvatarUrl': groupImageUrl,
         'addedUserUid': addedUser.uid,
         'addedUserName': normalizedAddedUserName,
         'addedUserAvatarUrl': normalizedAddedUserAvatarUrl,
@@ -1087,6 +1093,31 @@ class NotificationService {
       );
     } catch (_) {
       return _ActorSummary(uid: uid, name: 'משתמש', avatarUrl: '');
+    }
+  }
+
+  Future<String> _groupImageUrl(String groupId) async {
+    final normalizedGroupId = groupId.trim();
+    if (normalizedGroupId.isEmpty) return '';
+
+    try {
+      final groupSnap =
+          await _db.collection('groups').doc(normalizedGroupId).get();
+      final groupData = groupSnap.data() ?? const <String, dynamic>{};
+      final groupImageUrl =
+          (groupData['groupImageUrl'] as String? ?? '').trim();
+      if (groupImageUrl.isNotEmpty) return groupImageUrl;
+    } catch (_) {
+      // Keep fallback below.
+    }
+
+    try {
+      final chatSnap =
+          await _db.collection('chats').doc(normalizedGroupId).get();
+      final chatData = chatSnap.data() ?? const <String, dynamic>{};
+      return (chatData['groupImageUrl'] as String? ?? '').trim();
+    } catch (_) {
+      return '';
     }
   }
 

@@ -5,8 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/public_user_profile.dart';
 
 class PublicUserProfileService {
-  static final Map<String, int> _optimisticScoreDeltaByUid =
-      <String, int>{};
+  static final Map<String, int> _optimisticScoreDeltaByUid = <String, int>{};
   static final Map<String, int> _lastRawScoreByUid = <String, int>{};
   static final StreamController<String> _scoreDeltaChangesController =
       StreamController<String>.broadcast();
@@ -28,6 +27,12 @@ class PublicUserProfileService {
       _optimisticScoreDeltaByUid[normalizedUid] = next;
     }
     _scoreDeltaChangesController.add(normalizedUid);
+  }
+
+  static void addOptimisticScoreDeltas(Map<String, int> deltasByUid) {
+    deltasByUid.forEach((uid, delta) {
+      addOptimisticScoreDelta(uid: uid, delta: delta);
+    });
   }
 
   /// Emits the uid whenever its optimistic score delta changes, so screens
@@ -143,9 +148,9 @@ class PublicUserProfileService {
         false;
 
     final followersCount = _intValue(
-      publicData,
-      const ['followersCount', 'followerCount'],
-    ) ??
+          publicData,
+          const ['followersCount', 'followerCount'],
+        ) ??
         _intValue(privateData, const ['followersCount', 'followerCount']);
     if (followersCount != null) {
       merged['followersCount'] = followersCount;
@@ -153,9 +158,9 @@ class PublicUserProfileService {
     }
 
     final followingCount = _intValue(
-      publicData,
-      const ['followingCount'],
-    ) ??
+          publicData,
+          const ['followingCount'],
+        ) ??
         _intValue(privateData, const ['followingCount']);
     if (followingCount != null) {
       merged['followingCount'] = followingCount;
@@ -359,10 +364,8 @@ class PublicUserProfileService {
         controller.add(resolved);
       }
 
-      final profileSub = _publicUsers
-          .doc(normalizedUserId)
-          .snapshots()
-          .listen((snapshot) {
+      final profileSub =
+          _publicUsers.doc(normalizedUserId).snapshots().listen((snapshot) {
         emitFromSnapshot(snapshot).catchError((error, stackTrace) {
           controller.addError(error, stackTrace);
         });
@@ -410,7 +413,8 @@ class PublicUserProfileService {
       if (!_isRecoverableProfileReadError(error)) {
         rethrow;
       }
-      return PublicUserProfile.fallback(userId: normalizedUserId, exists: false);
+      return PublicUserProfile.fallback(
+          userId: normalizedUserId, exists: false);
     }
   }
 
@@ -477,7 +481,8 @@ class PublicUserProfileService {
             .trim();
     enriched['uid'] = enriched['authorId'];
     enriched['username'] = profile.isDeleted ? '' : profile.username;
-    enriched['authorName'] = profile.isDeleted ? 'משתמש מחוק' : profile.username;
+    enriched['authorName'] =
+        profile.isDeleted ? 'משתמש מחוק' : profile.username;
     enriched['authorDisplayName'] = profile.displayName;
     enriched['profilePictureUrl'] = profile.profilePictureUrl;
     enriched['profileImageUrl'] = profile.profilePictureUrl;

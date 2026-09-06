@@ -203,18 +203,56 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
   bool _didScheduleSpontaneousPrompt = false;
   bool _hasShownExhaustedFeedSheet = false;
   late final List<String> _emptyFeedSuggestionOptions;
+  StreamSubscription<User?>? _authUidChangeSubscription;
+  String _activeFeedUid = '';
 
   @override
   void initState() {
     super.initState();
     categories = appMainCategories;
     _emptyFeedSuggestionOptions = _buildEmptyFeedSuggestionOptions();
+    _activeFeedUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    _authUidChangeSubscription =
+        FirebaseAuth.instance.authStateChanges().listen((user) {
+      final nextUid = user?.uid.trim() ?? '';
+      if (nextUid == _activeFeedUid) {
+        return;
+      }
+      _activeFeedUid = nextUid;
+      _clearUserScopedFeedState();
+      unawaited(_loadSeenFeedHistory());
+      if (mounted) {
+        setState(() {
+          _feedRefreshToken++;
+        });
+      }
+    });
     MainBottomNav.feedPlaybackPausedByComposer
         .addListener(_syncForegroundStateWithComposer);
     _syncForegroundStateWithComposer();
     _loadSeenFeedHistory();
     _scheduleSpontaneousPromptIfNeeded();
     _loadActiveSpontaneousTask();
+  }
+
+  void _clearUserScopedFeedState() {
+    _likedOverrideByPostId.clear();
+    _savedOverrideByPostId.clear();
+    _commentCountOverrideByPostId.clear();
+    _shareCountOverrideByPostId.clear();
+    _likeInFlightPostIds.clear();
+    _saveInFlightPostIds.clear();
+    _shareInFlightPostIds.clear();
+    _authorFutureCache.clear();
+    _audienceFilteredPostsCache.clear();
+    _feedSeenHistory.clear();
+    _feedSeenIds.clear();
+    _feedDisplayBatchSeenIds.clear();
+    _hasLoadedSeenFeedHistory = false;
+    _randomizedFeedOrder.clear();
+    _randomizedFeedSignature = '';
+    _feedDisplayBatchSignature = '';
+    _lastPrecachedFeedSignature = '';
   }
 
   Future<void> _loadSeenFeedHistory() async {
@@ -1121,6 +1159,8 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
         onCommentSubmitted: () {
           final postId = post.id.trim();
           if (postId.isEmpty || !mounted) return;
+          final taggedScoreDeltas =
+              _taggedScoreDeltasForPost(post, commentsDelta: 1);
           // Comments are always allowed to bump commentsCount directly (see
           // firestore.rules isCommentCountIncrementUpdate), so the real
           // Firestore snapshot lands almost immediately for every screen.
@@ -1133,16 +1173,37 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                 _commentCountOverrideByPostId[postId] ?? post.commentsCount;
             _commentCountOverrideByPostId[postId] = currentCount + 1;
           });
+          PublicUserProfileService.addOptimisticScoreDeltas(taggedScoreDeltas);
         },
         onCommentsDeleted: (removedCount) {
           final postId = post.id.trim();
           if (postId.isEmpty || !mounted || removedCount <= 0) return;
+          final taggedScoreDeltas = _taggedScoreDeltasForPost(
+            post,
+            commentsDelta: -removedCount,
+          );
           setState(() {
             final currentCount =
                 _commentCountOverrideByPostId[postId] ?? post.commentsCount;
             _commentCountOverrideByPostId[postId] =
                 (currentCount - removedCount).clamp(0, 1 << 30).toInt();
           });
+          PublicUserProfileService.addOptimisticScoreDeltas(taggedScoreDeltas);
+        },
+        onCommentsRestored: (restoredCount) {
+          final postId = post.id.trim();
+          if (postId.isEmpty || !mounted || restoredCount <= 0) return;
+          final taggedScoreDeltas = _taggedScoreDeltasForPost(
+            post,
+            commentsDelta: restoredCount,
+          );
+          setState(() {
+            final currentCount =
+                _commentCountOverrideByPostId[postId] ?? post.commentsCount;
+            _commentCountOverrideByPostId[postId] =
+                currentCount + restoredCount;
+          });
+          PublicUserProfileService.addOptimisticScoreDeltas(taggedScoreDeltas);
         },
       ),
     );
@@ -1162,6 +1223,10 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
     }
     final previousLiked = _isPostLiked(post);
     final nextLiked = !previousLiked;
+    final taggedScoreDeltas = _taggedScoreDeltasForPost(
+      post,
+      likesDelta: previousLiked ? -1 : 1,
+    );
 
     setState(() {
       _likeInFlightPostIds.add(postId);
@@ -1175,12 +1240,21 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
       postId: postId,
       likes: previousLiked ? -1 : 1,
     );
+    final profileScoreDelta = previousLiked ? -1 : 1;
+    if (post.authorId.trim().isNotEmpty) {
+      PublicUserProfileService.addOptimisticScoreDelta(
+        uid: post.authorId,
+        delta: profileScoreDelta,
+      );
+    }
+    PublicUserProfileService.addOptimisticScoreDeltas(taggedScoreDeltas);
 
     try {
       await _postService.togglePostLike(
         postId: postId,
         postAuthorId: post.authorId,
         currentlyLikedByMe: previousLiked,
+        applyOptimisticProfileDelta: false,
       );
     } catch (error) {
       if (!mounted) return;
@@ -1198,6 +1272,15 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
           _likedOverrideByPostId[postId] = previousLiked;
         });
       }
+      if (post.authorId.trim().isNotEmpty) {
+        PublicUserProfileService.addOptimisticScoreDelta(
+          uid: post.authorId,
+          delta: -profileScoreDelta,
+        );
+      }
+      PublicUserProfileService.addOptimisticScoreDeltas(
+        taggedScoreDeltas.map((uid, delta) => MapEntry(uid, -delta)),
+      );
       final message = FirestoreRuleFeedback.actionMessage(
         error,
         'עדכון לייק נכשל. נסה שוב בעוד רגע.',
@@ -1217,6 +1300,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
   Future<void> _registerPostShare(PostModel post, {bool silent = false}) async {
     final postId = post.id.trim();
     if (postId.isEmpty || _shareInFlightPostIds.contains(postId)) return;
+    final taggedScoreDeltas = _taggedScoreDeltasForPost(post, sharesDelta: 1);
 
     if (!silent) {
       setState(() {
@@ -1226,11 +1310,19 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
         _shareCountOverrideByPostId[postId] = currentCount + 1;
       });
       PostInteractionOverlayService.addDelta(postId: postId, shares: 1);
+      if (post.authorId.trim().isNotEmpty) {
+        PublicUserProfileService.addOptimisticScoreDelta(
+          uid: post.authorId,
+          delta: 3,
+        );
+      }
+      PublicUserProfileService.addOptimisticScoreDeltas(taggedScoreDeltas);
     }
     try {
       await _postService.registerPostShare(
         postId: postId,
         postAuthorId: post.authorId,
+        applyOptimisticProfileDelta: false,
       );
       // Optimistic share count already updated before request.
     } catch (error) {
@@ -1240,11 +1332,36 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
       }
       final denied = FirestoreRuleFeedback.isPermissionDenied(error);
       if (error is PostActionLimitException) {
+        PostInteractionOverlayService.addDelta(postId: postId, shares: -1);
+        if (post.authorId.trim().isNotEmpty) {
+          PublicUserProfileService.addOptimisticScoreDelta(
+            uid: post.authorId,
+            delta: -3,
+          );
+        }
+        PublicUserProfileService.addOptimisticScoreDeltas(
+          taggedScoreDeltas.map((uid, delta) => MapEntry(uid, -delta)),
+        );
+        setState(() {
+          final currentCount =
+              _shareCountOverrideByPostId[postId] ?? post.sharesCount;
+          _shareCountOverrideByPostId[postId] =
+              (currentCount - 1).clamp(0, 1 << 30);
+        });
         _showCenteredLimitAlert(error.message);
         return;
       }
       if (!denied) {
         PostInteractionOverlayService.addDelta(postId: postId, shares: -1);
+        if (post.authorId.trim().isNotEmpty) {
+          PublicUserProfileService.addOptimisticScoreDelta(
+            uid: post.authorId,
+            delta: -3,
+          );
+        }
+        PublicUserProfileService.addOptimisticScoreDeltas(
+          taggedScoreDeltas.map((uid, delta) => MapEntry(uid, -delta)),
+        );
         setState(() {
           final currentCount =
               _shareCountOverrideByPostId[postId] ?? post.sharesCount;
@@ -1273,6 +1390,10 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
     if (postId.isEmpty || _saveInFlightPostIds.contains(postId)) return;
     final previousSaved = _isPostSaved(post);
     final nextSaved = !previousSaved;
+    final taggedScoreDeltas = _taggedScoreDeltasForPost(
+      post,
+      savesDelta: previousSaved ? -1 : 1,
+    );
 
     setState(() {
       _saveInFlightPostIds.add(postId);
@@ -1286,11 +1407,20 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
       postId: postId,
       saves: previousSaved ? -1 : 1,
     );
+    final profileScoreDelta = previousSaved ? -1 : 1;
+    if (post.authorId.trim().isNotEmpty) {
+      PublicUserProfileService.addOptimisticScoreDelta(
+        uid: post.authorId,
+        delta: profileScoreDelta,
+      );
+    }
+    PublicUserProfileService.addOptimisticScoreDeltas(taggedScoreDeltas);
 
     try {
       await _postService.togglePostSave(
         postId: postId,
         currentlySavedByMe: previousSaved,
+        applyOptimisticProfileDelta: false,
       );
     } catch (error) {
       if (!mounted) return;
@@ -1308,6 +1438,15 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
           _savedOverrideByPostId[postId] = previousSaved;
         });
       }
+      if (post.authorId.trim().isNotEmpty) {
+        PublicUserProfileService.addOptimisticScoreDelta(
+          uid: post.authorId,
+          delta: -profileScoreDelta,
+        );
+      }
+      PublicUserProfileService.addOptimisticScoreDeltas(
+        taggedScoreDeltas.map((uid, delta) => MapEntry(uid, -delta)),
+      );
       final message = FirestoreRuleFeedback.actionMessage(
         error,
         'עדכון שמירה נכשל. נסה שוב בעוד רגע.',
@@ -1614,6 +1753,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
   void dispose() {
     MainBottomNav.feedPlaybackPausedByComposer
         .removeListener(_syncForegroundStateWithComposer);
+    _authUidChangeSubscription?.cancel();
     _spontaneousPromptTimer?.cancel();
     _spontaneousCountdownTimer?.cancel();
     _pageController.dispose();
@@ -1952,6 +2092,54 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
         .where((uid) => includeAuthor || uid != authorId)
         .toSet()
         .toList(growable: false);
+  }
+
+  int _displayedLikeCount(PostModel post) {
+    final isLiked = _isPostLiked(post);
+    final delta = (isLiked ? 1 : 0) - (post.likedByCurrentUser ? 1 : 0);
+    return (post.likesCount + delta).clamp(0, 1 << 30).toInt();
+  }
+
+  int _displayedSaveCount(PostModel post) {
+    final isSaved = _isPostSaved(post);
+    final delta = (isSaved ? 1 : 0) - (post.savedByCurrentUser ? 1 : 0);
+    return (post.savesCount + delta).clamp(0, 1 << 30).toInt();
+  }
+
+  Map<String, int> _taggedScoreDeltasForPost(
+    PostModel post, {
+    int likesDelta = 0,
+    int commentsDelta = 0,
+    int sharesDelta = 0,
+    int savesDelta = 0,
+  }) {
+    final taggedUids = _participantUidsForPost(post, includeAuthor: false);
+    if (taggedUids.isEmpty) return const <String, int>{};
+
+    final currentLikes = _displayedLikeCount(post);
+    final currentComments = _displayedCommentCount(post);
+    final currentShares = _displayedShareCount(post);
+    final currentSaves = _displayedSaveCount(post);
+    final currentScore = _postContributionScore(
+      scoreAwarded: post.scoreAwarded,
+      likesCount: currentLikes,
+      commentsCount: currentComments,
+      sharesCount: currentShares,
+      savesCount: currentSaves,
+    );
+    final nextScore = _postContributionScore(
+      scoreAwarded: post.scoreAwarded,
+      likesCount: (currentLikes + likesDelta).clamp(0, 1 << 30).toInt(),
+      commentsCount:
+          (currentComments + commentsDelta).clamp(0, 1 << 30).toInt(),
+      sharesCount: (currentShares + sharesDelta).clamp(0, 1 << 30).toInt(),
+      savesCount: (currentSaves + savesDelta).clamp(0, 1 << 30).toInt(),
+    );
+    final delta = PostScoreCalculator.taggedBonusForPostScore(nextScore) -
+        PostScoreCalculator.taggedBonusForPostScore(currentScore);
+    if (delta == 0) return const <String, int>{};
+
+    return <String, int>{for (final uid in taggedUids) uid: delta};
   }
 
   Future<List<PublicUserProfile>> _participantProfilesFor(

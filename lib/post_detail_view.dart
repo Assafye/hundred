@@ -396,7 +396,9 @@ class _PostDetailViewState extends State<PostDetailView> {
         return;
       }
       final index = _currentIndex;
-      if (index < 0 || index >= _posts.length || _postId(_posts[index]) != postId) {
+      if (index < 0 ||
+          index >= _posts.length ||
+          _postId(_posts[index]) != postId) {
         return;
       }
       final data = snapshot.data() ?? <String, dynamic>{};
@@ -746,6 +748,53 @@ class _PostDetailViewState extends State<PostDetailView> {
       unique.add(uid);
     }
     return unique.toList(growable: false);
+  }
+
+  Map<String, int> _taggedScoreDeltasForPost(
+    Map<String, dynamic> post, {
+    int likesDelta = 0,
+    int commentsDelta = 0,
+    int sharesDelta = 0,
+    int savesDelta = 0,
+  }) {
+    final taggedUids = _participantUids(post, includeAuthor: false);
+    if (taggedUids.isEmpty) return const <String, int>{};
+
+    final currentLikes = _countFromAny(
+        post, const ['likesCount', 'likes_count'],
+        listKey: 'likes');
+    final currentComments = _countFromAny(
+      post,
+      const ['commentsCount', 'comments_count'],
+      listKey: 'comments',
+    );
+    final currentShares =
+        _countFromAny(post, const ['sharesCount', 'shares_count']);
+    final currentSaves = _countFromAny(
+      post,
+      const ['savesCount', 'saves_count'],
+      listKey: 'savedBy',
+    );
+    final currentScore = _postContributionScore(
+      scoreAwarded: _scoreAwarded(post),
+      likesCount: currentLikes,
+      commentsCount: currentComments,
+      sharesCount: currentShares,
+      savesCount: currentSaves,
+    );
+    final nextScore = _postContributionScore(
+      scoreAwarded: _scoreAwarded(post),
+      likesCount: (currentLikes + likesDelta).clamp(0, 1 << 30).toInt(),
+      commentsCount:
+          (currentComments + commentsDelta).clamp(0, 1 << 30).toInt(),
+      sharesCount: (currentShares + sharesDelta).clamp(0, 1 << 30).toInt(),
+      savesCount: (currentSaves + savesDelta).clamp(0, 1 << 30).toInt(),
+    );
+    final delta = PostScoreCalculator.taggedBonusForPostScore(nextScore) -
+        PostScoreCalculator.taggedBonusForPostScore(currentScore);
+    if (delta == 0) return const <String, int>{};
+
+    return <String, int>{for (final uid in taggedUids) uid: delta};
   }
 
   Future<List<PublicUserProfile>> _participantProfilesFor(
@@ -2314,6 +2363,10 @@ class _PostDetailViewState extends State<PostDetailView> {
     final previousLiked = _isLikedByMe(post);
     final nextLiked = !previousLiked;
     final hasLiked = previousLiked;
+    final taggedScoreDeltas = _taggedScoreDeltasForPost(
+      post,
+      likesDelta: previousLiked ? -1 : 1,
+    );
 
     setState(() {
       _likeInFlightPostIds.add(postId);
@@ -2331,12 +2384,21 @@ class _PostDetailViewState extends State<PostDetailView> {
       postId: postId,
       likes: previousLiked ? -1 : 1,
     );
+    final profileScoreDelta = previousLiked ? -1 : 1;
+    if (authorId.isNotEmpty) {
+      PublicUserProfileService.addOptimisticScoreDelta(
+        uid: authorId,
+        delta: profileScoreDelta,
+      );
+    }
+    PublicUserProfileService.addOptimisticScoreDeltas(taggedScoreDeltas);
 
     try {
       await _postService.togglePostLike(
         postId: postId,
         postAuthorId: authorId,
         currentlyLikedByMe: hasLiked,
+        applyOptimisticProfileDelta: false,
       );
     } catch (error) {
       if (!mounted) return;
@@ -2353,6 +2415,15 @@ class _PostDetailViewState extends State<PostDetailView> {
         await _refreshPostAtIndex(index);
         if (!mounted) return;
       }
+      if (authorId.isNotEmpty) {
+        PublicUserProfileService.addOptimisticScoreDelta(
+          uid: authorId,
+          delta: -profileScoreDelta,
+        );
+      }
+      PublicUserProfileService.addOptimisticScoreDeltas(
+        taggedScoreDeltas.map((uid, delta) => MapEntry(uid, -delta)),
+      );
       final message = FirestoreRuleFeedback.actionMessage(
         error,
         'עדכון לייק נכשל. נסה שוב בעוד רגע.',
@@ -2377,6 +2448,10 @@ class _PostDetailViewState extends State<PostDetailView> {
     final previousSaved = _isSavedByMe(post);
     final nextSaved = !previousSaved;
     final hasSaved = previousSaved;
+    final taggedScoreDeltas = _taggedScoreDeltasForPost(
+      post,
+      savesDelta: previousSaved ? -1 : 1,
+    );
 
     setState(() {
       _saveInFlightPostIds.add(postId);
@@ -2394,11 +2469,21 @@ class _PostDetailViewState extends State<PostDetailView> {
       postId: postId,
       saves: previousSaved ? -1 : 1,
     );
+    final profileScoreDelta = previousSaved ? -1 : 1;
+    final authorId = _postAuthorId(post);
+    if (authorId.isNotEmpty) {
+      PublicUserProfileService.addOptimisticScoreDelta(
+        uid: authorId,
+        delta: profileScoreDelta,
+      );
+    }
+    PublicUserProfileService.addOptimisticScoreDeltas(taggedScoreDeltas);
 
     try {
       await _postService.togglePostSave(
         postId: postId,
         currentlySavedByMe: hasSaved,
+        applyOptimisticProfileDelta: false,
       );
     } catch (error) {
       if (!mounted) return;
@@ -2415,6 +2500,15 @@ class _PostDetailViewState extends State<PostDetailView> {
         await _refreshPostAtIndex(index);
         if (!mounted) return;
       }
+      if (authorId.isNotEmpty) {
+        PublicUserProfileService.addOptimisticScoreDelta(
+          uid: authorId,
+          delta: -profileScoreDelta,
+        );
+      }
+      PublicUserProfileService.addOptimisticScoreDeltas(
+        taggedScoreDeltas.map((uid, delta) => MapEntry(uid, -delta)),
+      );
       final message = FirestoreRuleFeedback.actionMessage(
         error,
         'עדכון שמירה נכשל. נסה שוב בעוד רגע.',
@@ -2502,6 +2596,7 @@ class _PostDetailViewState extends State<PostDetailView> {
     final postId = _postId(post);
     final authorId = _postAuthorId(post);
     if (postId.isEmpty || _shareInFlightPostIds.contains(postId)) return;
+    final taggedScoreDeltas = _taggedScoreDeltasForPost(post, sharesDelta: 1);
 
     if (!silent) {
       setState(() {
@@ -2513,11 +2608,21 @@ class _PostDetailViewState extends State<PostDetailView> {
           'sharesCount': currentShares + 1,
         };
       });
+      if (authorId.isNotEmpty) {
+        PublicUserProfileService.addOptimisticScoreDelta(
+          uid: authorId,
+          delta: 3,
+        );
+      }
+      PublicUserProfileService.addOptimisticScoreDeltas(taggedScoreDeltas);
     }
 
     try {
       await _postService.registerPostShare(
-          postId: postId, postAuthorId: authorId);
+        postId: postId,
+        postAuthorId: authorId,
+        applyOptimisticProfileDelta: false,
+      );
       if (!silent) {
         await _refreshPostAtIndex(_currentIndex);
       }
@@ -2527,13 +2632,33 @@ class _PostDetailViewState extends State<PostDetailView> {
         return;
       }
       final denied = FirestoreRuleFeedback.isPermissionDenied(error);
-      if (!denied) {
+      if (error is PostActionLimitException) {
+        if (authorId.isNotEmpty) {
+          PublicUserProfileService.addOptimisticScoreDelta(
+            uid: authorId,
+            delta: -3,
+          );
+        }
+        PublicUserProfileService.addOptimisticScoreDeltas(
+          taggedScoreDeltas.map((uid, delta) => MapEntry(uid, -delta)),
+        );
         await _refreshPostAtIndex(_currentIndex);
         if (!mounted) return;
-      }
-      if (error is PostActionLimitException) {
         _showCenteredLimitAlert(error.message);
         return;
+      }
+      if (!denied) {
+        if (authorId.isNotEmpty) {
+          PublicUserProfileService.addOptimisticScoreDelta(
+            uid: authorId,
+            delta: -3,
+          );
+        }
+        PublicUserProfileService.addOptimisticScoreDeltas(
+          taggedScoreDeltas.map((uid, delta) => MapEntry(uid, -delta)),
+        );
+        await _refreshPostAtIndex(_currentIndex);
+        if (!mounted) return;
       }
       final message = FirestoreRuleFeedback.actionMessage(
         error,
@@ -2754,18 +2879,27 @@ class _PostDetailViewState extends State<PostDetailView> {
           final current =
               _countFromData(_posts[_currentIndex], 'commentsCount');
           if (!mounted) return;
+          final taggedScoreDeltas = _taggedScoreDeltasForPost(
+            _posts[_currentIndex],
+            commentsDelta: 1,
+          );
           setState(() {
             _posts[_currentIndex] = <String, dynamic>{
               ..._posts[_currentIndex],
               'commentsCount': current + 1,
             };
           });
+          PublicUserProfileService.addOptimisticScoreDeltas(taggedScoreDeltas);
           _refreshPostAtIndex(_currentIndex);
         },
         onCommentsDeleted: (removedCount) {
           if (!mounted || removedCount <= 0) return;
           final current =
               _countFromData(_posts[_currentIndex], 'commentsCount');
+          final taggedScoreDeltas = _taggedScoreDeltasForPost(
+            _posts[_currentIndex],
+            commentsDelta: -removedCount,
+          );
           setState(() {
             _posts[_currentIndex] = <String, dynamic>{
               ..._posts[_currentIndex],
@@ -2773,6 +2907,24 @@ class _PostDetailViewState extends State<PostDetailView> {
                   (current - removedCount).clamp(0, 1 << 30).toInt(),
             };
           });
+          PublicUserProfileService.addOptimisticScoreDeltas(taggedScoreDeltas);
+          _refreshPostAtIndex(_currentIndex);
+        },
+        onCommentsRestored: (restoredCount) {
+          if (!mounted || restoredCount <= 0) return;
+          final current =
+              _countFromData(_posts[_currentIndex], 'commentsCount');
+          final taggedScoreDeltas = _taggedScoreDeltasForPost(
+            _posts[_currentIndex],
+            commentsDelta: restoredCount,
+          );
+          setState(() {
+            _posts[_currentIndex] = <String, dynamic>{
+              ..._posts[_currentIndex],
+              'commentsCount': current + restoredCount,
+            };
+          });
+          PublicUserProfileService.addOptimisticScoreDeltas(taggedScoreDeltas);
           _refreshPostAtIndex(_currentIndex);
         },
       ),
@@ -3149,7 +3301,8 @@ class _PostDetailViewState extends State<PostDetailView> {
                                 MaterialPageRoute(
                                   builder: (_) => CategoryScreen(
                                     categoryName: category,
-                                    initialPost: Map<String, dynamic>.from(post),
+                                    initialPost:
+                                        Map<String, dynamic>.from(post),
                                   ),
                                 ),
                               );
@@ -3159,7 +3312,10 @@ class _PostDetailViewState extends State<PostDetailView> {
                               height: 50,
                               decoration: BoxDecoration(
                                 gradient: const LinearGradient(
-                                  colors: [Color(0xFF8C62FF), Color(0xFF46D3FF)],
+                                  colors: [
+                                    Color(0xFF8C62FF),
+                                    Color(0xFF46D3FF)
+                                  ],
                                   begin: Alignment.topLeft,
                                   end: Alignment.bottomRight,
                                 ),
@@ -3201,7 +3357,10 @@ class _PostDetailViewState extends State<PostDetailView> {
                               height: hasLinkedGroup ? 56 : 50,
                               decoration: BoxDecoration(
                                 gradient: const LinearGradient(
-                                  colors: [Color(0xFF8C62FF), Color(0xFF46D3FF)],
+                                  colors: [
+                                    Color(0xFF8C62FF),
+                                    Color(0xFF46D3FF)
+                                  ],
                                   begin: Alignment.topLeft,
                                   end: Alignment.bottomRight,
                                 ),
@@ -3284,11 +3443,13 @@ class _PostDetailViewState extends State<PostDetailView> {
                                               children: [
                                                 if (participantsCount > 0)
                                                   Text(
-                                                    participantsCount.toString(),
+                                                    participantsCount
+                                                        .toString(),
                                                     style: const TextStyle(
                                                       color: Color(0xFF5A6CFF),
                                                       fontSize: 9,
-                                                      fontWeight: FontWeight.w800,
+                                                      fontWeight:
+                                                          FontWeight.w800,
                                                     ),
                                                   )
                                                 else

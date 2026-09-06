@@ -10,6 +10,7 @@ import 'package:image_picker/image_picker.dart';
 import '../age_restrictions.dart';
 
 import 'notification_service.dart';
+import 'notification_runtime_service.dart';
 
 enum OnboardingStep {
   pendingVerification,
@@ -2529,6 +2530,7 @@ class AuthService {
   // התנתקות מהמערכת
   Future<void> signOut() async {
     _cachedSignInPassword = null;
+    await NotificationRuntimeService.instance.unbindCurrentUserForSignOut();
     await _auth.signOut();
   }
 }

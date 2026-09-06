@@ -144,13 +144,11 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   late final Future<int> _friendCountFuture;
   late final Future<bool> _canViewProfileContentFuture;
   late final Future<bool> _canViewFriendsOnlyPostsFuture;
-  Timer? _periodicRefreshTimer;
+  StreamSubscription<String>? _postOverlaySubscription;
+  DateTime? _lastProfileRefreshAt;
   bool _isRefreshingProfile = false;
 
-  /// Background refresh cadence. The live listeners already push real
-  /// changes; this only reconciles server-applied counters without waking
-  /// the radio every second.
-  static const Duration _periodicRefreshInterval = Duration(minutes: 1);
+  static const Duration _minimumRefreshInterval = Duration(seconds: 3);
 
   @override
   void initState() {
@@ -165,6 +163,11 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         _friendIdsForProfile(widget.uid).then((ids) => ids.length);
     _canViewProfileContentFuture = _canViewProfileContent(widget.uid);
     _canViewFriendsOnlyPostsFuture = _canViewFriendsOnlyPosts(widget.uid);
+    _postOverlaySubscription =
+        PostInteractionOverlayService.changes.listen((_) {
+      if (!mounted) return;
+      setState(() {});
+    });
 
     _quickMessageFocusNode.addListener(() {
       _logQuickMessage(
@@ -185,14 +188,22 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       },
     );
 
-    _periodicRefreshTimer = Timer.periodic(
-      _periodicRefreshInterval,
-      (_) => _refreshProfileData(),
-    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(_refreshProfileData(force: true));
+    });
   }
 
-  Future<void> _refreshProfileData() async {
+  Future<void> _refreshProfileData({bool force = false}) async {
     if (_isRefreshingProfile) return;
+    final now = DateTime.now();
+    final lastRefreshAt = _lastProfileRefreshAt;
+    if (!force &&
+        lastRefreshAt != null &&
+        now.difference(lastRefreshAt) < _minimumRefreshInterval) {
+      return;
+    }
+    _lastProfileRefreshAt = now;
     _isRefreshingProfile = true;
     try {
       await _publicUserProfileService.refreshScoreSources(widget.uid);
@@ -208,7 +219,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   void dispose() {
     KeyboardDismissController.resume();
     _spontaneousCountdownTimer?.cancel();
-    _periodicRefreshTimer?.cancel();
+    _postOverlaySubscription?.cancel();
     _quickMessageTypingDebounce?.cancel();
     _quickMessageFocusNode.dispose();
     _quickMessageController.dispose();
@@ -364,6 +375,9 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
 
             return RefreshIndicator(
               onRefresh: _refreshProfileData,
+              notificationPredicate: (notification) =>
+                  notification.metrics.axis == Axis.vertical &&
+                  notification.metrics.extentBefore == 0,
               child: SingleChildScrollView(
                 physics: const AlwaysScrollableScrollPhysics(
                   parent: BouncingScrollPhysics(),

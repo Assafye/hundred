@@ -475,6 +475,7 @@ class PostService {
   Future<void> _incrementScoreForExistingUsers({
     required Iterable<String> userIds,
     required int delta,
+    bool applyOptimisticProfileDeltas = true,
   }) async {
     if (delta == 0) {
       return;
@@ -534,7 +535,7 @@ class PostService {
             'delta': delta,
           },
         );
-        if (uid != actingUid) {
+        if (applyOptimisticProfileDeltas && uid != actingUid) {
           PublicUserProfileService.addOptimisticScoreDelta(
             uid: uid,
             delta: delta,
@@ -547,9 +548,14 @@ class PostService {
   Future<void> _safeIncrementScoreForExistingUsers({
     required Iterable<String> userIds,
     required int delta,
+    bool applyOptimisticProfileDeltas = true,
   }) async {
     try {
-      await _incrementScoreForExistingUsers(userIds: userIds, delta: delta);
+      await _incrementScoreForExistingUsers(
+        userIds: userIds,
+        delta: delta,
+        applyOptimisticProfileDeltas: applyOptimisticProfileDeltas,
+      );
     } catch (error) {
       if (kDebugMode) {
         debugPrint('Score sync skipped: $error');
@@ -1618,6 +1624,7 @@ class PostService {
     required String postId,
     required String postAuthorId,
     bool? currentlyLikedByMe,
+    bool applyOptimisticProfileDelta = true,
   }) async {
     final uid = _requireUid();
     final normalizedPostId = postId.trim();
@@ -1739,7 +1746,9 @@ class PostService {
           },
           dedupeKey: 'like:$uid:$normalizedPostId',
         );
-        if (normalizedAuthorId.isNotEmpty && normalizedAuthorId != uid) {
+        if (applyOptimisticProfileDelta &&
+            normalizedAuthorId.isNotEmpty &&
+            normalizedAuthorId != uid) {
           final intendedAddLike =
               currentlyLikedByMe == null ? didAddLike : !currentlyLikedByMe;
           final scoreDelta = intendedAddLike ? 1 : -1;
@@ -1787,6 +1796,7 @@ class PostService {
   Future<void> registerPostShare({
     required String postId,
     required String postAuthorId,
+    bool applyOptimisticProfileDelta = true,
   }) async {
     final uid = _requireUid();
     final normalizedPostId = postId.trim();
@@ -1888,7 +1898,9 @@ class PostService {
           },
           dedupeKey: 'share:$uid:$normalizedPostId',
         );
-        if (normalizedAuthorId.isNotEmpty && normalizedAuthorId != uid) {
+        if (applyOptimisticProfileDelta &&
+            normalizedAuthorId.isNotEmpty &&
+            normalizedAuthorId != uid) {
           PublicUserProfileService.addOptimisticScoreDelta(
             uid: normalizedAuthorId,
             delta: 3,
@@ -1909,6 +1921,7 @@ class PostService {
   Future<void> togglePostSave({
     required String postId,
     bool? currentlySavedByMe,
+    bool applyOptimisticProfileDelta = true,
   }) async {
     final uid = _requireUid();
     final normalizedPostId = postId.trim();
@@ -2034,7 +2047,9 @@ class PostService {
           },
           dedupeKey: 'save:$uid:$normalizedPostId',
         );
-        if (normalizedAuthorId.isNotEmpty && normalizedAuthorId != uid) {
+        if (applyOptimisticProfileDelta &&
+            normalizedAuthorId.isNotEmpty &&
+            normalizedAuthorId != uid) {
           final intendedAddSave =
               currentlySavedByMe == null ? didAddSave : !currentlySavedByMe;
           final scoreDelta = intendedAddSave ? 1 : -1;
@@ -2099,6 +2114,7 @@ class PostService {
     required String postAuthorId,
     required String text,
     String? parentCommentId,
+    bool applyOptimisticProfileDeltas = true,
   }) async {
     final uid = _requireUid();
     final normalizedPostId = postId.trim();
@@ -2259,6 +2275,7 @@ class PostService {
         await _safeIncrementScoreForExistingUsers(
           userIds: _taggedParticipantUidsFromPostData(postData),
           delta: taggedScoreDelta,
+          applyOptimisticProfileDeltas: applyOptimisticProfileDeltas,
         );
       }
 
@@ -2274,9 +2291,10 @@ class PostService {
         await _safeIncrementScoreForExistingUsers(
           userIds: rewardList,
           delta: replyDelta,
+          applyOptimisticProfileDeltas: applyOptimisticProfileDeltas,
         );
         for (final rewardUid in rewardList) {
-          if (rewardUid != uid) {
+          if (applyOptimisticProfileDeltas && rewardUid != uid) {
             PublicUserProfileService.addOptimisticScoreDelta(
               uid: rewardUid,
               delta: replyDelta,
@@ -2433,7 +2451,7 @@ class PostService {
         // second syncUserScoreDelta and award +4 instead of +2.
         final replyDelta = commentReplyScoreDelta(isAdding: true);
         for (final rewardUid in rewardUserIds) {
-          if (rewardUid != uid) {
+          if (applyOptimisticProfileDeltas && rewardUid != uid) {
             PublicUserProfileService.addOptimisticScoreDelta(
               uid: rewardUid,
               delta: replyDelta,
@@ -2471,6 +2489,7 @@ class PostService {
   Future<void> toggleCommentLike({
     required String postId,
     required String commentId,
+    bool applyOptimisticProfileDelta = true,
   }) async {
     final uid = _requireUid();
     final normalizedPostId = postId.trim();
@@ -2523,6 +2542,7 @@ class PostService {
           await _incrementScoreForExistingUsers(
             userIds: <String>[commentAuthorId],
             delta: delta,
+            applyOptimisticProfileDeltas: applyOptimisticProfileDelta,
           );
         } catch (error) {
           if (!_isPermissionDenied(error)) {
@@ -2539,10 +2559,12 @@ class PostService {
                 'comment_like_score:$uid:$normalizedPostId:$normalizedCommentId:$didAddLike',
           );
         }
-        PublicUserProfileService.addOptimisticScoreDelta(
-          uid: commentAuthorId,
-          delta: delta,
-        );
+        if (applyOptimisticProfileDelta) {
+          PublicUserProfileService.addOptimisticScoreDelta(
+            uid: commentAuthorId,
+            delta: delta,
+          );
+        }
       }
     }
   }
@@ -2551,6 +2573,7 @@ class PostService {
     required String postId,
     required String postAuthorId,
     required String commentId,
+    bool applyOptimisticProfileDeltas = true,
   }) async {
     final uid = _requireUid();
     final normalizedPostId = postId.trim();
@@ -2624,6 +2647,7 @@ class PostService {
         targetCommentData: targetCommentData,
         toDelete: toDelete,
         byId: byId,
+        applyOptimisticProfileDeltas: applyOptimisticProfileDeltas,
       );
       return;
     }
@@ -2688,6 +2712,7 @@ class PostService {
     required Map<String, dynamic> targetCommentData,
     required Set<String> toDelete,
     required Map<String, QueryDocumentSnapshot<Map<String, dynamic>>> byId,
+    required bool applyOptimisticProfileDeltas,
   }) async {
     final deletedScoreDeltasByAuthor = <String, int>{};
     final deletedCommentNotificationManifest = <Map<String, dynamic>>[];
@@ -2804,6 +2829,7 @@ class PostService {
         await _safeIncrementScoreForExistingUsers(
           userIds: <String>[entry.key],
           delta: entry.value,
+          applyOptimisticProfileDeltas: applyOptimisticProfileDeltas,
         );
       }
     }
@@ -2812,6 +2838,7 @@ class PostService {
       await _safeIncrementScoreForExistingUsers(
         userIds: taggedUidsForBonus,
         delta: taggedScoreDelta,
+        applyOptimisticProfileDeltas: applyOptimisticProfileDeltas,
       );
     }
 
