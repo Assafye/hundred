@@ -11,6 +11,7 @@ import '../models/post_media_item.dart';
 import '../models/public_user_profile.dart';
 import '../app_categories.dart';
 import '../category_points.dart';
+import '../post_score_calculator.dart';
 import 'notification_service.dart';
 import 'public_user_profile_service.dart';
 import 'secure_action_queue_service.dart';
@@ -177,34 +178,11 @@ class PostService {
   }
 
   int _postScoreFromData(Map<String, dynamic> data) {
-    final scoreAwarded = (data['scoreAwarded'] as num?)?.toInt() ??
-        int.tryParse('${data['scoreAwarded'] ?? ''}') ??
-        0;
-    final likesCount = (data['likesCount'] as num?)?.toInt() ??
-        int.tryParse('${data['likesCount'] ?? ''}') ??
-        ((data['likes'] as List<dynamic>?) ?? const <dynamic>[]).length;
-    final commentsCount = (data['commentsCount'] as num?)?.toInt() ??
-        int.tryParse('${data['commentsCount'] ?? ''}') ??
-        ((data['comments'] as List<dynamic>?) ?? const <dynamic>[]).length;
-    final sharesCount = (data['sharesCount'] as num?)?.toInt() ??
-        int.tryParse('${data['sharesCount'] ?? ''}') ??
-        0;
-    final savesCount = (data['savesCount'] as num?)?.toInt() ??
-        int.tryParse('${data['savesCount'] ?? ''}') ??
-        ((data['savedBy'] as List<dynamic>?) ?? const <dynamic>[]).length;
-
-    return scoreAwarded +
-        likesCount +
-        (commentsCount * 2) +
-        (sharesCount * 3) +
-        savesCount;
+    return PostScoreCalculator.calculateFromData(data);
   }
 
   int _taggedBonusForPostScore(int postScore) {
-    if (postScore <= 0) {
-      return 0;
-    }
-    return postScore ~/ 5;
+    return PostScoreCalculator.taggedBonusForPostScore(postScore);
   }
 
   Future<_PublishScoreAwardResult> _publishScoreAward({
@@ -510,31 +488,58 @@ class PostService {
       return;
     }
 
-    final batch = _db.batch();
-    var hasWrites = false;
+    final actingUid = _auth.currentUser?.uid.trim() ?? '';
 
+    // Each uid is attempted independently (instead of one combined batch) so
+    // that a rules rejection for one recipient (e.g. a tagged user who isn't
+    // the acting user) can't silently swallow score increments for the
+    // others. Any rejected write is queued for the secure-actions worker
+    // instead of being dropped, so cross-user score deltas always land
+    // eventually even under strict Firestore rules.
     for (final uid in uniqueIds) {
       final userRef = _db.collection('users').doc(uid);
       final publicRef = _db.collection('users_public').doc(uid);
-      final snapshots = await Future.wait([userRef.get(), publicRef.get()]);
 
-      if (snapshots[0].exists) {
-        batch.update(userRef, <String, dynamic>{
-          'score': FieldValue.increment(delta),
-        });
-        hasWrites = true;
+      try {
+        final snapshots = await Future.wait([userRef.get(), publicRef.get()]);
+        final batch = _db.batch();
+        var hasWrites = false;
+
+        if (snapshots[0].exists) {
+          batch.update(userRef, <String, dynamic>{
+            'score': FieldValue.increment(delta),
+          });
+          hasWrites = true;
+        }
+
+        if (snapshots[1].exists) {
+          batch.update(publicRef, <String, dynamic>{
+            'score': FieldValue.increment(delta),
+          });
+          hasWrites = true;
+        }
+
+        if (hasWrites) {
+          await batch.commit();
+        }
+      } catch (error) {
+        if (!_isPermissionDenied(error)) {
+          rethrow;
+        }
+        await _secureQueue.enqueue(
+          type: SecureActionTypes.syncUserScoreDelta,
+          payload: <String, dynamic>{
+            'targetUid': uid,
+            'delta': delta,
+          },
+        );
+        if (uid != actingUid) {
+          PublicUserProfileService.addOptimisticScoreDelta(
+            uid: uid,
+            delta: delta,
+          );
+        }
       }
-
-      if (snapshots[1].exists) {
-        batch.update(publicRef, <String, dynamic>{
-          'score': FieldValue.increment(delta),
-        });
-        hasWrites = true;
-      }
-    }
-
-    if (hasWrites) {
-      await batch.commit();
     }
   }
 
@@ -2388,20 +2393,17 @@ class PostService {
           parentCommentAuthorId: parentCommentAuthorId,
         );
 
-        if (rewardUserIds.isNotEmpty) {
-          final rewardList = rewardUserIds.toList(growable: false);
-          final replyDelta = commentReplyScoreDelta(isAdding: true);
-          await _safeIncrementScoreForExistingUsers(
-            userIds: rewardList,
-            delta: replyDelta,
-          );
-          for (final rewardUid in rewardList) {
-            if (rewardUid != uid) {
-              PublicUserProfileService.addOptimisticScoreDelta(
-                uid: rewardUid,
-                delta: replyDelta,
-              );
-            }
+        // The queued syncPostCommentSideEffects action already applies the
+        // +2 rewards (and the tagged bonus) server-side, so only the local
+        // optimistic delta is added here — incrementing again would queue a
+        // second syncUserScoreDelta and award +4 instead of +2.
+        final replyDelta = commentReplyScoreDelta(isAdding: true);
+        for (final rewardUid in rewardUserIds) {
+          if (rewardUid != uid) {
+            PublicUserProfileService.addOptimisticScoreDelta(
+              uid: rewardUid,
+              delta: replyDelta,
+            );
           }
         }
 
@@ -2425,11 +2427,11 @@ class PostService {
     return isAdding ? 2 : -2;
   }
 
-  static int commentDeletionScoreDelta({
-    required int likesCount,
-    required int replyCount,
-  }) {
-    return -(likesCount + (replyCount * 2));
+  /// Reverses the reward a comment's own author earned from likes received
+  /// on that specific comment (the mirror of [commentLikeScoreDelta]).
+  static int commentLikesReversalDelta(int likesCount) {
+    if (likesCount <= 0) return 0;
+    return -likesCount;
   }
 
   Future<void> toggleCommentLike({
@@ -2483,10 +2485,26 @@ class PostService {
     if (commentAuthorId.isNotEmpty) {
       final delta = commentLikeScoreDelta(isAdding: didAddLike);
       if (delta != 0) {
-        await _safeIncrementScoreForExistingUsers(
-          userIds: <String>[commentAuthorId],
-          delta: delta,
-        );
+        try {
+          await _incrementScoreForExistingUsers(
+            userIds: <String>[commentAuthorId],
+            delta: delta,
+          );
+        } catch (error) {
+          if (!_isPermissionDenied(error)) {
+            rethrow;
+          }
+          await _secureQueue.enqueue(
+            type: SecureActionTypes.syncCommentLikeScore,
+            payload: <String, dynamic>{
+              'postId': normalizedPostId,
+              'commentId': normalizedCommentId,
+              'isLiked': didAddLike,
+            },
+            dedupeKey:
+                'comment_like_score:$uid:$normalizedPostId:$normalizedCommentId:$didAddLike',
+          );
+        }
         PublicUserProfileService.addOptimisticScoreDelta(
           uid: commentAuthorId,
           delta: delta,
@@ -2512,83 +2530,180 @@ class PostService {
     final postRef = _db.collection('posts').doc(normalizedPostId);
     final commentsRef = postRef.collection('comments');
     final targetCommentRef = commentsRef.doc(normalizedCommentId);
-    final allCommentsSnap = await commentsRef.get();
-    final allDocs = allCommentsSnap.docs;
 
+    final targetCommentSnap = await targetCommentRef.get();
+    if (!targetCommentSnap.exists) {
+      // Already gone (e.g. a previously queued deletion already completed).
+      return;
+    }
+    final targetCommentData = targetCommentSnap.data() ?? <String, dynamic>{};
+    final targetCommentAuthorId =
+        (targetCommentData['authorId'] as String? ?? '').trim();
+
+    final postSnap = await postRef.get();
+    if (!postSnap.exists) {
+      throw StateError('post does not exist');
+    }
+    final postData = postSnap.data() ?? <String, dynamic>{};
+    final resolvedPostAuthorId =
+        (postData['authorId'] as String? ?? normalizedPostAuthorId).trim();
+
+    final canDelete =
+        targetCommentAuthorId == uid || resolvedPostAuthorId == uid;
+    if (!canDelete) {
+      throw FirebaseAuthException(
+        code: 'permission-denied',
+        message:
+            'You can only delete your own comments or comments on your post.',
+      );
+    }
+
+    final allCommentsSnap = await commentsRef.get();
+    final byId = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{
+      for (final doc in allCommentsSnap.docs) doc.id: doc,
+    };
+    final childrenByParent = <String, List<String>>{};
+    for (final doc in allCommentsSnap.docs) {
+      final parentId = (doc.data()['parentId'] as String? ?? '').trim();
+      if (parentId.isEmpty) continue;
+      childrenByParent.putIfAbsent(parentId, () => <String>[]).add(doc.id);
+    }
+    final toDelete = <String>{};
+    final stack = <String>[normalizedCommentId];
+    while (stack.isNotEmpty) {
+      final currentId = stack.removeLast();
+      if (!toDelete.add(currentId)) continue;
+      stack.addAll(childrenByParent[currentId] ?? const <String>[]);
+    }
+
+    if (resolvedPostAuthorId == uid) {
+      // Fast path: the post owner can moderate the whole thread and the
+      // post's own fields directly, so this completes in a single
+      // transaction. Cross-user score reversals (comment authors, tagged
+      // users) are still applied post-commit via the resilient/queued
+      // helper below, since those recipients aren't the acting user.
+      await _deletePostCommentAsPostOwner(
+        postRef: postRef,
+        commentsRef: commentsRef,
+        postData: postData,
+        resolvedPostAuthorId: resolvedPostAuthorId,
+        targetCommentData: targetCommentData,
+        toDelete: toDelete,
+        byId: byId,
+      );
+      return;
+    }
+
+    // A regular commenter can only delete comment documents they authored
+    // themselves; the post's own commentsCount/replyCount fields and any
+    // replies authored by other people require admin rights. Delete what is
+    // directly allowed now for instant feedback, then queue the remainder
+    // (including all bookkeeping) for the secure-actions worker.
+    final manifest = <Map<String, dynamic>>[];
+    final batch = _db.batch();
+    for (final id in toDelete) {
+      final doc = byId[id];
+      if (doc == null) continue;
+      final data = doc.data();
+      final authorId = (data['authorId'] as String? ?? '').trim();
+      final likesCount = (data['likesCount'] as num?)?.toInt() ??
+          ((data['likes'] as List<dynamic>?) ?? const <dynamic>[]).length;
+      final parentId = (data['parentId'] as String? ?? '').trim();
+      final parentAuthorId = parentId.isNotEmpty
+          ? (byId[parentId]?.data()['authorId'] as String? ?? '').trim()
+          : '';
+      manifest.add(<String, dynamic>{
+        'id': id,
+        'authorId': authorId,
+        'likesCount': likesCount,
+        'parentId': parentId,
+        'parentAuthorId': parentAuthorId,
+        'postAuthorId': resolvedPostAuthorId,
+      });
+      if (authorId == uid) {
+        batch.delete(doc.reference);
+      }
+    }
+
+    try {
+      await batch.commit();
+    } catch (error) {
+      if (!_isPermissionDenied(error)) {
+        rethrow;
+      }
+      // Fall through: the queued action below will still remove everything.
+    }
+
+    await _secureQueue.enqueue(
+      type: SecureActionTypes.deletePostCommentCascade,
+      payload: <String, dynamic>{
+        'postId': normalizedPostId,
+        'commentId': normalizedCommentId,
+        'postAuthorId': resolvedPostAuthorId,
+        'comments': manifest,
+      },
+      dedupeKey: 'delete_comment:$uid:$normalizedPostId:$normalizedCommentId',
+    );
+  }
+
+  Future<void> _deletePostCommentAsPostOwner({
+    required DocumentReference<Map<String, dynamic>> postRef,
+    required CollectionReference<Map<String, dynamic>> commentsRef,
+    required Map<String, dynamic> postData,
+    required String resolvedPostAuthorId,
+    required Map<String, dynamic> targetCommentData,
+    required Set<String> toDelete,
+    required Map<String, QueryDocumentSnapshot<Map<String, dynamic>>> byId,
+  }) async {
     final deletedScoreDeltasByAuthor = <String, int>{};
+    var taggedScoreDelta = 0;
+    var taggedUidsForBonus = const <String>{};
 
     await _db.runTransaction((transaction) async {
-      final postSnap = await transaction.get(postRef);
-      if (!postSnap.exists) {
-        throw StateError('post does not exist');
-      }
-
-      final postData = postSnap.data() ?? <String, dynamic>{};
-      final resolvedPostAuthorId =
-          (postData['authorId'] as String? ?? normalizedPostAuthorId).trim();
-
-      final targetCommentSnap = await transaction.get(targetCommentRef);
-      if (!targetCommentSnap.exists) {
-        throw StateError('comment does not exist');
-      }
-
-      final targetCommentData = targetCommentSnap.data() ?? <String, dynamic>{};
-      final targetCommentAuthorId =
-          (targetCommentData['authorId'] as String? ?? '').trim();
-      final canDelete =
-          targetCommentAuthorId == uid || resolvedPostAuthorId == uid;
-      if (!canDelete) {
-        throw FirebaseAuthException(
-          code: 'permission-denied',
-          message:
-              'You can only delete your own comments or comments on your post.',
-        );
-      }
-
-      final byId = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{
-        for (final doc in allDocs) doc.id: doc,
-      };
-
-      final childrenByParent = <String, List<String>>{};
-      for (final doc in allDocs) {
-        final data = doc.data();
-        final parentId = (data['parentId'] as String? ?? '').trim();
-        if (parentId.isEmpty) continue;
-        childrenByParent.putIfAbsent(parentId, () => <String>[]).add(doc.id);
-      }
-
-      final toDelete = <String>{};
-      final stack = <String>[normalizedCommentId];
-      while (stack.isNotEmpty) {
-        final currentId = stack.removeLast();
-        if (!toDelete.add(currentId)) continue;
-        final children = childrenByParent[currentId] ?? const <String>[];
-        stack.addAll(children);
-      }
-
       for (final id in toDelete) {
         final doc = byId[id];
         if (doc == null) continue;
         final commentData = doc.data();
-        final commentAuthorId = (commentData['authorId'] as String? ?? '').trim();
-        if (commentAuthorId.isEmpty) {
-          continue;
-        }
+        final commentAuthorId =
+            (commentData['authorId'] as String? ?? '').trim();
         final likesCount = (commentData['likesCount'] as num?)?.toInt() ??
-            ((commentData['likes'] as List<dynamic>?) ?? const <dynamic>[]).length;
-        final replyCount = (commentData['replyCount'] as num?)?.toInt() ?? 0;
-        final delta = commentDeletionScoreDelta(
-          likesCount: likesCount,
-          replyCount: replyCount,
-        );
-        if (delta == 0) {
-          continue;
+            ((commentData['likes'] as List<dynamic>?) ?? const <dynamic>[])
+                .length;
+        if (commentAuthorId.isNotEmpty) {
+          final likesReversal = commentLikesReversalDelta(likesCount);
+          if (likesReversal != 0) {
+            deletedScoreDeltasByAuthor.update(
+              commentAuthorId,
+              (value) => value + likesReversal,
+              ifAbsent: () => likesReversal,
+            );
+          }
         }
-        deletedScoreDeltasByAuthor.update(
-          commentAuthorId,
-          (value) => value + delta,
-          ifAbsent: () => delta,
+
+        // Reverse the reward granted to the post owner / parent-comment
+        // author when this comment was originally created (mirrors
+        // _commentRewardUserIds in addPostComment), regardless of whether
+        // the parent comment is also being deleted in this same batch.
+        final parentIdOfComment =
+            (commentData['parentId'] as String? ?? '').trim();
+        final parentAuthorId = parentIdOfComment.isNotEmpty
+            ? (byId[parentIdOfComment]?.data()['authorId'] as String? ?? '')
+                .trim()
+            : '';
+        final creationRewardUids = _commentRewardUserIds(
+          postAuthorId: resolvedPostAuthorId,
+          parentCommentAuthorId:
+              parentAuthorId.isNotEmpty ? parentAuthorId : null,
         );
+        final creationReversalDelta = commentReplyScoreDelta(isAdding: false);
+        for (final rewardUid in creationRewardUids) {
+          deletedScoreDeltasByAuthor.update(
+            rewardUid,
+            (value) => value + creationReversalDelta,
+            ifAbsent: () => creationReversalDelta,
+          );
+        }
+
         transaction.delete(doc.reference);
       }
 
@@ -2604,13 +2719,9 @@ class PostService {
       final nextPostData = Map<String, dynamic>.from(postData)
         ..['commentsCount'] = nextComments;
       final newPostScore = _postScoreFromData(nextPostData);
-      final taggedScoreDelta = _taggedBonusForPostScore(newPostScore) -
+      taggedScoreDelta = _taggedBonusForPostScore(newPostScore) -
           _taggedBonusForPostScore(oldPostScore);
-      _addScoreIncrementForUsersInTransaction(
-        transaction: transaction,
-        userIds: _taggedParticipantUidsFromPostData(postData),
-        delta: taggedScoreDelta,
-      );
+      taggedUidsForBonus = _taggedParticipantUidsFromPostData(postData);
 
       final parentId = (targetCommentData['parentId'] as String? ?? '').trim();
       if (parentId.isNotEmpty && !toDelete.contains(parentId)) {
@@ -2634,33 +2745,6 @@ class PostService {
           });
         }
       }
-
-      if (resolvedPostAuthorId.isNotEmpty) {
-        final commentsByOthersRemoved = toDelete
-            .map((id) => byId[id])
-            .whereType<QueryDocumentSnapshot<Map<String, dynamic>>>()
-            .map((doc) => (doc.data()['authorId'] as String? ?? '').trim())
-            .where((authorId) =>
-                authorId.isNotEmpty && authorId != resolvedPostAuthorId)
-            .length;
-
-        if (commentsByOthersRemoved > 0) {
-          final scoreDelta = -2 * commentsByOthersRemoved;
-          final scoreUpdate = <String, dynamic>{
-            'score': FieldValue.increment(scoreDelta),
-          };
-          transaction.set(
-            _db.collection('users').doc(resolvedPostAuthorId),
-            scoreUpdate,
-            SetOptions(merge: true),
-          );
-          transaction.set(
-            _db.collection('users_public').doc(resolvedPostAuthorId),
-            scoreUpdate,
-            SetOptions(merge: true),
-          );
-        }
-      }
     });
 
     if (deletedScoreDeltasByAuthor.isNotEmpty) {
@@ -2670,6 +2754,13 @@ class PostService {
           delta: entry.value,
         );
       }
+    }
+
+    if (taggedScoreDelta != 0 && taggedUidsForBonus.isNotEmpty) {
+      await _safeIncrementScoreForExistingUsers(
+        userIds: taggedUidsForBonus,
+        delta: taggedScoreDelta,
+      );
     }
   }
 }

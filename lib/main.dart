@@ -20,6 +20,8 @@ import 'services/presence_service.dart';
 import 'services/app_navigator.dart';
 import 'services/keyboard_dismiss_controller.dart';
 import 'services/challenge_notifications_orchestrator.dart';
+import 'services/post_interaction_overlay_service.dart';
+import 'services/public_user_profile_service.dart';
 import 'widgets/adaptive_viewport.dart';
 import 'widgets/animated_infinity_splash_screen.dart';
 import 'widgets/in_app_notification_overlay.dart';
@@ -622,6 +624,8 @@ bool shouldShowDynamicStartupSplash({
 class _StartupGateState extends State<StartupGate> {
   Timer? _authResolveTimeoutTimer;
   bool _authResolveTimedOut = false;
+  StreamSubscription<User?>? _authUidChangeSubscription;
+  String? _lastSeenAuthUid;
 
   @override
   void initState() {
@@ -633,11 +637,28 @@ class _StartupGateState extends State<StartupGate> {
       _authResolveTimedOut = true;
       setState(() {});
     });
+    _lastSeenAuthUid = FirebaseAuth.instance.currentUser?.uid;
+    // PostInteractionOverlayService/PublicUserProfileService cache optimistic
+    // state in process-wide statics with no uid scoping, so switching the
+    // signed-in account on the same device (or signing out) must wipe them —
+    // otherwise the next account inherits stale like/save/score state for
+    // posts the previous account interacted with.
+    _authUidChangeSubscription =
+        FirebaseAuth.instance.authStateChanges().listen((user) {
+      final nextUid = user?.uid;
+      if (nextUid == _lastSeenAuthUid) {
+        return;
+      }
+      _lastSeenAuthUid = nextUid;
+      PostInteractionOverlayService.resetAll();
+      PublicUserProfileService.resetOptimisticState();
+    });
   }
 
   @override
   void dispose() {
     _authResolveTimeoutTimer?.cancel();
+    _authUidChangeSubscription?.cancel();
     super.dispose();
   }
 

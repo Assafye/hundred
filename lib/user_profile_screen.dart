@@ -13,6 +13,7 @@ import 'chat_room_screen.dart';
 import 'chats_screen.dart';
 import 'main_bottom_nav.dart';
 import 'post_media_utils.dart';
+import 'post_score_calculator.dart';
 import 'profile_post_grouping.dart';
 import 'models/public_user_profile.dart';
 import 'post_detail_view.dart';
@@ -143,6 +144,13 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   late final Future<int> _friendCountFuture;
   late final Future<bool> _canViewProfileContentFuture;
   late final Future<bool> _canViewFriendsOnlyPostsFuture;
+  Timer? _periodicRefreshTimer;
+  bool _isRefreshingProfile = false;
+
+  /// Background refresh cadence. The live listeners already push real
+  /// changes; this only reconciles server-applied counters without waking
+  /// the radio every second.
+  static const Duration _periodicRefreshInterval = Duration(minutes: 1);
 
   @override
   void initState() {
@@ -176,12 +184,31 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         });
       },
     );
+
+    _periodicRefreshTimer = Timer.periodic(
+      _periodicRefreshInterval,
+      (_) => _refreshProfileData(),
+    );
+  }
+
+  Future<void> _refreshProfileData() async {
+    if (_isRefreshingProfile) return;
+    _isRefreshingProfile = true;
+    try {
+      await _publicUserProfileService.refreshScoreSources(widget.uid);
+    } catch (error) {
+      debugPrint('Profile refresh failed: $error');
+    } finally {
+      _isRefreshingProfile = false;
+      if (mounted) setState(() {});
+    }
   }
 
   @override
   void dispose() {
     KeyboardDismissController.resume();
     _spontaneousCountdownTimer?.cancel();
+    _periodicRefreshTimer?.cancel();
     _quickMessageTypingDebounce?.cancel();
     _quickMessageFocusNode.dispose();
     _quickMessageController.dispose();
@@ -331,24 +358,29 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
               );
             }
 
-            return SingleChildScrollView(
-              physics: const BouncingScrollPhysics(),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  _buildHeader(
-                    profileData,
-                    publishedCount,
-                    postedSubCategoryCount,
-                    allDocs,
-                    profile,
-                    canViewFriendsOnlyPosts: canViewFriendsOnlyPosts,
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 18),
-                    child: bodyContent,
-                  ),
-                ],
+            return RefreshIndicator(
+              onRefresh: _refreshProfileData,
+              child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(
+                  parent: BouncingScrollPhysics(),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _buildHeader(
+                      profileData,
+                      publishedCount,
+                      postedSubCategoryCount,
+                      allDocs,
+                      profile,
+                      canViewFriendsOnlyPosts: canViewFriendsOnlyPosts,
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 18),
+                      child: bodyContent,
+                    ),
+                  ],
+                ),
               ),
             );
           },
@@ -1521,31 +1553,37 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     );
 
     final likes = likesCount +
-        PostInteractionOverlayService.deltaFor(
+        PostInteractionOverlayService.reconcileAndGetDelta(
           postId: postId,
           metric: 'likes',
+          rawValue: likesCount,
         );
     final comments = commentsCount +
-        PostInteractionOverlayService.deltaFor(
+        PostInteractionOverlayService.reconcileAndGetDelta(
           postId: postId,
           metric: 'comments',
+          rawValue: commentsCount,
         );
     final shares = sharesCount +
-        PostInteractionOverlayService.deltaFor(
+        PostInteractionOverlayService.reconcileAndGetDelta(
           postId: postId,
           metric: 'shares',
+          rawValue: sharesCount,
         );
     final saves = savesCount +
-        PostInteractionOverlayService.deltaFor(
+        PostInteractionOverlayService.reconcileAndGetDelta(
           postId: postId,
           metric: 'saves',
+          rawValue: savesCount,
         );
 
-    return scoreAwarded +
-        likes.clamp(0, 1 << 30) +
-        (comments.clamp(0, 1 << 30) * 2) +
-        (shares.clamp(0, 1 << 30) * 3) +
-        saves.clamp(0, 1 << 30);
+    return PostScoreCalculator.calculate(
+      scoreAwarded: scoreAwarded,
+      likesCount: likes.clamp(0, 1 << 30).toInt(),
+      commentsCount: comments.clamp(0, 1 << 30).toInt(),
+      sharesCount: shares.clamp(0, 1 << 30).toInt(),
+      savesCount: saves.clamp(0, 1 << 30).toInt(),
+    );
   }
 
   String _postAuthorId(Map<String, dynamic> data) {
@@ -1585,7 +1623,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     if (!_isTaggedPostForViewedUser(data)) {
       return 0;
     }
-    return _postScore(data) ~/ 5;
+    return PostScoreCalculator.taggedBonusForPostScore(_postScore(data));
   }
 
   Widget _buildScoreSheetThumbnail(Map<String, dynamic> post) {
@@ -6127,14 +6165,12 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         });
       }
     }
-    final storedScore = (profileData['score'] as num?)?.toInt() ?? 0;
-    final livePublishedScore = allDocs
-        .where((doc) =>
-            _postAuthorId(doc.data()) == widget.uid &&
-            _postStatus(doc.data()) == 'published')
-        .fold<int>(0, (total, doc) => total + _postScore(doc.data()));
-    final score =
-        livePublishedScore > storedScore ? livePublishedScore : storedScore;
+    // Same rule as the own-profile header: the stored `score` counter is the
+    // only authoritative total. Summing the loaded posts here would drop the
+    // follower/comment/tagged rewards and make the number jump per page load.
+    // No optimistic delta is added — `profileData` comes from
+    // PublicUserProfileService.streamProfile, which already folded it in.
+    final score = (profileData['score'] as num?)?.toInt() ?? 0;
     final isLight = Theme.of(context).brightness == Brightness.light;
     final clampedPostedSubCategoryCount =
         postedSubCategoryCount.clamp(0, _subCategoryGoal);

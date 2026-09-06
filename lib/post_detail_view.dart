@@ -12,6 +12,7 @@ import 'app_categories.dart';
 import 'category_screen.dart';
 import 'chat_room_screen.dart';
 import 'models/public_user_profile.dart';
+import 'post_score_calculator.dart';
 import 'post_media_utils.dart';
 import 'post_edit_screen.dart';
 import 'post_model.dart';
@@ -81,6 +82,8 @@ class _PostDetailViewState extends State<PostDetailView> {
   bool _openedInitialComments = false;
   bool _isDetailViewInForeground = true;
   StreamSubscription<String>? _postOverlaySubscription;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>?
+      _activePostSubscription;
 
   @override
   void initState() {
@@ -99,6 +102,7 @@ class _PostDetailViewState extends State<PostDetailView> {
       setState(() {});
     });
     _syncAuthorSubscriptions();
+    _watchCurrentPost();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _showWeeklyStarsCelebrationIfNeeded();
       _openInitialCommentsIfNeeded();
@@ -357,17 +361,54 @@ class _PostDetailViewState extends State<PostDetailView> {
         _currentIndex = _posts.length - 1;
       }
       _syncAuthorSubscriptions();
+      _watchCurrentPost();
     }
   }
 
   @override
   void dispose() {
     _postOverlaySubscription?.cancel();
+    _activePostSubscription?.cancel();
     for (final subscription in _authorSubscriptionsByUid.values) {
       subscription.cancel();
     }
     _pageController.dispose();
     super.dispose();
+  }
+
+  void _watchCurrentPost() {
+    _activePostSubscription?.cancel();
+    if (_currentIndex < 0 || _currentIndex >= _posts.length) {
+      return;
+    }
+
+    final postId = _postId(_posts[_currentIndex]);
+    if (postId.isEmpty) {
+      return;
+    }
+
+    _activePostSubscription = FirebaseFirestore.instance
+        .collection('posts')
+        .doc(postId)
+        .snapshots()
+        .listen((snapshot) {
+      if (!mounted || !snapshot.exists) {
+        return;
+      }
+      final index = _currentIndex;
+      if (index < 0 || index >= _posts.length || _postId(_posts[index]) != postId) {
+        return;
+      }
+      final data = snapshot.data() ?? <String, dynamic>{};
+      setState(() {
+        _posts[index] = <String, dynamic>{
+          ..._posts[index],
+          ...data,
+          'id': snapshot.id,
+          'postId': (data['postId'] as String? ?? snapshot.id).trim(),
+        };
+      });
+    });
   }
 
   void _syncAuthorSubscriptions() {
@@ -514,9 +555,10 @@ class _PostDetailViewState extends State<PostDetailView> {
         }
         final delta = metric.isEmpty
             ? 0
-            : PostInteractionOverlayService.deltaFor(
+            : PostInteractionOverlayService.reconcileAndGetDelta(
                 postId: postId,
                 metric: metric,
+                rawValue: value,
               );
         return (value + delta).clamp(0, 1 << 30).toInt();
       }
@@ -526,9 +568,10 @@ class _PostDetailViewState extends State<PostDetailView> {
     }
     final delta = metric.isEmpty
         ? 0
-        : PostInteractionOverlayService.deltaFor(
+        : PostInteractionOverlayService.reconcileAndGetDelta(
             postId: postId,
             metric: metric,
+            rawValue: 0,
           );
     return delta.clamp(0, 1 << 30).toInt();
   }
@@ -679,11 +722,13 @@ class _PostDetailViewState extends State<PostDetailView> {
     required int sharesCount,
     required int savesCount,
   }) {
-    return scoreAwarded +
-        likesCount +
-        (commentsCount * 2) +
-        (sharesCount * 3) +
-        savesCount;
+    return PostScoreCalculator.calculate(
+      scoreAwarded: scoreAwarded,
+      likesCount: likesCount,
+      commentsCount: commentsCount,
+      sharesCount: sharesCount,
+      savesCount: savesCount,
+    );
   }
 
   List<String> _participantUids(Map<String, dynamic> post,
@@ -2255,6 +2300,15 @@ class _PostDetailViewState extends State<PostDetailView> {
     final postId = _postId(post);
     final authorId = _postAuthorId(post);
     if (postId.isEmpty || _likeInFlightPostIds.contains(postId)) return;
+    // Defends against a single physical tap reaching this handler twice
+    // (e.g. an overlapping double-tap-to-like gesture firing alongside a
+    // direct tap on the like button).
+    if (!PostInteractionOverlayService.shouldAllowAction(
+      postId: postId,
+      action: 'like',
+    )) {
+      return;
+    }
 
     final index = _currentIndex;
     final previousLiked = _isLikedByMe(post);
@@ -2704,6 +2758,19 @@ class _PostDetailViewState extends State<PostDetailView> {
             _posts[_currentIndex] = <String, dynamic>{
               ..._posts[_currentIndex],
               'commentsCount': current + 1,
+            };
+          });
+          _refreshPostAtIndex(_currentIndex);
+        },
+        onCommentsDeleted: (removedCount) {
+          if (!mounted || removedCount <= 0) return;
+          final current =
+              _countFromData(_posts[_currentIndex], 'commentsCount');
+          setState(() {
+            _posts[_currentIndex] = <String, dynamic>{
+              ..._posts[_currentIndex],
+              'commentsCount':
+                  (current - removedCount).clamp(0, 1 << 30).toInt(),
             };
           });
           _refreshPostAtIndex(_currentIndex);
@@ -3871,6 +3938,7 @@ class _PostDetailViewState extends State<PostDetailView> {
                   setState(() {
                     _currentIndex = value;
                   });
+                  _watchCurrentPost();
                 },
                 itemBuilder: (context, index) {
                   return _buildPostPage(

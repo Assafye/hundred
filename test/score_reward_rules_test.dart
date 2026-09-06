@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hundred_version1/post_score_calculator.dart';
 import 'package:hundred_version1/services/post_service.dart';
 import 'package:hundred_version1/services/public_user_profile_service.dart';
 import 'package:hundred_version1/services/social_service.dart';
@@ -47,13 +48,37 @@ void main() {
     );
     expect(PublicUserProfileService.optimisticScoreDeltaFor('user-2'), 0);
   });
-  test('comment deletion reverses the rewarded value on that comment', () {
+  test('comment deletion reverses the likes earned on that comment', () {
+    expect(PostService.commentLikesReversalDelta(3), -3);
+    expect(PostService.commentLikesReversalDelta(0), 0);
+  });
+
+  test(
+      'comment deletion reversal delta matches the creation reward delta '
+      '(symmetry between add/remove)', () {
     expect(
-      PostService.commentDeletionScoreDelta(
-        likesCount: 3,
-        replyCount: 2,
-      ),
-      -7,
+      PostService.commentReplyScoreDelta(isAdding: false),
+      -PostService.commentReplyScoreDelta(isAdding: true),
     );
+  });
+
+  test('post score uses the shared interaction formula', () {
+    expect(
+      PostScoreCalculator.calculate(
+        scoreAwarded: 200,
+        likesCount: 4,
+        commentsCount: 3,
+        sharesCount: 2,
+        savesCount: 5,
+      ),
+      221,
+    );
+  });
+
+  test('tagged users receive a ceiling-rounded fifth of post score', () {
+    expect(PostScoreCalculator.taggedBonusForPostScore(199), 40);
+    expect(PostScoreCalculator.taggedBonusForPostScore(200), 40);
+    expect(PostScoreCalculator.taggedBonusForPostScore(201), 41);
+    expect(PostScoreCalculator.taggedBonusForPostScore(0), 0);
   });
 }

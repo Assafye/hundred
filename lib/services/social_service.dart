@@ -386,8 +386,8 @@ class SocialService {
 
         final myFollowing = _readUidSet(myData, 'following')..remove(targetUid);
         final myPendingRequests = _readUidSet(myData, 'sentFollowRequests');
-        final targetFollowers = _readUidSet(targetData, 'followers')
-          ..remove(myUid);
+        final targetFollowers = _readUidSet(targetData, 'followers');
+        final wasFollowing = targetFollowers.remove(myUid);
         final targetRequests = _readUidSet(targetData, 'followRequests');
         final myFollowers = _readUidSet(myData, 'followers');
         final targetFollowing = _readUidSet(targetData, 'following');
@@ -408,6 +408,11 @@ class SocialService {
           {
             'followers': FieldValue.arrayRemove(<String>[myUid]),
             'followersCount': targetFollowers.length,
+            // Always the exact mirror of the +50 granted on follow, with no
+            // score-dependent guard: a conditional deduction leaves the +50
+            // permanently stuck on the target's total.
+            if (wasFollowing)
+              'score': FieldValue.increment(followerScoreDelta(isAdding: false)),
             if (targetRequests.contains(myUid))
               'followRequests': FieldValue.arrayRemove(<String>[myUid]),
           },
@@ -425,14 +430,19 @@ class SocialService {
         );
 
         if (targetPublicUserSnap.exists) {
+          final targetPublicUpdate = _publicCountersPayload(
+            followersCount: targetFollowers.length,
+            followingCount: targetFollowing.length,
+            followers: targetFollowers,
+            following: targetFollowing,
+          );
+          if (wasFollowing) {
+            targetPublicUpdate['score'] =
+                FieldValue.increment(followerScoreDelta(isAdding: false));
+          }
           tx.update(
             targetPublicUserRef,
-            _publicCountersPayload(
-              followersCount: targetFollowers.length,
-              followingCount: targetFollowing.length,
-              followers: targetFollowers,
-              following: targetFollowing,
-            ),
+            targetPublicUpdate,
           );
         }
       });
@@ -453,29 +463,10 @@ class SocialService {
       rethrow;
     }
 
-    try {
-      final penalty = followerScoreDelta(isAdding: false);
-      await _db.collection('users').doc(targetUid).set(
-        {'score': FieldValue.increment(penalty)},
-        SetOptions(merge: true),
-      );
-      await _db.collection('users_public').doc(targetUid).set(
-        {'score': FieldValue.increment(penalty)},
-        SetOptions(merge: true),
-      );
-      _applyFollowerOptimisticScoreDelta(
-        targetUid: targetUid,
-        isAdding: false,
-      );
-    } catch (error) {
-      debugPrint(
-        '[Follow Debug] score deduction for unfollow failed: ${error.toString()}',
-      );
-      _applyFollowerOptimisticScoreDelta(
-        targetUid: targetUid,
-        isAdding: false,
-      );
-    }
+    _applyFollowerOptimisticScoreDelta(
+      targetUid: targetUid,
+      isAdding: false,
+    );
   }
 
   Stream<bool> isFollowing(String targetUid) {
@@ -635,7 +626,8 @@ class SocialService {
 
     var becameFriends = false;
 
-    await _db.runTransaction((tx) async {
+    try {
+      await _db.runTransaction((tx) async {
       final myUserSnap = await tx.get(myUserRef);
       final requesterUserSnap = await tx.get(requesterUserRef);
       final myPublicSnap = await tx.get(myPublicUserRef);
@@ -667,6 +659,8 @@ class SocialService {
         {
           'followers': FieldValue.arrayUnion(<String>[normalizedRequesterUid]),
           'followersCount': _uidCount(myFollowers),
+          if (!alreadyFollowing)
+            'score': FieldValue.increment(followerScoreDelta(isAdding: true)),
           'followRequests':
               FieldValue.arrayRemove(<String>[normalizedRequesterUid]),
         },
@@ -683,14 +677,20 @@ class SocialService {
         SetOptions(merge: true),
       );
 
+      final myPublicUpdate = _publicCountersPayload(
+        followersCount: _uidCount(myFollowers),
+        followingCount: _uidCount(myFollowing),
+        followers: myFollowers,
+        following: myFollowing,
+      );
+      if (!alreadyFollowing) {
+        myPublicUpdate['score'] =
+            FieldValue.increment(followerScoreDelta(isAdding: true));
+      }
+
       tx.set(
         myPublicUserRef,
-        _publicCountersPayload(
-          followersCount: _uidCount(myFollowers),
-          followingCount: _uidCount(myFollowing),
-          followers: myFollowers,
-          following: myFollowing,
-        ),
+        myPublicUpdate,
         SetOptions(merge: true),
       );
 
@@ -730,7 +730,18 @@ class SocialService {
           SetOptions(merge: true),
         );
       }
-    });
+      });
+    } catch (error) {
+      if (!_isPermissionDenied(error)) {
+        rethrow;
+      }
+      await _secureQueue.enqueue(
+        type: SecureActionTypes.approveFollowRequest,
+        payload: <String, dynamic>{'requesterUid': normalizedRequesterUid},
+        dedupeKey: 'approve_follow:$myUid:$normalizedRequesterUid',
+      );
+      return;
+    }
 
     await _notificationService.sendFollowNotification(
       recipientUid: myUid,
@@ -801,8 +812,8 @@ class SocialService {
         final myData = myUserSnap.data() ?? <String, dynamic>{};
         final followerData = followerUserSnap.data() ?? <String, dynamic>{};
 
-        final myFollowers = _readUidSet(myData, 'followers')
-          ..remove(normalizedFollowerUid);
+        final myFollowers = _readUidSet(myData, 'followers');
+        final wasFollower = myFollowers.remove(normalizedFollowerUid);
         final myFollowing = _readUidSet(myData, 'following');
         final followerFollowing = _readUidSet(followerData, 'following')
           ..remove(myUid);
@@ -814,6 +825,9 @@ class SocialService {
             'followers':
                 FieldValue.arrayRemove(<String>[normalizedFollowerUid]),
             'followersCount': _uidCount(myFollowers),
+            // Losing a follower must undo the +50 that follower granted.
+            if (wasFollower)
+              'score': FieldValue.increment(followerScoreDelta(isAdding: false)),
           },
           SetOptions(merge: true),
         );
@@ -829,12 +843,16 @@ class SocialService {
 
         tx.set(
           myPublicUserRef,
-          _publicCountersPayload(
-            followersCount: _uidCount(myFollowers),
-            followingCount: _uidCount(myFollowing),
-            followers: myFollowers,
-            following: myFollowing,
-          ),
+          {
+            ..._publicCountersPayload(
+              followersCount: _uidCount(myFollowers),
+              followingCount: _uidCount(myFollowing),
+              followers: myFollowers,
+              following: myFollowing,
+            ),
+            if (wasFollower)
+              'score': FieldValue.increment(followerScoreDelta(isAdding: false)),
+          },
           SetOptions(merge: true),
         );
 

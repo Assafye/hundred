@@ -12,6 +12,7 @@ import 'feed_screen.dart';
 import 'main_bottom_nav.dart';
 import 'post_media_utils.dart';
 import 'post_detail_view.dart';
+import 'post_score_calculator.dart';
 import 'app_categories.dart';
 import 'services/app_home_service.dart';
 import 'services/block_user_service.dart';
@@ -314,11 +315,13 @@ class _StarsScreenState extends State<StarsScreen> {
       fallback:
           ((post['savedBy'] as List<dynamic>?) ?? const <dynamic>[]).length,
     );
-    return scoreAwarded +
-        likesCount +
-        (commentsCount * 2) +
-        (sharesCount * 3) +
-        savesCount;
+    return PostScoreCalculator.calculate(
+      scoreAwarded: scoreAwarded,
+      likesCount: likesCount,
+      commentsCount: commentsCount,
+      sharesCount: sharesCount,
+      savesCount: savesCount,
+    );
   }
 
   DateTime _createdAt(Map<String, dynamic> post) {

@@ -4,7 +4,8 @@
   What it does:
   - Scans all posts (default: published only)
   - Calculates points per post (uses scoreAwarded when present, otherwise derives from category/subCategory)
-  - Aggregates total score per authorId
+  - Includes active followers, post interactions, tagged users, comment likes,
+    and reply rewards in the rebuilt total
   - Updates every users/{uid}.score to computed total (0 when user has no matching posts)
   - Mirrors score into users_public/{uid}.score
 
@@ -217,8 +218,13 @@ function postScore(post) {
   const sharesCount = Number.isFinite(Number(post.sharesCount))
     ? Number(post.sharesCount)
     : 0;
+  const savesCount = Number.isFinite(Number(post.savesCount))
+    ? Number(post.savesCount)
+    : Array.isArray(post.savedBy)
+      ? post.savedBy.length
+      : 0;
 
-  return scoreAwarded + likesCount + commentsCount * 2 + sharesCount * 3;
+  return scoreAwarded + likesCount + commentsCount * 2 + sharesCount * 3 + savesCount;
 }
 
 function taggedBonusForPost(post) {
@@ -226,7 +232,7 @@ function taggedBonusForPost(post) {
   if (score <= 0) {
     return 0;
   }
-  return Math.floor(score / 5);
+  return Math.ceil(score / 5);
 }
 
 function taggedUidsForPost(post) {
@@ -244,11 +250,40 @@ function taggedUidsForPost(post) {
   );
 }
 
-async function collectScoresByUser() {
+async function collectScoresByUser(usersSnapshot) {
   const scoreByUid = new Map();
   let scannedPosts = 0;
   let countedPosts = 0;
   let skippedWithoutAuthor = 0;
+  let scannedComments = 0;
+
+  const addScore = (uid, delta) => {
+    const normalizedUid = String(uid ?? '').trim();
+    if (!normalizedUid || !delta) return;
+    scoreByUid.set(normalizedUid, (scoreByUid.get(normalizedUid) ?? 0) + delta);
+  };
+
+  for (const userDoc of usersSnapshot.docs) {
+    addScore(userDoc.id, normalizeUidSet((userDoc.data() || {}).followers).size * 50);
+  }
+
+  const commentsByPostId = new Map();
+  const commentsSnapshot = await db.collectionGroup('comments').get();
+  for (const commentDoc of commentsSnapshot.docs) {
+    const postId = commentDoc.ref.parent.parent?.id ?? '';
+    if (!postId) continue;
+    const comment = commentDoc.data() || {};
+    const entry = {
+      id: commentDoc.id,
+      authorId: String(comment.authorId ?? '').trim(),
+      parentId: String(comment.parentId ?? '').trim(),
+      likesCount: normalizeUidSet(comment.likes).size,
+    };
+    const comments = commentsByPostId.get(postId) ?? [];
+    comments.push(entry);
+    commentsByPostId.set(postId, comments);
+    scannedComments += 1;
+  }
 
   let lastDoc = null;
 
@@ -277,16 +312,30 @@ async function collectScoresByUser() {
         continue;
       }
 
-      const score = postScore(post);
-      scoreByUid.set(uid, (scoreByUid.get(uid) ?? 0) + score);
+      const comments = commentsByPostId.get(doc.id) ?? [];
+      const normalizedPost = {
+        ...post,
+        likesCount: normalizeUidSet(post.likes).size,
+        commentsCount: comments.length,
+        savesCount: normalizeUidSet(post.savedBy).size,
+      };
+      const score = postScore(normalizedPost);
+      addScore(uid, score);
 
-      const taggedBonus = taggedBonusForPost(post);
+      const taggedBonus = taggedBonusForPost(normalizedPost);
       if (taggedBonus > 0) {
-        for (const taggedUid of taggedUidsForPost(post)) {
-          scoreByUid.set(
-            taggedUid,
-            (scoreByUid.get(taggedUid) ?? 0) + taggedBonus
-          );
+        for (const taggedUid of taggedUidsForPost(normalizedPost)) {
+          addScore(taggedUid, taggedBonus);
+        }
+      }
+
+      const commentsById = new Map(comments.map((comment) => [comment.id, comment]));
+      for (const comment of comments) {
+        addScore(comment.authorId, comment.likesCount);
+        if (!comment.parentId) continue;
+        const parent = commentsById.get(comment.parentId);
+        if (parent?.authorId && parent.authorId !== uid) {
+          addScore(parent.authorId, 2);
         }
       }
 
@@ -301,6 +350,7 @@ async function collectScoresByUser() {
     scannedPosts,
     countedPosts,
     skippedWithoutAuthor,
+    scannedComments,
   };
 }
 
@@ -312,10 +362,15 @@ async function run() {
   const usersSnapshot = await db.collection('users').get();
   console.log(`[sync-user-scores] scanned users=${usersSnapshot.size}`);
 
-  const { scoreByUid, scannedPosts, countedPosts, skippedWithoutAuthor } =
-    await collectScoresByUser();
+  const {
+    scoreByUid,
+    scannedPosts,
+    countedPosts,
+    skippedWithoutAuthor,
+    scannedComments,
+  } = await collectScoresByUser(usersSnapshot);
   console.log(
-    `[sync-user-scores] scanned posts=${scannedPosts} countedPosts=${countedPosts}`
+    `[sync-user-scores] scanned posts=${scannedPosts} countedPosts=${countedPosts} scannedComments=${scannedComments}`
   );
 
   let batch = db.batch();
@@ -379,6 +434,7 @@ async function run() {
         scannedPosts,
         countedPosts,
         skippedWithoutAuthor,
+        scannedComments,
         usersWithPosts,
         updatesPlanned,
         updatedWrites: updated,

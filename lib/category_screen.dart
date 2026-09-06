@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'app_categories.dart';
 import 'post_detail_view.dart';
 import 'post_media_utils.dart';
+import 'post_score_calculator.dart';
 import 'widgets/swipe_back_wrapper.dart';
 import 'video_preview_utils.dart';
 
@@ -129,11 +130,13 @@ class _CategoryScreenState extends State<CategoryScreen> {
       fallback:
           ((post['savedBy'] as List<dynamic>?) ?? const <dynamic>[]).length,
     );
-    return scoreAwarded +
-        likesCount +
-        (commentsCount * 2) +
-        (sharesCount * 3) +
-        savesCount;
+    return PostScoreCalculator.calculate(
+      scoreAwarded: scoreAwarded,
+      likesCount: likesCount,
+      commentsCount: commentsCount,
+      sharesCount: sharesCount,
+      savesCount: savesCount,
+    );
   }
 
   DateTime _createdAt(Map<String, dynamic> post) {

@@ -9,6 +9,7 @@ import '../services/report_service.dart';
 import '../services/firestore_rule_feedback.dart';
 import '../services/block_user_service.dart';
 import '../services/post_service.dart';
+import '../services/post_interaction_overlay_service.dart';
 import '../services/public_user_profile_service.dart';
 import '../user_profile_screen.dart';
 import 'report_dialogs.dart';
@@ -18,6 +19,7 @@ class PostCommentsSheet extends StatefulWidget {
   final String postAuthorId;
   final String initialCommentId;
   final VoidCallback? onCommentSubmitted;
+  final ValueChanged<int>? onCommentsDeleted;
 
   const PostCommentsSheet({
     super.key,
@@ -25,6 +27,7 @@ class PostCommentsSheet extends StatefulWidget {
     required this.postAuthorId,
     this.initialCommentId = '',
     this.onCommentSubmitted,
+    this.onCommentsDeleted,
   });
 
   @override
@@ -43,6 +46,7 @@ class _PostCommentsSheetState extends State<PostCommentsSheet> {
       <String, Future<PublicUserProfile?>>{};
   final Set<String> _expandedCommentIds = <String>{};
   final Set<String> _deletingCommentIds = <String>{};
+  final Set<String> _optimisticallyDeletedCommentIds = <String>{};
 
   String _replyToCommentId = '';
   String _replyToHandle = '';
@@ -319,7 +323,10 @@ class _PostCommentsSheetState extends State<PostCommentsSheet> {
     }
   }
 
-  Future<void> _confirmAndDeleteComment(String commentId) async {
+  Future<void> _confirmAndDeleteComment(
+    String commentId, {
+    List<String> descendantIds = const <String>[],
+  }) async {
     final normalizedId = commentId.trim();
     if (normalizedId.isEmpty || _deletingCommentIds.contains(normalizedId)) {
       return;
@@ -367,9 +374,22 @@ class _PostCommentsSheetState extends State<PostCommentsSheet> {
 
     if (shouldDelete != true) return;
 
+    // Optimistic delete: hide the comment (and any already-known replies)
+    // from the list immediately, and reflect the removal in the post's
+    // displayed score/comment count right away too (via the shared overlay,
+    // so every screen showing this post updates instantly) — even though
+    // the underlying Firestore bookkeeping for cross-user threads may only
+    // complete a moment later via the secure-actions worker.
+    final idsToHide = <String>{normalizedId, ...descendantIds};
     setState(() {
+      _optimisticallyDeletedCommentIds.addAll(idsToHide);
       _deletingCommentIds.add(normalizedId);
     });
+    PostInteractionOverlayService.addDelta(
+      postId: widget.postId,
+      comments: -idsToHide.length,
+    );
+    widget.onCommentsDeleted?.call(idsToHide.length);
 
     try {
       await _postService.deletePostComment(
@@ -386,10 +406,16 @@ class _PostCommentsSheetState extends State<PostCommentsSheet> {
       }
     } catch (error) {
       if (!mounted) return;
-      final message = FirestoreRuleFeedback.actionMessage(
-        error,
-        'מחיקת תגובה נכשלה. נסה שוב בעוד רגע.',
+      setState(() {
+        _optimisticallyDeletedCommentIds.removeAll(idsToHide);
+      });
+      PostInteractionOverlayService.addDelta(
+        postId: widget.postId,
+        comments: idsToHide.length,
       );
+      final message = FirestoreRuleFeedback.isPermissionDenied(error)
+          ? 'אין לך הרשאה למחוק תגובה זו.'
+          : 'מחיקת תגובה נכשלה. נסה שוב בעוד רגע.';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(message)),
       );
@@ -726,8 +752,16 @@ class _PostCommentsSheetState extends State<PostCommentsSheet> {
                                 GestureDetector(
                                   onTap: isDeleting
                                       ? null
-                                      : () =>
-                                          _confirmAndDeleteComment(commentId),
+                                      : () => _confirmAndDeleteComment(
+                                            commentId,
+                                            descendantIds: replies
+                                                .map((reply) =>
+                                                    (reply['id'] as String? ??
+                                                            '')
+                                                        .trim())
+                                                .where((id) => id.isNotEmpty)
+                                                .toList(growable: false),
+                                          ),
                                   child: Text(
                                     isDeleting ? 'מוחק...' : 'מחק',
                                     style: TextStyle(
@@ -861,6 +895,10 @@ class _PostCommentsSheetState extends State<PostCommentsSheet> {
                       final comments =
                           (snapshot.data ?? const <Map<String, dynamic>>[])
                               .where((comment) {
+                        final id = ((comment['id'] as String?) ?? '').trim();
+                        if (_optimisticallyDeletedCommentIds.contains(id)) {
+                          return false;
+                        }
                         final authorId =
                             ((comment['authorId'] as String?) ?? '').trim();
                         return authorId.isEmpty || !blockedUids.contains(authorId);

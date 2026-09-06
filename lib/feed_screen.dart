@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:video_player/video_player.dart';
 import 'post_model.dart';
+import 'post_score_calculator.dart';
 import 'post_media_utils.dart';
 import 'models/public_user_profile.dart';
 import 'services/post_service.dart';
@@ -1117,11 +1118,27 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
         onCommentSubmitted: () {
           final postId = post.id.trim();
           if (postId.isEmpty || !mounted) return;
-          PostInteractionOverlayService.addDelta(postId: postId, comments: 1);
+          // Comments are always allowed to bump commentsCount directly (see
+          // firestore.rules isCommentCountIncrementUpdate), so the real
+          // Firestore snapshot lands almost immediately for every screen.
+          // Only this screen's own optimistic label needs a local nudge;
+          // do NOT also add a global PostInteractionOverlayService delta
+          // here, or profile screens double-count the same comment (they
+          // read commentsCount from Firestore AND the overlay delta).
           setState(() {
             final currentCount =
                 _commentCountOverrideByPostId[postId] ?? post.commentsCount;
             _commentCountOverrideByPostId[postId] = currentCount + 1;
+          });
+        },
+        onCommentsDeleted: (removedCount) {
+          final postId = post.id.trim();
+          if (postId.isEmpty || !mounted || removedCount <= 0) return;
+          setState(() {
+            final currentCount =
+                _commentCountOverrideByPostId[postId] ?? post.commentsCount;
+            _commentCountOverrideByPostId[postId] =
+                (currentCount - removedCount).clamp(0, 1 << 30).toInt();
           });
         },
       ),
@@ -1131,6 +1148,15 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
   Future<void> _togglePostLike(PostModel post) async {
     final postId = post.id.trim();
     if (postId.isEmpty || _likeInFlightPostIds.contains(postId)) return;
+    // Defends against a single physical tap reaching this handler twice
+    // (e.g. an overlapping double-tap-to-like gesture firing alongside a
+    // direct tap on the like button).
+    if (!PostInteractionOverlayService.shouldAllowAction(
+      postId: postId,
+      action: 'like',
+    )) {
+      return;
+    }
     final previousLiked = _isPostLiked(post);
     final nextLiked = !previousLiked;
 
@@ -1876,11 +1902,13 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
     required int sharesCount,
     required int savesCount,
   }) {
-    return scoreAwarded +
-        likesCount +
-        (commentsCount * 2) +
-        (sharesCount * 3) +
-        savesCount;
+    return PostScoreCalculator.calculate(
+      scoreAwarded: scoreAwarded,
+      likesCount: likesCount,
+      commentsCount: commentsCount,
+      sharesCount: sharesCount,
+      savesCount: savesCount,
+    );
   }
 
   int _displayedCommentCount(PostModel post) {

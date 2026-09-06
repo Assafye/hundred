@@ -14,6 +14,7 @@ import 'edit_profile_screen.dart';
 import 'main_bottom_nav.dart';
 import 'notifications_preview_screen.dart';
 import 'post_media_utils.dart';
+import 'post_score_calculator.dart';
 import 'profile_post_grouping.dart';
 import 'post_detail_view.dart';
 import 'saved_posts_screen.dart';
@@ -125,6 +126,14 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
   final BlockUserService _blockUserService = BlockUserService();
   final PublicUserProfileService _publicUserProfileService =
       PublicUserProfileService();
+  StreamSubscription<String>? _scoreDeltaSubscription;
+  Timer? _periodicRefreshTimer;
+  bool _isRefreshingProfile = false;
+
+  /// Background refresh cadence. Deliberately coarse: the live listeners
+  /// already push real changes, so this only reconciles counters that were
+  /// applied server-side, without waking the radio every second.
+  static const Duration _periodicRefreshInterval = Duration(minutes: 1);
 
   static final List<_ProfileCategoryNavItem> _categoryItems = [
     const _ProfileCategoryNavItem(
@@ -154,13 +163,42 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
         : 'general';
     _sidebarScrollController = ScrollController();
     _loadActiveSpontaneousTask();
+    // Own-profile score must react as fast as other screens (e.g.
+    // user_profile_screen.dart) to optimistic score deltas recorded
+    // anywhere in the app for this uid, not just to raw Firestore
+    // snapshots (which can lag for cross-user interactions queued behind
+    // strict Firestore rules).
+    _scoreDeltaSubscription =
+        PublicUserProfileService.scoreDeltaChanges.listen((changedUid) {
+      if (!mounted || changedUid != _uid) return;
+      setState(() {});
+    });
+    _periodicRefreshTimer = Timer.periodic(
+      _periodicRefreshInterval,
+      (_) => _refreshProfileData(),
+    );
+  }
+
+  Future<void> _refreshProfileData() async {
+    if (_isRefreshingProfile) return;
+    _isRefreshingProfile = true;
+    try {
+      await _publicUserProfileService.refreshScoreSources(_uid);
+    } catch (error) {
+      debugPrint('Profile refresh failed: $error');
+    } finally {
+      _isRefreshingProfile = false;
+      if (mounted) setState(() {});
+    }
   }
 
   @override
   void dispose() {
     KeyboardDismissController.resume();
     _spontaneousCountdownTimer?.cancel();
+    _periodicRefreshTimer?.cancel();
     _sidebarScrollController.dispose();
+    _scoreDeltaSubscription?.cancel();
     super.dispose();
   }
 
@@ -1456,31 +1494,37 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
     );
 
     final likes = likesCount +
-        PostInteractionOverlayService.deltaFor(
+        PostInteractionOverlayService.reconcileAndGetDelta(
           postId: postId,
           metric: 'likes',
+          rawValue: likesCount,
         );
     final comments = commentsCount +
-        PostInteractionOverlayService.deltaFor(
+        PostInteractionOverlayService.reconcileAndGetDelta(
           postId: postId,
           metric: 'comments',
+          rawValue: commentsCount,
         );
     final shares = sharesCount +
-        PostInteractionOverlayService.deltaFor(
+        PostInteractionOverlayService.reconcileAndGetDelta(
           postId: postId,
           metric: 'shares',
+          rawValue: sharesCount,
         );
     final saves = savesCount +
-        PostInteractionOverlayService.deltaFor(
+        PostInteractionOverlayService.reconcileAndGetDelta(
           postId: postId,
           metric: 'saves',
+          rawValue: savesCount,
         );
 
-    return scoreAwarded +
-        likes.clamp(0, 1 << 30) +
-        (comments.clamp(0, 1 << 30) * 2) +
-        (shares.clamp(0, 1 << 30) * 3) +
-        saves.clamp(0, 1 << 30);
+    return PostScoreCalculator.calculate(
+      scoreAwarded: scoreAwarded,
+      likesCount: likes.clamp(0, 1 << 30).toInt(),
+      commentsCount: comments.clamp(0, 1 << 30).toInt(),
+      sharesCount: shares.clamp(0, 1 << 30).toInt(),
+      savesCount: saves.clamp(0, 1 << 30).toInt(),
+    );
   }
 
   String _postAuthorId(Map<String, dynamic> data) {
@@ -1524,7 +1568,7 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
     if (!_isTaggedPostForUser(data, uid)) {
       return 0;
     }
-    return _postScore(data) ~/ 5;
+    return PostScoreCalculator.taggedBonusForPostScore(_postScore(data));
   }
 
   Widget _buildScoreSheetThumbnail(Map<String, dynamic> post) {
@@ -1867,7 +1911,10 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
     );
     final privateScore = _intValue(privateData, const ['score']);
     final publicScore = _intValue(publicData, const ['score']);
-    final score = privateScore > publicScore ? privateScore : publicScore;
+    // `users_public` is the canonical score doc (it is what every other
+    // screen reads). Taking max() of the two copies would mask decrements
+    // (unlike/unfollow/post delete) whenever the copies momentarily drift.
+    final score = publicData.containsKey('score') ? publicScore : privateScore;
     merged['followersCount'] = followersCount;
     merged['followerCount'] = followersCount;
     merged['score'] = score;
@@ -3872,14 +3919,19 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
     final bio = _bio(profileData);
     final profileImageUrl = _profileImageUrl(profileData);
     final profileImageUrls = _profileImageUrls(profileData);
-    final storedScore = _intValue(profileData, const ['score']);
-    final livePublishedScore = allDocs
-        .where((doc) =>
-            _postAuthorId(doc.data()) == _uid &&
-            _postStatus(doc.data()) == 'published')
-        .fold<int>(0, (total, doc) => total + _postScore(doc.data()));
-    final score =
-        livePublishedScore > storedScore ? livePublishedScore : storedScore;
+    // The stored `score` counter is the single source of truth: it already
+    // aggregates post scores, follower rewards (+50 each), comment/reply
+    // rewards and tagged-post bonuses. Never mix it with a locally summed
+    // posts-only total, which silently hides every non-post reward.
+    final baseScore = _intValue(profileData, const ['score']);
+    // Apply any pending optimistic delta for this uid (e.g. a cross-user
+    // like/comment/follow reward that is queued behind strict Firestore
+    // rules and hasn't landed on the server yet) so the own-profile total
+    // reacts exactly as fast as other screens that already read via
+    // PublicUserProfileService.
+    final optimisticDelta =
+        PublicUserProfileService.optimisticScoreDeltaFor(_uid);
+    final score = (baseScore + optimisticDelta).clamp(0, 1 << 30).toInt();
     final rawFollowers = _uidListFromData(profileData, 'followers').toSet();
     final rawFollowing = _uidListFromData(profileData, 'following').toSet();
     final isPrivateProfile = (profileData['isPrivate'] as bool?) ?? false;
@@ -4822,46 +4874,56 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
 
                           final filteredDocs = _filteredPosts(allDocs);
 
-                          return NestedScrollView(
-                            physics: const BouncingScrollPhysics(),
-                            headerSliverBuilder: (context, innerBoxIsScrolled) {
-                              return [
-                                SliverToBoxAdapter(
-                                  child: _buildHeader(
-                                    profileData,
-                                    publishedCount,
-                                    postedSubCategoryCount,
-                                    allDocs,
-                                    isLight: isLight,
-                                    unreadCount: unreadCount,
+                          return RefreshIndicator(
+                            onRefresh: _refreshProfileData,
+                            edgeOffset: 0,
+                            child: NestedScrollView(
+                              physics: const AlwaysScrollableScrollPhysics(
+                                parent: BouncingScrollPhysics(),
+                              ),
+                              headerSliverBuilder:
+                                  (context, innerBoxIsScrolled) {
+                                return [
+                                  SliverToBoxAdapter(
+                                    child: _buildHeader(
+                                      profileData,
+                                      publishedCount,
+                                      postedSubCategoryCount,
+                                      allDocs,
+                                      isLight: isLight,
+                                      unreadCount: unreadCount,
+                                    ),
                                   ),
-                                ),
-                              ];
-                            },
-                            body: LayoutBuilder(
-                              builder: (context, constraints) {
-                                final isNarrow = constraints.maxWidth < 700;
-                                final sidebarWidth = constraints.maxWidth < 390
-                                    ? 102.0
-                                    : (isNarrow ? 108.0 : 120.0);
-
-                                return Transform.translate(
-                                  offset: const Offset(0, -18),
-                                  child: Row(
-                                    children: [
-                                      SizedBox(
-                                        width: sidebarWidth,
-                                        child: _buildSidebarWithLock(
-                                          viewportHeight: constraints.maxHeight,
-                                          isLight: isLight,
-                                        ),
-                                      ),
-                                      Expanded(
-                                          child: _buildPostsGrid(filteredDocs)),
-                                    ],
-                                  ),
-                                );
+                                ];
                               },
+                              body: LayoutBuilder(
+                                builder: (context, constraints) {
+                                  final isNarrow = constraints.maxWidth < 700;
+                                  final sidebarWidth =
+                                      constraints.maxWidth < 390
+                                          ? 102.0
+                                          : (isNarrow ? 108.0 : 120.0);
+
+                                  return Transform.translate(
+                                    offset: const Offset(0, -18),
+                                    child: Row(
+                                      children: [
+                                        SizedBox(
+                                          width: sidebarWidth,
+                                          child: _buildSidebarWithLock(
+                                            viewportHeight:
+                                                constraints.maxHeight,
+                                            isLight: isLight,
+                                          ),
+                                        ),
+                                        Expanded(
+                                          child: _buildPostsGrid(filteredDocs),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                },
+                              ),
                             ),
                           );
                         },

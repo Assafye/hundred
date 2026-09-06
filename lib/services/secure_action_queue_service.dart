@@ -6,12 +6,17 @@ class SecureActionTypes {
   static const String unfollowUser = 'unfollow_user';
   static const String removeFollower = 'remove_follower';
   static const String cancelFollowRequest = 'cancel_follow_request';
+  static const String approveFollowRequest = 'approve_follow_request';
 
   static const String togglePostLike = 'toggle_post_like';
   static const String togglePostSave = 'toggle_post_save';
+  static const String syncCommentLikeScore = 'sync_comment_like_score';
+  static const String syncUserScoreDelta = 'sync_user_score_delta';
   static const String registerPostShare = 'register_post_share';
   static const String syncPostCommentSideEffects =
       'sync_post_comment_side_effects';
+  static const String deletePostCommentCascade =
+      'delete_post_comment_cascade';
 
   static const String joinGroup = 'join_group';
   static const String cancelGroupJoinRequest = 'cancel_group_join_request';

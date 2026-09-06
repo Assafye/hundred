@@ -30,6 +30,20 @@ class PublicUserProfileService {
     _scoreDeltaChangesController.add(normalizedUid);
   }
 
+  /// Emits the uid whenever its optimistic score delta changes, so screens
+  /// that read the raw `score` field directly (instead of via
+  /// [streamProfile]) can still react immediately to pending local deltas.
+  static Stream<String> get scoreDeltaChanges =>
+      _scoreDeltaChangesController.stream;
+
+  /// Clears all locally cached optimistic score state. Must be called
+  /// whenever the signed-in Firebase user changes, since these caches are
+  /// process-wide statics with no uid scoping of "who is signed in now".
+  static void resetOptimisticState() {
+    _optimisticScoreDeltaByUid.clear();
+    _lastRawScoreByUid.clear();
+  }
+
   static int optimisticScoreDeltaFor(String uid) {
     return _optimisticScoreDeltaByUid[uid.trim()] ?? 0;
   }
@@ -149,11 +163,10 @@ class PublicUserProfileService {
 
     final publicScore = _intValue(publicData, const ['score']);
     final privateScore = _intValue(privateData, const ['score']);
-    final score = publicScore == null && privateScore == null
-        ? null
-        : (publicScore ?? 0) > (privateScore ?? 0)
-            ? publicScore
-            : privateScore;
+    // `users_public` is the canonical score doc. Taking the max of the two
+    // copies would mask decrements (unlike / unfollow / post delete) whenever
+    // the two copies drift apart.
+    final score = publicScore ?? privateScore;
     if (score != null) {
       merged['score'] = score;
     }
@@ -295,6 +308,35 @@ class PublicUserProfileService {
       score: nextScore,
       exists: profile.exists,
     );
+  }
+
+  /// Forces a server read of the score-bearing documents for [uid] and drops
+  /// any pending optimistic delta, so the authoritative total wins. Active
+  /// snapshot listeners re-emit from the refreshed local cache, which is why
+  /// profile screens only need this instead of rebuilding their streams.
+  Future<void> refreshScoreSources(String uid) async {
+    final normalizedUid = uid.trim();
+    if (normalizedUid.isEmpty) {
+      return;
+    }
+
+    const options = GetOptions(source: Source.server);
+    await Future.wait(<Future<void>>[
+      _publicUsers.doc(normalizedUid).get(options).then((_) {}).catchError(
+        (Object error) {
+          if (!_isRecoverableProfileReadError(error)) throw error;
+        },
+      ),
+      _users.doc(normalizedUid).get(options).then((_) {}).catchError(
+        (Object error) {
+          if (!_isRecoverableProfileReadError(error)) throw error;
+        },
+      ),
+    ]);
+
+    _optimisticScoreDeltaByUid.remove(normalizedUid);
+    _lastRawScoreByUid.remove(normalizedUid);
+    _scoreDeltaChangesController.add(normalizedUid);
   }
 
   Stream<PublicUserProfile?> streamProfile(String userId) {
