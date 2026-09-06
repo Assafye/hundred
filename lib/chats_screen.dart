@@ -101,7 +101,8 @@ bool _matchesSearchQuery(String haystack, String query) {
   return false;
 }
 
-String buildGlobalSearchText(Map<String, dynamic> data, {required bool isGroup}) {
+String buildGlobalSearchText(Map<String, dynamic> data,
+    {required bool isGroup}) {
   final values = <String>[];
 
   void addFieldValues(List<String> keys) {
@@ -111,7 +112,9 @@ String buildGlobalSearchText(Map<String, dynamic> data, {required bool isGroup})
       final text = raw.toString().trim();
       if (text.isNotEmpty) {
         values.add(text);
-        if (key == 'usernameLowercase' || key == 'username' || key == 'handle') {
+        if (key == 'usernameLowercase' ||
+            key == 'username' ||
+            key == 'handle') {
           final handleText = text.startsWith('@') ? text : '@$text';
           values.add(handleText);
         }
@@ -181,8 +184,8 @@ class _ChatsScreenState extends State<ChatsScreen> {
   String _streamsUid = '';
   Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>>? _userChatsStream;
   Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>>? _publicChatsStream;
-    List<QueryDocumentSnapshot<Map<String, dynamic>>>? _lastUserChatsDocs;
-    List<QueryDocumentSnapshot<Map<String, dynamic>>>? _lastPublicChatsDocs;
+  List<QueryDocumentSnapshot<Map<String, dynamic>>>? _lastUserChatsDocs;
+  List<QueryDocumentSnapshot<Map<String, dynamic>>>? _lastPublicChatsDocs;
   StreamSubscription<List<QueryDocumentSnapshot<Map<String, dynamic>>>>?
       _userChatsNotificationsSub;
 
@@ -248,7 +251,11 @@ class _ChatsScreenState extends State<ChatsScreen> {
 
   bool _tapHitsEditable(PointerDownEvent event) {
     final hitTestResult = HitTestResult();
-    GestureBinding.instance.hitTest(hitTestResult, event.position);
+    GestureBinding.instance.hitTestInView(
+      hitTestResult,
+      event.position,
+      event.viewId,
+    );
     for (final entry in hitTestResult.path) {
       if (entry.target is RenderEditable) {
         return true;
@@ -645,11 +652,11 @@ class _ChatsScreenState extends State<ChatsScreen> {
 
     for (final groupDoc in groupDocs) {
       final chatData = groupDoc.data();
-      final chatParticipants = (chatData['participants'] as List<dynamic>? ??
-              const <dynamic>[])
-          .map((value) => value.toString().trim())
-          .where((value) => value.isNotEmpty)
-          .toSet();
+      final chatParticipants =
+          (chatData['participants'] as List<dynamic>? ?? const <dynamic>[])
+              .map((value) => value.toString().trim())
+              .where((value) => value.isNotEmpty)
+              .toSet();
 
       // Hard guard: only show chats where current user is explicitly a
       // participant in the chat document itself.
@@ -1322,350 +1329,352 @@ class _ChatsScreenState extends State<ChatsScreen> {
               onPointerDown: _dismissKeyboardOnBackgroundTap,
               child: SafeArea(
                 child: SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Container(
-                              clipBehavior: Clip.antiAlias,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Container(
+                                clipBehavior: Clip.antiAlias,
+                                decoration: BoxDecoration(
+                                  color: isLight
+                                      ? Colors.white.withValues(alpha: 0.62)
+                                      : const Color(0xFF1E2632),
+                                  borderRadius: BorderRadius.circular(24),
+                                ),
+                                child: TextField(
+                                  controller: _searchController,
+                                  onTapOutside: (_) {},
+                                  onChanged: (value) {
+                                    setState(() {
+                                      _globalSearchQuery = value;
+                                    });
+                                  },
+                                  style: baseTextStyle,
+                                  decoration: InputDecoration(
+                                    hintText: 'חיפוש משתמשים וקבוצות',
+                                    hintStyle: baseTextStyle.copyWith(
+                                      color: isLight
+                                          ? Colors.black54
+                                          : Colors.grey[600],
+                                    ),
+                                    filled: true,
+                                    fillColor: Colors.transparent,
+                                    prefixIcon: Icon(
+                                      Icons.search_rounded,
+                                      color: isLight
+                                          ? const Color(0xFF9AB0FF)
+                                          : Colors.grey[500],
+                                      size: 20,
+                                    ),
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(24),
+                                      borderSide: BorderSide(
+                                        color: isLight
+                                            ? const Color(0xFFA9C3FF)
+                                            : const Color(0xFF3F5877),
+                                        width: 1.3,
+                                      ),
+                                    ),
+                                    enabledBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(24),
+                                      borderSide: BorderSide(
+                                        color: isLight
+                                            ? const Color(0xFFA9C3FF)
+                                            : const Color(0xFF3F5877),
+                                        width: 1.3,
+                                      ),
+                                    ),
+                                    focusedBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(24),
+                                      borderSide: BorderSide(
+                                        color: isLight
+                                            ? const Color(0xFFA9C3FF)
+                                            : const Color(0xFF3F5877),
+                                        width: 1.3,
+                                      ),
+                                    ),
+                                    contentPadding: const EdgeInsets.symmetric(
+                                      vertical: 12,
+                                      horizontal: 16,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Container(
+                              width: 48,
+                              height: 48,
                               decoration: BoxDecoration(
-                                color: isLight
-                                    ? Colors.white.withValues(alpha: 0.62)
-                                    : const Color(0xFF1E2632),
-                                borderRadius: BorderRadius.circular(24),
+                                shape: BoxShape.circle,
+                                gradient: isLight
+                                    ? const LinearGradient(
+                                        colors: [
+                                          Color(0xFF9EEBFF),
+                                          Color(0xFFC9B7FF)
+                                        ],
+                                        begin: Alignment.topLeft,
+                                        end: Alignment.bottomRight,
+                                      )
+                                    : const LinearGradient(
+                                        colors: [
+                                          Color(0xFF9E7CFF),
+                                          Color(0xFF53C1F9)
+                                        ],
+                                      ),
+                                color: isLight ? null : null,
+                                border: Border.all(
+                                  color: isLight
+                                      ? const Color(0xFFB79BFF)
+                                      : Colors.transparent,
+                                ),
+                                boxShadow: isLight
+                                    ? [
+                                        BoxShadow(
+                                          color: const Color(0xFF53C1F9)
+                                              .withValues(alpha: 0.25),
+                                          blurRadius: 14,
+                                          offset: const Offset(0, 5),
+                                        ),
+                                        BoxShadow(
+                                          color: const Color(0xFFB79BFF)
+                                              .withValues(alpha: 0.22),
+                                          blurRadius: 14,
+                                          offset: const Offset(0, 6),
+                                        ),
+                                      ]
+                                    : null,
                               ),
-                              child: TextField(
-                                controller: _searchController,
-                                onTapOutside: (_) {},
-                                onChanged: (value) {
-                                  setState(() {
-                                    _globalSearchQuery = value;
-                                  });
-                                },
-                                style: baseTextStyle,
-                                decoration: InputDecoration(
-                                  hintText: 'חיפוש משתמשים וקבוצות',
-                                  hintStyle: baseTextStyle.copyWith(
-                                    color: isLight
-                                        ? Colors.black54
-                                        : Colors.grey[600],
-                                  ),
-                                  filled: true,
-                                  fillColor: Colors.transparent,
-                                  prefixIcon: Icon(
-                                    Icons.search_rounded,
-                                    color: isLight
-                                        ? const Color(0xFF9AB0FF)
-                                        : Colors.grey[500],
-                                    size: 20,
-                                  ),
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(24),
-                                    borderSide: BorderSide(
-                                      color: isLight
-                                          ? const Color(0xFFA9C3FF)
-                                          : const Color(0xFF3F5877),
-                                      width: 1.3,
-                                    ),
-                                  ),
-                                  enabledBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(24),
-                                    borderSide: BorderSide(
-                                      color: isLight
-                                          ? const Color(0xFFA9C3FF)
-                                          : const Color(0xFF3F5877),
-                                      width: 1.3,
-                                    ),
-                                  ),
-                                  focusedBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(24),
-                                    borderSide: BorderSide(
-                                      color: isLight
-                                          ? const Color(0xFFA9C3FF)
-                                          : const Color(0xFF3F5877),
-                                      width: 1.3,
-                                    ),
-                                  ),
-                                  contentPadding: const EdgeInsets.symmetric(
-                                    vertical: 12,
-                                    horizontal: 16,
+                              child: Material(
+                                color: Colors.transparent,
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(24),
+                                  onTap: () async {
+                                    final newGroup = await Navigator.push<
+                                        Map<String, dynamic>>(
+                                      context,
+                                      PageRouteBuilder(
+                                        pageBuilder: (context, animation,
+                                                secondaryAnimation) =>
+                                            const CreateGroupScreen(),
+                                        transitionsBuilder: (context, animation,
+                                            secondaryAnimation, child) {
+                                          return FadeTransition(
+                                              opacity: animation, child: child);
+                                        },
+                                      ),
+                                    );
+
+                                    if (!mounted) {
+                                      return;
+                                    }
+
+                                    if (newGroup != null) {
+                                      setState(() {
+                                        _selectedChatsTabIndex = 1;
+                                      });
+                                    }
+                                  },
+                                  child: const Icon(
+                                    Icons.add_rounded,
+                                    color: Colors.white,
+                                    size: 25,
                                   ),
                                 ),
                               ),
                             ),
-                          ),
-                          const SizedBox(width: 12),
-                          Container(
-                            width: 48,
-                            height: 48,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              gradient: isLight
-                                  ? const LinearGradient(
-                                      colors: [
-                                        Color(0xFF9EEBFF),
-                                        Color(0xFFC9B7FF)
-                                      ],
-                                      begin: Alignment.topLeft,
-                                      end: Alignment.bottomRight,
-                                    )
-                                  : const LinearGradient(
-                                      colors: [
-                                        Color(0xFF9E7CFF),
-                                        Color(0xFF53C1F9)
-                                      ],
-                                    ),
-                              color: isLight ? null : null,
-                              border: Border.all(
-                                color: isLight
-                                    ? const Color(0xFFB79BFF)
-                                    : Colors.transparent,
-                              ),
-                              boxShadow: isLight
-                                  ? [
-                                      BoxShadow(
-                                        color: const Color(0xFF53C1F9)
-                                            .withValues(alpha: 0.25),
-                                        blurRadius: 14,
-                                        offset: const Offset(0, 5),
-                                      ),
-                                      BoxShadow(
-                                        color: const Color(0xFFB79BFF)
-                                            .withValues(alpha: 0.22),
-                                        blurRadius: 14,
-                                        offset: const Offset(0, 6),
-                                      ),
-                                    ]
-                                  : null,
-                            ),
-                            child: Material(
-                              color: Colors.transparent,
-                              child: InkWell(
-                                borderRadius: BorderRadius.circular(24),
-                                onTap: () async {
-                                  final newGroup = await Navigator.push<
-                                      Map<String, dynamic>>(
-                                    context,
-                                    PageRouteBuilder(
-                                      pageBuilder: (context, animation,
-                                              secondaryAnimation) =>
-                                          const CreateGroupScreen(),
-                                      transitionsBuilder: (context, animation,
-                                          secondaryAnimation, child) {
-                                        return FadeTransition(
-                                            opacity: animation, child: child);
-                                      },
-                                    ),
-                                  );
-
-                                  if (!mounted) {
-                                    return;
-                                  }
-
-                                  if (newGroup != null) {
-                                    setState(() {
-                                      _selectedChatsTabIndex = 1;
-                                    });
-                                  }
-                                },
-                                child: const Icon(
-                                  Icons.add_rounded,
-                                  color: Colors.white,
-                                  size: 25,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
-                    ),
-                    if (_hasSearchQuery) _buildGlobalSearchResultsPanel(),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: isLight
-                              ? Colors.white.withValues(alpha: 0.62)
-                              : const Color(0xFF1E2632),
-                          borderRadius: BorderRadius.circular(24),
-                          border: Border.all(
+                      if (_hasSearchQuery) _buildGlobalSearchResultsPanel(),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Container(
+                          decoration: BoxDecoration(
                             color: isLight
-                                ? const Color(0xFFA9C3FF)
-                                : Colors.transparent,
+                                ? Colors.white.withValues(alpha: 0.62)
+                                : const Color(0xFF1E2632),
+                            borderRadius: BorderRadius.circular(24),
+                            border: Border.all(
+                              color: isLight
+                                  ? const Color(0xFFA9C3FF)
+                                  : Colors.transparent,
+                            ),
                           ),
-                        ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(23),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: GestureDetector(
-                                  onTap: () {
-                                    setState(() {
-                                      _selectedChatsTabIndex = 0;
-                                      _hasNewUsersNotification = false;
-                                      _usersTabAcknowledgedAt = DateTime.now();
-                                      _searchController.clear();
-                                      _globalSearchQuery = '';
-                                    });
-                                  },
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 12,
-                                    ),
-                                    margin: const EdgeInsets.all(4),
-                                    decoration: BoxDecoration(
-                                      color: _selectedChatsTabIndex == 0
-                                          ? (isLight
-                                              ? const Color(0xFFE8EEFF)
-                                              : const Color(0xFF9E7CFF))
-                                          : Colors.transparent,
-                                      borderRadius: BorderRadius.circular(18),
-                                    ),
-                                    alignment: Alignment.center,
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.center,
-                                      children: [
-                                        Flexible(
-                                          child: FittedBox(
-                                            fit: BoxFit.scaleDown,
-                                            child: Text(
-                                              'משתמשים',
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: baseTextStyle.copyWith(
-                                                  color: isLight
-                                                      ? Colors.black
-                                                      : Colors.white,
-                                                  fontWeight:
-                                                      FontWeight.w600),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(23),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: GestureDetector(
+                                    onTap: () {
+                                      setState(() {
+                                        _selectedChatsTabIndex = 0;
+                                        _hasNewUsersNotification = false;
+                                        _usersTabAcknowledgedAt =
+                                            DateTime.now();
+                                        _searchController.clear();
+                                        _globalSearchQuery = '';
+                                      });
+                                    },
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 12,
+                                      ),
+                                      margin: const EdgeInsets.all(4),
+                                      decoration: BoxDecoration(
+                                        color: _selectedChatsTabIndex == 0
+                                            ? (isLight
+                                                ? const Color(0xFFE8EEFF)
+                                                : const Color(0xFF9E7CFF))
+                                            : Colors.transparent,
+                                        borderRadius: BorderRadius.circular(18),
+                                      ),
+                                      alignment: Alignment.center,
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        children: [
+                                          Flexible(
+                                            child: FittedBox(
+                                              fit: BoxFit.scaleDown,
+                                              child: Text(
+                                                'משתמשים',
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: baseTextStyle.copyWith(
+                                                    color: isLight
+                                                        ? Colors.black
+                                                        : Colors.white,
+                                                    fontWeight:
+                                                        FontWeight.w600),
+                                              ),
                                             ),
                                           ),
-                                        ),
-                                        if (_hasNewUsersNotification) ...[
-                                          const SizedBox(width: 6),
-                                          _buildGroupsTabNotificationDot(
-                                            isLight: isLight,
-                                          ),
-                                        ],
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              Expanded(
-                                child: GestureDetector(
-                                  onTap: () {
-                                    setState(() {
-                                      _selectedChatsTabIndex = 1;
-                                      _hasNewGroupsNotification = false;
-                                      _groupsTabAcknowledgedAt = DateTime.now();
-                                      _searchController.clear();
-                                      _globalSearchQuery = '';
-                                    });
-                                  },
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 12,
-                                    ),
-                                    margin: const EdgeInsets.all(4),
-                                    decoration: BoxDecoration(
-                                      color: _selectedChatsTabIndex == 1
-                                          ? (isLight
-                                              ? const Color(0xFFE8EEFF)
-                                              : const Color(0xFF9E7CFF))
-                                          : Colors.transparent,
-                                      borderRadius: BorderRadius.circular(18),
-                                    ),
-                                    alignment: Alignment.center,
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.center,
-                                      children: [
-                                        Flexible(
-                                          child: FittedBox(
-                                            fit: BoxFit.scaleDown,
-                                            child: Text(
-                                              'קבוצות',
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: baseTextStyle.copyWith(
-                                                  color: isLight
-                                                      ? Colors.black
-                                                      : Colors.white,
-                                                  fontWeight:
-                                                      FontWeight.w600),
+                                          if (_hasNewUsersNotification) ...[
+                                            const SizedBox(width: 6),
+                                            _buildGroupsTabNotificationDot(
+                                              isLight: isLight,
                                             ),
-                                          ),
-                                        ),
-                                        if (_hasNewGroupsNotification) ...[
-                                          const SizedBox(width: 6),
-                                          _buildGroupsTabNotificationDot(
-                                            isLight: isLight,
-                                          ),
+                                          ],
                                         ],
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              Expanded(
-                                child: GestureDetector(
-                                  onTap: () {
-                                    setState(() {
-                                      _selectedChatsTabIndex = 2;
-                                      _searchController.clear();
-                                      _globalSearchQuery = '';
-                                    });
-                                  },
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 12,
-                                    ),
-                                    margin: const EdgeInsets.all(4),
-                                    decoration: BoxDecoration(
-                                      color: _selectedChatsTabIndex == 2
-                                          ? (isLight
-                                              ? const Color(0xFFE8EEFF)
-                                              : const Color(0xFF9E7CFF))
-                                          : Colors.transparent,
-                                      borderRadius: BorderRadius.circular(18),
-                                    ),
-                                    alignment: Alignment.center,
-                                    child: FittedBox(
-                                      fit: BoxFit.scaleDown,
-                                      child: Text(
-                                        'קבוצות ציבוריות',
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: baseTextStyle.copyWith(
-                                            color: isLight
-                                                ? Colors.black
-                                                : Colors.white,
-                                            fontWeight: FontWeight.w600),
                                       ),
                                     ),
                                   ),
                                 ),
-                              ),
-                            ],
+                                Expanded(
+                                  child: GestureDetector(
+                                    onTap: () {
+                                      setState(() {
+                                        _selectedChatsTabIndex = 1;
+                                        _hasNewGroupsNotification = false;
+                                        _groupsTabAcknowledgedAt =
+                                            DateTime.now();
+                                        _searchController.clear();
+                                        _globalSearchQuery = '';
+                                      });
+                                    },
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 12,
+                                      ),
+                                      margin: const EdgeInsets.all(4),
+                                      decoration: BoxDecoration(
+                                        color: _selectedChatsTabIndex == 1
+                                            ? (isLight
+                                                ? const Color(0xFFE8EEFF)
+                                                : const Color(0xFF9E7CFF))
+                                            : Colors.transparent,
+                                        borderRadius: BorderRadius.circular(18),
+                                      ),
+                                      alignment: Alignment.center,
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        children: [
+                                          Flexible(
+                                            child: FittedBox(
+                                              fit: BoxFit.scaleDown,
+                                              child: Text(
+                                                'קבוצות',
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: baseTextStyle.copyWith(
+                                                    color: isLight
+                                                        ? Colors.black
+                                                        : Colors.white,
+                                                    fontWeight:
+                                                        FontWeight.w600),
+                                              ),
+                                            ),
+                                          ),
+                                          if (_hasNewGroupsNotification) ...[
+                                            const SizedBox(width: 6),
+                                            _buildGroupsTabNotificationDot(
+                                              isLight: isLight,
+                                            ),
+                                          ],
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                Expanded(
+                                  child: GestureDetector(
+                                    onTap: () {
+                                      setState(() {
+                                        _selectedChatsTabIndex = 2;
+                                        _searchController.clear();
+                                        _globalSearchQuery = '';
+                                      });
+                                    },
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 12,
+                                      ),
+                                      margin: const EdgeInsets.all(4),
+                                      decoration: BoxDecoration(
+                                        color: _selectedChatsTabIndex == 2
+                                            ? (isLight
+                                                ? const Color(0xFFE8EEFF)
+                                                : const Color(0xFF9E7CFF))
+                                            : Colors.transparent,
+                                        borderRadius: BorderRadius.circular(18),
+                                      ),
+                                      alignment: Alignment.center,
+                                      child: FittedBox(
+                                        fit: BoxFit.scaleDown,
+                                        child: Text(
+                                          'קבוצות ציבוריות',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: baseTextStyle.copyWith(
+                                              color: isLight
+                                                  ? Colors.black
+                                                  : Colors.white,
+                                              fontWeight: FontWeight.w600),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 16),
-                    _buildActiveChatsTab(),
-                    const SizedBox(height: 120),
-                  ],
+                      const SizedBox(height: 16),
+                      _buildActiveChatsTab(),
+                      const SizedBox(height: 120),
+                    ],
+                  ),
                 ),
-              ),
               ),
             ),
           ],
@@ -1685,7 +1694,8 @@ class _ChatsScreenState extends State<ChatsScreen> {
 
     return StreamBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
       stream: _userChatsStream,
-      initialData: _lastUserChatsDocs ?? const <QueryDocumentSnapshot<Map<String, dynamic>>>[],
+      initialData: _lastUserChatsDocs ??
+          const <QueryDocumentSnapshot<Map<String, dynamic>>>[],
       builder: (context, chatSnapshot) {
         if (chatSnapshot.connectionState == ConnectionState.waiting &&
             !chatSnapshot.hasData) {
@@ -1908,7 +1918,8 @@ class _ChatsScreenState extends State<ChatsScreen> {
 
     return StreamBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
       stream: _publicChatsStream,
-      initialData: _lastPublicChatsDocs ?? const <QueryDocumentSnapshot<Map<String, dynamic>>>[],
+      initialData: _lastPublicChatsDocs ??
+          const <QueryDocumentSnapshot<Map<String, dynamic>>>[],
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting &&
             !snapshot.hasData) {
@@ -3455,7 +3466,8 @@ class _ChatsScreenState extends State<ChatsScreen> {
 
     return StreamBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
       stream: _userChatsStream,
-      initialData: _lastUserChatsDocs ?? const <QueryDocumentSnapshot<Map<String, dynamic>>>[],
+      initialData: _lastUserChatsDocs ??
+          const <QueryDocumentSnapshot<Map<String, dynamic>>>[],
       builder: (context, chatSnapshot) {
         if (chatSnapshot.connectionState == ConnectionState.waiting &&
             !chatSnapshot.hasData) {
@@ -3471,7 +3483,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
 
         final docs = chatSnapshot.data ??
             const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-    _lastUserChatsDocs = docs;
+        _lastUserChatsDocs = docs;
         final groupDocs = docs
             .where((doc) => !_isDirectChat(doc.data()))
             .toList(growable: false);
@@ -3521,113 +3533,114 @@ class _ChatsScreenState extends State<ChatsScreen> {
                   itemCount: approvedDocs.length,
                   itemBuilder: (context, index) {
                     final chatDoc = approvedDocs[index];
-                final chatData = chatDoc.data();
-                final chatName =
-                    ((chatData['name'] as String?) ?? 'קבוצה').trim();
-                final imageUrl =
-                    ((chatData['groupImageUrl'] as String?) ?? '').trim();
-                final description =
-                    ((chatData['description'] as String?) ?? '').trim();
-                final lastMessage =
-                    ((chatData['lastMessage'] as String?) ?? '').trim();
-                final lastMessageSenderName =
-                    ((chatData['lastMessageSenderName'] as String?) ?? '')
-                        .trim();
-                final activityDate = _chatActivityDate(chatData);
-                final lastReadAt = readReceipts[chatDoc.id];
-                final hasUnread = _hasUnreadMessages(
-                  lastMessageAt:
-                      _timestampToDate(chatData['lastMessageAt'] as Timestamp?),
-                  lastReadAt: lastReadAt,
-                );
+                    final chatData = chatDoc.data();
+                    final chatName =
+                        ((chatData['name'] as String?) ?? 'קבוצה').trim();
+                    final imageUrl =
+                        ((chatData['groupImageUrl'] as String?) ?? '').trim();
+                    final description =
+                        ((chatData['description'] as String?) ?? '').trim();
+                    final lastMessage =
+                        ((chatData['lastMessage'] as String?) ?? '').trim();
+                    final lastMessageSenderName =
+                        ((chatData['lastMessageSenderName'] as String?) ?? '')
+                            .trim();
+                    final activityDate = _chatActivityDate(chatData);
+                    final lastReadAt = readReceipts[chatDoc.id];
+                    final hasUnread = _hasUnreadMessages(
+                      lastMessageAt: _timestampToDate(
+                          chatData['lastMessageAt'] as Timestamp?),
+                      lastReadAt: lastReadAt,
+                    );
 
-                final subtitleText = lastMessage.isNotEmpty
-                    ? (lastMessageSenderName.isNotEmpty
-                        ? '$lastMessageSenderName: $lastMessage'
-                        : lastMessage)
-                    : (description.isEmpty ? 'קבוצה פעילה' : description);
+                    final subtitleText = lastMessage.isNotEmpty
+                        ? (lastMessageSenderName.isNotEmpty
+                            ? '$lastMessageSenderName: $lastMessage'
+                            : lastMessage)
+                        : (description.isEmpty ? 'קבוצה פעילה' : description);
 
-                final tile = Container(
-                  decoration: BoxDecoration(
-                    color: isLight
-                        ? Colors.white.withValues(alpha: 0.62)
-                        : const Color(0xFF1E2632),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Material(
-                    type: MaterialType.transparency,
-                    child: ListTile(
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => ChatRoomScreen(
-                              chatName: chatName,
-                              avatarUrl: imageUrl.isEmpty ? null : imageUrl,
-                              chatId: chatDoc.id,
-                              isDirectChat: false,
-                            ),
-                          ),
-                        );
-                      },
-                      leading: _buildLiveGroupAvatar(
-                        groupId: chatDoc.id,
-                        fallbackImageUrl: imageUrl,
+                    final tile = Container(
+                      decoration: BoxDecoration(
+                        color: isLight
+                            ? Colors.white.withValues(alpha: 0.62)
+                            : const Color(0xFF1E2632),
+                        borderRadius: BorderRadius.circular(16),
                       ),
-                      title: Text(
-                        chatName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.right,
-                        style: TextStyle(
-                          fontFamily: 'Segoe UI',
-                          color: isLight ? Colors.black : Colors.white,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      subtitle: Text(
-                        subtitleText,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.right,
-                        style: TextStyle(
-                          color: isLight ? Colors.black87 : Colors.grey[400],
-                        ),
-                      ),
-                      trailing: SizedBox(
-                        height: double.infinity,
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.start,
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            SizedBox(
-                              width: 92,
-                              child: Text(
-                                _formatRelativeTime(activityDate),
-                                textAlign: TextAlign.end,
-                                style: TextStyle(
-                                  color: isLight
-                                      ? Colors.black54
-                                      : Colors.grey[500],
-                                  fontSize: 12,
+                      child: Material(
+                        type: MaterialType.transparency,
+                        child: ListTile(
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => ChatRoomScreen(
+                                  chatName: chatName,
+                                  avatarUrl: imageUrl.isEmpty ? null : imageUrl,
+                                  chatId: chatDoc.id,
+                                  isDirectChat: false,
                                 ),
                               ),
+                            );
+                          },
+                          leading: _buildLiveGroupAvatar(
+                            groupId: chatDoc.id,
+                            fallbackImageUrl: imageUrl,
+                          ),
+                          title: Text(
+                            chatName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.right,
+                            style: TextStyle(
+                              fontFamily: 'Segoe UI',
+                              color: isLight ? Colors.black : Colors.white,
+                              fontWeight: FontWeight.bold,
                             ),
-                          ],
+                          ),
+                          subtitle: Text(
+                            subtitleText,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.right,
+                            style: TextStyle(
+                              color:
+                                  isLight ? Colors.black87 : Colors.grey[400],
+                            ),
+                          ),
+                          trailing: SizedBox(
+                            height: double.infinity,
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.start,
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                SizedBox(
+                                  width: 92,
+                                  child: Text(
+                                    _formatRelativeTime(activityDate),
+                                    textAlign: TextAlign.end,
+                                    style: TextStyle(
+                                      color: isLight
+                                          ? Colors.black54
+                                          : Colors.grey[500],
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                         ),
                       ),
-                    ),
-                  ),
-                );
+                    );
 
-                return Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  child: _buildChatFrame(
-                    child: tile,
-                    hasUnread: hasUnread,
-                  ),
-                );
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 8),
+                      child: _buildChatFrame(
+                        child: tile,
+                        hasUnread: hasUnread,
+                      ),
+                    );
                   },
                 );
               },
@@ -3826,9 +3839,8 @@ class _ChatsScreenState extends State<ChatsScreen> {
 
       try {
         debugPrint('[ChatsScreen][globalSearch] path=users_public get()');
-        publicUsersSnapshot = await FirebaseFirestore.instance
-            .collection('users_public')
-            .get();
+        publicUsersSnapshot =
+            await FirebaseFirestore.instance.collection('users_public').get();
       } catch (error, stackTrace) {
         debugPrint(
           '[ChatsScreen][globalSearch] users_public denied: $error\n$stackTrace',
@@ -3846,12 +3858,10 @@ class _ChatsScreenState extends State<ChatsScreen> {
       final groupQueries = <Future<QuerySnapshot<Map<String, dynamic>>>>[];
 
       try {
-        debugPrint('[ChatsScreen][globalSearch] path=groups where(isPublic==true)');
+        debugPrint(
+            '[ChatsScreen][globalSearch] path=groups where(isPublic==true)');
         groupQueries.add(
-          groupCollection
-              .where('isPublic', isEqualTo: true)
-              .limit(300)
-              .get(),
+          groupCollection.where('isPublic', isEqualTo: true).limit(300).get(),
         );
       } catch (error, stackTrace) {
         debugPrint(
@@ -3962,7 +3972,8 @@ class _ChatsScreenState extends State<ChatsScreen> {
           continue;
         }
 
-        final isBlockedRelation = await _blockUserService.isEitherUserBlocked(uid);
+        final isBlockedRelation =
+            await _blockUserService.isEitherUserBlocked(uid);
         if (isBlockedRelation) {
           continue;
         }
@@ -3971,11 +3982,14 @@ class _ChatsScreenState extends State<ChatsScreen> {
         final displayName = ((data['displayName'] as String?) ?? '').trim();
         final username = ((data['usernameLowercase'] as String?) ??
                 (data['username'] as String?) ??
-                '').trim();
+                '')
+            .trim();
         final directName = ((data['name'] as String?) ?? '').trim();
         final finalName = displayName.isNotEmpty
             ? displayName
-            : (directName.isNotEmpty ? directName : (username.isNotEmpty ? username : uid));
+            : (directName.isNotEmpty
+                ? directName
+                : (username.isNotEmpty ? username : uid));
         final subtitleUser = username.isNotEmpty
             ? (username.startsWith('@') ? username : '@$username')
             : (uid.isNotEmpty ? uid : 'משתמש');
@@ -3995,7 +4009,8 @@ class _ChatsScreenState extends State<ChatsScreen> {
             subtitle: subtitleUser,
             imageUrl: ((data['profilePictureUrl'] as String?) ??
                     (data['profileImageUrl'] as String?) ??
-                    '').trim(),
+                    '')
+                .trim(),
             isGroup: false,
             isMember: false,
           ),
@@ -4023,8 +4038,8 @@ class _ChatsScreenState extends State<ChatsScreen> {
         final isVisible = (data['isVisible'] as bool?) ?? true;
         final isPublic = (data['isPublic'] as bool?) ?? false;
         final adminUid = ((data['adminUid'] as String?) ?? '').trim();
-        final participantsRaw = (data['participants'] as List<dynamic>?) ??
-            const <dynamic>[];
+        final participantsRaw =
+            (data['participants'] as List<dynamic>?) ?? const <dynamic>[];
         final membersRaw = (data['members'] as List<dynamic>?) ??
             (data['membersList'] as List<dynamic>?) ??
             const <dynamic>[];
@@ -4052,10 +4067,9 @@ class _ChatsScreenState extends State<ChatsScreen> {
           continue;
         }
 
-        final groupName = ((data['groupName'] as String?) ??
-                (data['name'] as String?) ??
-                '')
-            .trim();
+        final groupName =
+            ((data['groupName'] as String?) ?? (data['name'] as String?) ?? '')
+                .trim();
         final category = ((data['category'] as String?) ?? '').trim();
         final subCategory = ((data['subCategory'] as String?) ?? '').trim();
 

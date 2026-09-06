@@ -33,7 +33,11 @@ class _PostShareTargetsSheetState extends State<PostShareTargetsSheet> {
 
   bool _tapHitsEditable(PointerDownEvent event) {
     final hitTestResult = HitTestResult();
-    GestureBinding.instance.hitTest(hitTestResult, event.position);
+    GestureBinding.instance.hitTestInView(
+      hitTestResult,
+      event.position,
+      event.viewId,
+    );
     for (final entry in hitTestResult.path) {
       if (entry.target is RenderEditable) {
         return true;
@@ -329,7 +333,7 @@ class _PostShareTargetsSheetState extends State<PostShareTargetsSheet> {
                     color: (isLight
                             ? const Color(0xFF8FB7FF)
                             : const Color(0xFF46D3FF))
-                        .withValues(alpha:  0.28),
+                        .withValues(alpha: 0.28),
                   ),
                 ),
                 enabledBorder: OutlineInputBorder(
@@ -338,7 +342,7 @@ class _PostShareTargetsSheetState extends State<PostShareTargetsSheet> {
                     color: (isLight
                             ? const Color(0xFF8FB7FF)
                             : const Color(0xFF46D3FF))
-                        .withValues(alpha:  0.28),
+                        .withValues(alpha: 0.28),
                   ),
                 ),
                 focusedBorder: OutlineInputBorder(
@@ -435,8 +439,8 @@ class _PostShareTargetsSheetState extends State<PostShareTargetsSheet> {
         ),
       ),
       tileColor: isLight
-          ? const Color(0xFFF0F6FF).withValues(alpha:  0.95)
-          : const Color(0xFF1A2438).withValues(alpha:  0.72),
+          ? const Color(0xFFF0F6FF).withValues(alpha: 0.95)
+          : const Color(0xFF1A2438).withValues(alpha: 0.72),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       trailing: Icon(
         Icons.chevron_right_rounded,
@@ -463,209 +467,209 @@ class _PostShareTargetsSheetState extends State<PostShareTargetsSheet> {
         behavior: HitTestBehavior.translucent,
         onPointerDown: _dismissKeyboardOnBackgroundTap,
         child: Container(
-        height: MediaQuery.of(context).size.height * 0.75,
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: isLight
-                ? const [Color(0xFFFAFCFF), Color(0xFFECF3FF)]
-                : [
-                    const Color(0xFF0D172A).withValues(alpha:  0.98),
-                    const Color(0xFF1B1635).withValues(alpha:  0.98),
-                  ],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
+          height: MediaQuery.of(context).size.height * 0.75,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: isLight
+                  ? const [Color(0xFFFAFCFF), Color(0xFFECF3FF)]
+                  : [
+                      const Color(0xFF0D172A).withValues(alpha: 0.98),
+                      const Color(0xFF1B1635).withValues(alpha: 0.98),
+                    ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
           ),
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-        ),
-        child: Column(
-          children: [
-            const SizedBox(height: 10),
-            Container(
-              width: 44,
-              height: 4,
-              decoration: BoxDecoration(
-                color: (isLight
-                        ? const Color(0xFF8FB7FF)
-                        : const Color(0xFF9EDBFF))
-                    .withValues(alpha:  0.55),
-                borderRadius: BorderRadius.circular(999),
+          child: Column(
+            children: [
+              const SizedBox(height: 10),
+              Container(
+                width: 44,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: (isLight
+                          ? const Color(0xFF8FB7FF)
+                          : const Color(0xFF9EDBFF))
+                      .withValues(alpha: 0.55),
+                  borderRadius: BorderRadius.circular(999),
+                ),
               ),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'שלח פוסט לחברים או לקבוצות',
-              style: TextStyle(
-                color: isLight ? Colors.black : const Color(0xFFEAF4FF),
-                fontSize: 16,
-                fontWeight: FontWeight.w800,
+              const SizedBox(height: 12),
+              Text(
+                'שלח פוסט לחברים או לקבוצות',
+                style: TextStyle(
+                  color: isLight ? Colors.black : const Color(0xFFEAF4FF),
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
-            ),
-            const SizedBox(height: 10),
-            Padding(
-              key: _friendSearchRegionKey,
-              padding: const EdgeInsets.symmetric(horizontal: 14),
-              child: TextField(
-                controller: _friendSearchController,
-                onTapOutside: (_) {},
-                textAlign: TextAlign.right,
-                decoration: InputDecoration(
-                  hintText: 'חפש חבר לפי שם משתמש',
-                  hintStyle: TextStyle(
-                    color: isLight
-                        ? const Color(0xFF6A7894)
-                        : const Color(0xFFA9B7D3),
-                  ),
-                  prefixIcon: Icon(
-                    Icons.search_rounded,
-                    color: isLight
-                        ? const Color(0xFF5C75B9)
-                        : const Color(0xFF9EDBFF),
-                  ),
-                  filled: true,
-                  fillColor: isLight
-                      ? const Color(0xFFEFF5FF)
-                      : const Color(0xFF18233A),
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    borderSide: BorderSide(
-                      color: (isLight
-                              ? const Color(0xFF8FB7FF)
-                              : const Color(0xFF46D3FF))
-                          .withValues(alpha:  0.28),
-                    ),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    borderSide: BorderSide(
-                      color: (isLight
-                              ? const Color(0xFF8FB7FF)
-                              : const Color(0xFF46D3FF))
-                          .withValues(alpha:  0.28),
-                    ),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    borderSide: BorderSide(
+              const SizedBox(height: 10),
+              Padding(
+                key: _friendSearchRegionKey,
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                child: TextField(
+                  controller: _friendSearchController,
+                  onTapOutside: (_) {},
+                  textAlign: TextAlign.right,
+                  decoration: InputDecoration(
+                    hintText: 'חפש חבר לפי שם משתמש',
+                    hintStyle: TextStyle(
                       color: isLight
-                          ? const Color(0xFF8B9CFF)
-                          : const Color(0xFF8C62FF),
+                          ? const Color(0xFF6A7894)
+                          : const Color(0xFFA9B7D3),
+                    ),
+                    prefixIcon: Icon(
+                      Icons.search_rounded,
+                      color: isLight
+                          ? const Color(0xFF5C75B9)
+                          : const Color(0xFF9EDBFF),
+                    ),
+                    filled: true,
+                    fillColor: isLight
+                        ? const Color(0xFFEFF5FF)
+                        : const Color(0xFF18233A),
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 12),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: BorderSide(
+                        color: (isLight
+                                ? const Color(0xFF8FB7FF)
+                                : const Color(0xFF46D3FF))
+                            .withValues(alpha: 0.28),
+                      ),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: BorderSide(
+                        color: (isLight
+                                ? const Color(0xFF8FB7FF)
+                                : const Color(0xFF46D3FF))
+                            .withValues(alpha: 0.28),
+                      ),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: BorderSide(
+                        color: isLight
+                            ? const Color(0xFF8B9CFF)
+                            : const Color(0xFF8C62FF),
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
-            const SizedBox(height: 10),
-            Expanded(
-              child: FutureBuilder<Map<String, List<Map<String, dynamic>>>>(
-                future: _shareTargetsFuture,
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return Center(
-                      child: CircularProgressIndicator(
-                        color: isLight
-                            ? const Color(0xFF7E63D8)
-                            : const Color(0xFF9E7CFF),
-                      ),
-                    );
-                  }
-
-                  if (snapshot.hasError) {
-                    return Center(
-                      child: Text(
-                        'שגיאה בטעינת רשימת יעדים',
-                        style: TextStyle(
-                          color: isLight ? Colors.black54 : Colors.white70,
+              const SizedBox(height: 10),
+              Expanded(
+                child: FutureBuilder<Map<String, List<Map<String, dynamic>>>>(
+                  future: _shareTargetsFuture,
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return Center(
+                        child: CircularProgressIndicator(
+                          color: isLight
+                              ? const Color(0xFF7E63D8)
+                              : const Color(0xFF9E7CFF),
                         ),
-                      ),
-                    );
-                  }
+                      );
+                    }
 
-                  final data = snapshot.data ??
-                      const <String, List<Map<String, dynamic>>>{};
-                  final friends =
-                      data['friends'] ?? const <Map<String, dynamic>>[];
-                  final filteredFriends = friends
-                      .where(_friendMatchesSearch)
-                      .toList(growable: false);
-                  final groups =
-                      data['groups'] ?? const <Map<String, dynamic>>[];
-
-                  if (friends.isEmpty && groups.isEmpty) {
-                    return Center(
-                      child: Text(
-                        'לא נמצאו חברים או קבוצות לשליחה',
-                        style: TextStyle(
-                          color: isLight ? Colors.black54 : Colors.white70,
-                        ),
-                      ),
-                    );
-                  }
-
-                  return ListView(
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                    children: [
-                      if (friends.isNotEmpty) ...[
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 4, 16, 6),
-                          child: Text(
-                            'חברים',
-                            style: TextStyle(
-                              color: isLight
-                                  ? const Color(0xFF5D84F5)
-                                  : const Color(0xFF9EDBFF),
-                              fontWeight: FontWeight.w800,
-                            ),
-                            textAlign: TextAlign.right,
+                    if (snapshot.hasError) {
+                      return Center(
+                        child: Text(
+                          'שגיאה בטעינת רשימת יעדים',
+                          style: TextStyle(
+                            color: isLight ? Colors.black54 : Colors.white70,
                           ),
                         ),
-                        if (filteredFriends.isEmpty)
+                      );
+                    }
+
+                    final data = snapshot.data ??
+                        const <String, List<Map<String, dynamic>>>{};
+                    final friends =
+                        data['friends'] ?? const <Map<String, dynamic>>[];
+                    final filteredFriends = friends
+                        .where(_friendMatchesSearch)
+                        .toList(growable: false);
+                    final groups =
+                        data['groups'] ?? const <Map<String, dynamic>>[];
+
+                    if (friends.isEmpty && groups.isEmpty) {
+                      return Center(
+                        child: Text(
+                          'לא נמצאו חברים או קבוצות לשליחה',
+                          style: TextStyle(
+                            color: isLight ? Colors.black54 : Colors.white70,
+                          ),
+                        ),
+                      );
+                    }
+
+                    return ListView(
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      children: [
+                        if (friends.isNotEmpty) ...[
                           Padding(
-                            padding: const EdgeInsets.fromLTRB(16, 2, 16, 10),
+                            padding: const EdgeInsets.fromLTRB(16, 4, 16, 6),
                             child: Text(
-                              'לא נמצאו חברים בשם המשתמש שחיפשת',
-                              textAlign: TextAlign.right,
+                              'חברים',
                               style: TextStyle(
                                 color: isLight
-                                    ? const Color(0xFF5F6D89)
-                                    : Colors.white70,
+                                    ? const Color(0xFF5D84F5)
+                                    : const Color(0xFF9EDBFF),
+                                fontWeight: FontWeight.w800,
                               ),
+                              textAlign: TextAlign.right,
                             ),
-                          )
-                        else
-                          ...filteredFriends.map((target) => Padding(
+                          ),
+                          if (filteredFriends.isEmpty)
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 2, 16, 10),
+                              child: Text(
+                                'לא נמצאו חברים בשם המשתמש שחיפשת',
+                                textAlign: TextAlign.right,
+                                style: TextStyle(
+                                  color: isLight
+                                      ? const Color(0xFF5F6D89)
+                                      : Colors.white70,
+                                ),
+                              ),
+                            )
+                          else
+                            ...filteredFriends.map((target) => Padding(
+                                  padding: const EdgeInsets.only(bottom: 8),
+                                  child: _targetTile(target),
+                                )),
+                          const SizedBox(height: 6),
+                        ],
+                        if (groups.isNotEmpty) ...[
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 4, 16, 6),
+                            child: Text(
+                              'קבוצות',
+                              style: TextStyle(
+                                color: isLight
+                                    ? const Color(0xFF5D84F5)
+                                    : const Color(0xFF9EDBFF),
+                                fontWeight: FontWeight.w800,
+                              ),
+                              textAlign: TextAlign.right,
+                            ),
+                          ),
+                          ...groups.map((target) => Padding(
                                 padding: const EdgeInsets.only(bottom: 8),
                                 child: _targetTile(target),
                               )),
-                        const SizedBox(height: 6),
+                        ],
                       ],
-                      if (groups.isNotEmpty) ...[
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 4, 16, 6),
-                          child: Text(
-                            'קבוצות',
-                            style: TextStyle(
-                              color: isLight
-                                  ? const Color(0xFF5D84F5)
-                                  : const Color(0xFF9EDBFF),
-                              fontWeight: FontWeight.w800,
-                            ),
-                            textAlign: TextAlign.right,
-                          ),
-                        ),
-                        ...groups.map((target) => Padding(
-                              padding: const EdgeInsets.only(bottom: 8),
-                              child: _targetTile(target),
-                            )),
-                      ],
-                    ],
-                  );
-                },
+                    );
+                  },
+                ),
               ),
-            ),
-          ],
-        ),
+            ],
+          ),
         ),
       ),
     );

@@ -80,7 +80,11 @@ class _SettingsHistoryScreenState extends State<SettingsHistoryScreen>
 
   bool _tapHitsEditable(PointerDownEvent event) {
     final hitTestResult = HitTestResult();
-    GestureBinding.instance.hitTest(hitTestResult, event.position);
+    GestureBinding.instance.hitTestInView(
+      hitTestResult,
+      event.position,
+      event.viewId,
+    );
     for (final entry in hitTestResult.path) {
       if (entry.target is RenderEditable) {
         return true;
@@ -644,18 +648,18 @@ class _SettingsHistoryScreenState extends State<SettingsHistoryScreen>
                                   ),
                                   actions: [
                                     TextButton(
-                                      onPressed: () => Navigator.of(
-                                              confirmContext)
-                                          .pop(false),
+                                      onPressed: () =>
+                                          Navigator.of(confirmContext)
+                                              .pop(false),
                                       child: const Text('ביטול'),
                                     ),
                                     ElevatedButton(
                                       style: ElevatedButton.styleFrom(
                                         backgroundColor: Colors.redAccent,
                                       ),
-                                      onPressed: () => Navigator.of(
-                                              confirmContext)
-                                          .pop(true),
+                                      onPressed: () =>
+                                          Navigator.of(confirmContext)
+                                              .pop(true),
                                       child: const Text('מחק'),
                                     ),
                                   ],
@@ -1939,150 +1943,153 @@ class _SettingsHistoryScreenState extends State<SettingsHistoryScreen>
             onPointerDown: _dismissKeyboardOnBackgroundTap,
             child: Container(
               decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: isLight
-                    ? const [Color(0xFFF7FAFF), Color(0xFFEFF5FF)]
-                    : const [_bgTop, Color(0xFF131B33), _bgBottom],
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
+                gradient: LinearGradient(
+                  colors: isLight
+                      ? const [Color(0xFFF7FAFF), Color(0xFFEFF5FF)]
+                      : const [_bgTop, Color(0xFF131B33), _bgBottom],
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                ),
               ),
-            ),
               child: StreamBuilder<
-                List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
-              stream: _activityStream(),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting &&
-                    !snapshot.hasData) {
-                  return const Center(child: CircularProgressIndicator());
-                }
+                  List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
+                stream: _activityStream(),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting &&
+                      !snapshot.hasData) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
 
-                if (snapshot.hasError) {
-                  return Center(
-                    child: Text(
-                      'שגיאה בטעינת היסטוריה',
-                      style: TextStyle(
-                        color:
-                            isLight ? const Color(0xFF5B6D85) : Colors.white70,
+                  if (snapshot.hasError) {
+                    return Center(
+                      child: Text(
+                        'שגיאה בטעינת היסטוריה',
+                        style: TextStyle(
+                          color: isLight
+                              ? const Color(0xFF5B6D85)
+                              : Colors.white70,
+                        ),
                       ),
-                    ),
-                  );
-                }
+                    );
+                  }
 
-                final activities = snapshot.data ??
-                    const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-                return FutureBuilder<
-                    List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
-                  future: _filterVisibleActivities(activities),
-                  builder: (context, filteredSnapshot) {
-                    if (filteredSnapshot.connectionState ==
-                            ConnectionState.waiting &&
-                        !filteredSnapshot.hasData) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
+                  final activities = snapshot.data ??
+                      const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+                  return FutureBuilder<
+                      List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
+                    future: _filterVisibleActivities(activities),
+                    builder: (context, filteredSnapshot) {
+                      if (filteredSnapshot.connectionState ==
+                              ConnectionState.waiting &&
+                          !filteredSnapshot.hasData) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
 
-                    final visibleActivities = filteredSnapshot.data ??
-                        const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-                    final likes = _uniqueActivitiesByPost(visibleActivities
-                        .where((doc) =>
-                            (doc.data()['type'] as String? ?? '') == 'like')
-                        .toList(growable: false));
-                    final comments = visibleActivities
-                        .where((doc) =>
-                            (doc.data()['type'] as String? ?? '') == 'comment')
-                        .toList(growable: false);
-                    return TabBarView(
-                      controller: _tabController,
-                      children: [
-                        likes.isEmpty
-                            ? _buildEmptyState('אין לייקים להצגה עדיין')
-                            : Padding(
-                                padding: const EdgeInsets.all(14),
-                                child: GridView.builder(
-                                  itemCount: likes.length,
-                                  gridDelegate:
-                                      const SliverGridDelegateWithFixedCrossAxisCount(
-                                    crossAxisCount: 3,
-                                    crossAxisSpacing: 10,
-                                    mainAxisSpacing: 10,
-                                    childAspectRatio: 0.78,
+                      final visibleActivities = filteredSnapshot.data ??
+                          const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+                      final likes = _uniqueActivitiesByPost(visibleActivities
+                          .where((doc) =>
+                              (doc.data()['type'] as String? ?? '') == 'like')
+                          .toList(growable: false));
+                      final comments = visibleActivities
+                          .where((doc) =>
+                              (doc.data()['type'] as String? ?? '') ==
+                              'comment')
+                          .toList(growable: false);
+                      return TabBarView(
+                        controller: _tabController,
+                        children: [
+                          likes.isEmpty
+                              ? _buildEmptyState('אין לייקים להצגה עדיין')
+                              : Padding(
+                                  padding: const EdgeInsets.all(14),
+                                  child: GridView.builder(
+                                    itemCount: likes.length,
+                                    gridDelegate:
+                                        const SliverGridDelegateWithFixedCrossAxisCount(
+                                      crossAxisCount: 3,
+                                      crossAxisSpacing: 10,
+                                      mainAxisSpacing: 10,
+                                      childAspectRatio: 0.78,
+                                    ),
+                                    itemBuilder: (context, index) {
+                                      return _buildLikeTile(
+                                          likes[index], likes);
+                                    },
                                   ),
+                                ),
+                          comments.isEmpty
+                              ? _buildEmptyState('אין תגובות להצגה עדיין')
+                              : ListView.separated(
+                                  padding: const EdgeInsets.all(14),
+                                  itemCount: comments.length,
+                                  separatorBuilder: (_, __) =>
+                                      const SizedBox(height: 10),
                                   itemBuilder: (context, index) {
-                                    return _buildLikeTile(likes[index], likes);
+                                    return _buildCommentTile(
+                                        comments[index], comments);
                                   },
                                 ),
-                              ),
-                        comments.isEmpty
-                            ? _buildEmptyState('אין תגובות להצגה עדיין')
-                            : ListView.separated(
-                                padding: const EdgeInsets.all(14),
-                                itemCount: comments.length,
-                                separatorBuilder: (_, __) =>
-                                    const SizedBox(height: 10),
-                                itemBuilder: (context, index) {
-                                  return _buildCommentTile(
-                                      comments[index], comments);
+                          StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                            stream: _meetNowHistoryStream(),
+                            builder: (context, createdSnapshot) {
+                              final createdItems = _createdMeetItems(
+                                createdSnapshot.data?.docs ??
+                                    const <QueryDocumentSnapshot<
+                                        Map<String, dynamic>>>[],
+                              );
+
+                              return StreamBuilder<List<_MeetHistoryPopItem>>(
+                                stream: _joinedMeetNowHistoryStream(),
+                                builder: (context, joinedSnapshot) {
+                                  final joinedItems = joinedSnapshot.data ??
+                                      const <_MeetHistoryPopItem>[];
+
+                                  if (createdItems.isEmpty &&
+                                      joinedItems.isEmpty) {
+                                    return _buildEmptyState(
+                                        'אין פופים להצגה עדיין');
+                                  }
+
+                                  return ListView(
+                                    padding: const EdgeInsets.only(bottom: 18),
+                                    children: [
+                                      _buildMeetNowSection(
+                                        'פופים שיצרתי',
+                                        createdItems,
+                                        editableSection: true,
+                                        showAll: _showAllCreatedPops,
+                                        onToggleShowAll: () {
+                                          setState(() {
+                                            _showAllCreatedPops =
+                                                !_showAllCreatedPops;
+                                          });
+                                        },
+                                      ),
+                                      const SizedBox(height: 14),
+                                      _buildMeetNowSection(
+                                        'פופים שהצטרפתי אליהם',
+                                        joinedItems,
+                                        editableSection: false,
+                                        showAll: _showAllJoinedPops,
+                                        onToggleShowAll: () {
+                                          setState(() {
+                                            _showAllJoinedPops =
+                                                !_showAllJoinedPops;
+                                          });
+                                        },
+                                      ),
+                                    ],
+                                  );
                                 },
-                              ),
-                        StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                          stream: _meetNowHistoryStream(),
-                          builder: (context, createdSnapshot) {
-                            final createdItems = _createdMeetItems(
-                              createdSnapshot.data?.docs ??
-                                  const <QueryDocumentSnapshot<
-                                      Map<String, dynamic>>>[],
-                            );
-
-                            return StreamBuilder<List<_MeetHistoryPopItem>>(
-                              stream: _joinedMeetNowHistoryStream(),
-                              builder: (context, joinedSnapshot) {
-                                final joinedItems = joinedSnapshot.data ??
-                                    const <_MeetHistoryPopItem>[];
-
-                                if (createdItems.isEmpty &&
-                                    joinedItems.isEmpty) {
-                                  return _buildEmptyState(
-                                      'אין פופים להצגה עדיין');
-                                }
-
-                                return ListView(
-                                  padding: const EdgeInsets.only(bottom: 18),
-                                  children: [
-                                    _buildMeetNowSection(
-                                      'פופים שיצרתי',
-                                      createdItems,
-                                      editableSection: true,
-                                      showAll: _showAllCreatedPops,
-                                      onToggleShowAll: () {
-                                        setState(() {
-                                          _showAllCreatedPops =
-                                              !_showAllCreatedPops;
-                                        });
-                                      },
-                                    ),
-                                    const SizedBox(height: 14),
-                                    _buildMeetNowSection(
-                                      'פופים שהצטרפתי אליהם',
-                                      joinedItems,
-                                      editableSection: false,
-                                      showAll: _showAllJoinedPops,
-                                      onToggleShowAll: () {
-                                        setState(() {
-                                          _showAllJoinedPops =
-                                              !_showAllJoinedPops;
-                                        });
-                                      },
-                                    ),
-                                  ],
-                                );
-                              },
-                            );
-                          },
-                        ),
-                      ],
-                    );
-                  },
-                );
-              },
+                              );
+                            },
+                          ),
+                        ],
+                      );
+                    },
+                  );
+                },
               ),
             ),
           ),

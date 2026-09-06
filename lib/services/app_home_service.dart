@@ -68,7 +68,8 @@ bool isUpcomingPublicGroupDateWithinWindow({
   required DateTime windowStart,
   required DateTime windowEndExclusive,
 }) {
-  if (groupDate.isBefore(windowStart) || !groupDate.isBefore(windowEndExclusive)) {
+  if (groupDate.isBefore(windowStart) ||
+      !groupDate.isBefore(windowEndExclusive)) {
     return false;
   }
   return !groupDate.isBefore(now);
@@ -148,7 +149,7 @@ class _MeetNowDistanceRank {
 // backend call failed.
 double _approximateDistanceMeters(GeoPoint a, GeoPoint b) {
   const double earthRadiusMeters = 6371000.0;
-  final radians = math.pi / 180;
+  const radians = math.pi / 180;
   final latDelta = (b.latitude - a.latitude) * radians;
   final lngDelta = (b.longitude - a.longitude) * radians;
   final sinLat = math.sin(latDelta / 2);
@@ -177,6 +178,10 @@ class HomeGroupMemberEntry {
 
 class MeetNowPublishLimitException implements Exception {
   const MeetNowPublishLimitException();
+}
+
+class MeetNowLocationUnavailableException implements Exception {
+  const MeetNowLocationUnavailableException();
 }
 
 class MeetNowStreamTelemetry {
@@ -210,8 +215,8 @@ class AppHomeService {
     PublicUserProfileService? publicUserProfileService,
   })  : _db = firestore ?? FirebaseFirestore.instance,
         _auth = auth ?? FirebaseAuth.instance,
-      _publicUserProfileService =
-        publicUserProfileService ?? PublicUserProfileService();
+        _publicUserProfileService =
+            publicUserProfileService ?? PublicUserProfileService();
 
   final FirebaseFirestore _db;
   final FirebaseAuth _auth;
@@ -265,7 +270,7 @@ class AppHomeService {
   CollectionReference<Map<String, dynamic>> get _meetNowPosts =>
       _db.collection('meet_now_posts');
 
-    DocumentReference<Map<String, dynamic>> _privateLocationRef(String uid) =>
+  DocumentReference<Map<String, dynamic>> _privateLocationRef(String uid) =>
       _users.doc(uid).collection('private').doc('location');
 
   Future<int> meetNowPostsPublishedInLastHour() async {
@@ -550,11 +555,11 @@ class AppHomeService {
           StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>>{};
       final friendProfileSubs = <String,
           StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>>{};
-        final friendPrivateSubs = <String,
+      final friendPrivateSubs = <String,
           StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>>{};
       final friendPresenceSnapshots =
           <String, DocumentSnapshot<Map<String, dynamic>>>{};
-        final friendPrivateSnapshots =
+      final friendPrivateSnapshots =
           <String, DocumentSnapshot<Map<String, dynamic>>>{};
       final friendPublicSnapshots =
           <String, DocumentSnapshot<Map<String, dynamic>>>{};
@@ -607,7 +612,8 @@ class AppHomeService {
           }
 
           if (!friendPrivateSubs.containsKey(friendUid)) {
-            friendPrivateSubs[friendUid] = _users.doc(friendUid).snapshots().listen(
+            friendPrivateSubs[friendUid] =
+                _users.doc(friendUid).snapshots().listen(
               (snapshot) {
                 friendPrivateSnapshots[friendUid] = snapshot;
                 emit();
@@ -642,8 +648,8 @@ class AppHomeService {
 
         final mutualConnections = following.intersection(followers);
         final resolvedFriendIds = explicitFriends.isNotEmpty
-          ? explicitFriends
-          : (mutualConnections.isNotEmpty ? mutualConnections : following);
+            ? explicitFriends
+            : (mutualConnections.isNotEmpty ? mutualConnections : following);
 
         currentFriendIds = resolvedFriendIds.toList(growable: false);
 
@@ -877,8 +883,8 @@ class AppHomeService {
     }
 
     final effectiveCandidateLimit = candidateLimit
-      .clamp(_minimumMeetNowCandidateLimit, _maximumMeetNowCandidateLimit)
-      .toInt();
+        .clamp(_minimumMeetNowCandidateLimit, _maximumMeetNowCandidateLimit)
+        .toInt();
 
     return Stream.multi((controller) {
       DocumentSnapshot<Map<String, dynamic>>? currentUserSnapshot;
@@ -936,7 +942,8 @@ class AppHomeService {
           final profile = await resolveProfile(uid);
           final profileMap = profile?.toMap() ?? <String, dynamic>{};
           final urls = <String>{
-            ..._stringListValue(profileMap, const ['profileImageUrls', 'images']),
+            ..._stringListValue(
+                profileMap, const ['profileImageUrls', 'images']),
             (profile?.profilePictureUrl ?? '').trim(),
           }..remove('');
           return urls.toList(growable: false);
@@ -1030,80 +1037,82 @@ class AppHomeService {
               final groupDoc = await resolveGroupDoc(linkedGroupId);
               final groupData = groupDoc?.data() ?? const <String, dynamic>{};
               if (groupData.isNotEmpty) {
-              final membersCountField =
-                _intValue(groupData, const ['membersCount']);
-              final memberUids = <String>{
-                ...((groupData['membersList'] as List<dynamic>?) ?? const <dynamic>[])
-                  .map((item) => item.toString().trim())
-                  .where((item) => item.isNotEmpty),
-                ...((groupData['members'] as List<dynamic>?) ?? const <dynamic>[])
-                  .map((item) => item.toString().trim())
-                  .where((item) => item.isNotEmpty),
-                ...((groupData['participants'] as List<dynamic>?) ?? const <dynamic>[])
-                  .map((item) => item.toString().trim())
-                  .where((item) => item.isNotEmpty),
-                (groupData['adminUid'] as String? ?? '').trim(),
-              }..remove('');
+                final membersCountField =
+                    _intValue(groupData, const ['membersCount']);
+                final memberUids = <String>{
+                  ...((groupData['membersList'] as List<dynamic>?) ??
+                          const <dynamic>[])
+                      .map((item) => item.toString().trim())
+                      .where((item) => item.isNotEmpty),
+                  ...((groupData['members'] as List<dynamic>?) ??
+                          const <dynamic>[])
+                      .map((item) => item.toString().trim())
+                      .where((item) => item.isNotEmpty),
+                  ...((groupData['participants'] as List<dynamic>?) ??
+                          const <dynamic>[])
+                      .map((item) => item.toString().trim())
+                      .where((item) => item.isNotEmpty),
+                  (groupData['adminUid'] as String? ?? '').trim(),
+                }..remove('');
 
-              linkedGroupMembersCount = membersCountField > 0
-                ? membersCountField
-                : memberUids.length;
-              linkedGroupIsPublic =
-                (groupData['isPublic'] as bool?) ?? linkedGroupIsPublic;
+                linkedGroupMembersCount = membersCountField > 0
+                    ? membersCountField
+                    : memberUids.length;
+                linkedGroupIsPublic =
+                    (groupData['isPublic'] as bool?) ?? linkedGroupIsPublic;
 
-              final topUids = memberUids
-                .where((uid) => uid != authorUid)
-                .take(10)
-                .toList(growable: false);
-              final imageLists =
-                await Future.wait(topUids.map(resolveUserImageUrls));
-              for (final urls in imageLists) {
-                participantImageUrls.addAll(urls);
-              }
+                final topUids = memberUids
+                    .where((uid) => uid != authorUid)
+                    .take(10)
+                    .toList(growable: false);
+                final imageLists =
+                    await Future.wait(topUids.map(resolveUserImageUrls));
+                for (final urls in imageLists) {
+                  participantImageUrls.addAll(urls);
+                }
               }
             }
             return MeetNowPostEntry(
-                id: doc.id,
-                authorUid: authorUid,
-                authorName: _displayName(profile, fallback: 'משתמש'),
-                authorHandle: _handle(profile, fallbackUid: authorUid),
-                authorAvatarUrl: avatarUrl,
-                authorProfileImageUrls:
-                    profileImageUrls.toList(growable: false),
-                authorScore: profile?.score ?? 0,
-                authorLocation: _userLocationFromData(profileMap),
-                authorGeo: null,
-                title: _textValue(data, const ['title']),
-                details: _textValue(data, const ['details', 'description']),
-                category: _textValue(data, const ['category', 'mainCategory']),
-                subCategory: _textValue(data, const ['subCategory']),
-                meetingLocation: _textValue(data,
-                    const ['meetingLocation', 'location', 'meetingRegion']),
-                meetingGeo: null,
-                desiredParticipants: data['desiredParticipants'] is num
-                    ? (data['desiredParticipants'] as num).toInt()
-                    : int.tryParse(
-                        (data['desiredParticipants'] as String? ?? '').trim()),
-                timePreference: _textValue(data, const ['timePreference']),
-                minAge: data['minAge'] is num
-                    ? (data['minAge'] as num).toInt()
-                    : null,
-                maxAge: data['maxAge'] is num
-                    ? (data['maxAge'] as num).toInt()
-                    : null,
-                createdAt:
-                    _dateValue(data, const ['createdAt']) ?? DateTime.now(),
-                linkedGroupId: linkedGroupId,
-                linkedGroupMembersCount: linkedGroupMembersCount,
-                linkedGroupIsPublic: linkedGroupIsPublic,
-                participantProfileImageUrls:
+              id: doc.id,
+              authorUid: authorUid,
+              authorName: _displayName(profile, fallback: 'משתמש'),
+              authorHandle: _handle(profile, fallbackUid: authorUid),
+              authorAvatarUrl: avatarUrl,
+              authorProfileImageUrls: profileImageUrls.toList(growable: false),
+              authorScore: profile?.score ?? 0,
+              authorLocation: _userLocationFromData(profileMap),
+              authorGeo: null,
+              title: _textValue(data, const ['title']),
+              details: _textValue(data, const ['details', 'description']),
+              category: _textValue(data, const ['category', 'mainCategory']),
+              subCategory: _textValue(data, const ['subCategory']),
+              meetingLocation: _textValue(
+                  data, const ['meetingLocation', 'location', 'meetingRegion']),
+              meetingGeo: null,
+              desiredParticipants: data['desiredParticipants'] is num
+                  ? (data['desiredParticipants'] as num).toInt()
+                  : int.tryParse(
+                      (data['desiredParticipants'] as String? ?? '').trim()),
+              timePreference: _textValue(data, const ['timePreference']),
+              minAge: data['minAge'] is num
+                  ? (data['minAge'] as num).toInt()
+                  : null,
+              maxAge: data['maxAge'] is num
+                  ? (data['maxAge'] as num).toInt()
+                  : null,
+              createdAt:
+                  _dateValue(data, const ['createdAt']) ?? DateTime.now(),
+              linkedGroupId: linkedGroupId,
+              linkedGroupMembersCount: linkedGroupMembersCount,
+              linkedGroupIsPublic: linkedGroupIsPublic,
+              participantProfileImageUrls:
                   participantImageUrls.toList(growable: false),
-                distanceMetersFromCurrentUser:
-                  distanceRank.displayDistanceMeters,
-                distanceSortOrder: distanceRank.sortOrder,
+              distanceMetersFromCurrentUser: distanceRank.displayDistanceMeters,
+              distanceSortOrder: distanceRank.sortOrder,
             );
           } catch (error) {
-            if (error is FirebaseException && error.code == 'permission-denied') {
+            if (error is FirebaseException &&
+                error.code == 'permission-denied') {
               if (loggedPermissionDeniedPostIds.add(doc.id)) {
                 debugPrint(
                   '[AppHomeService][streamMeetNowPosts] permission denied for meet post ${doc.id}; showing post without restricted group data.',
@@ -1223,23 +1232,25 @@ class AppHomeService {
         initializedQueryKeys.clear();
         activeQueryKeys.clear();
 
+        const recentFallbackKey = 'recent-active';
+        activeQueryKeys.add(recentFallbackKey);
+        final recentFallbackSub = _meetNowPosts
+            .where('status', isEqualTo: 'active')
+            .orderBy('createdAt', descending: true)
+            .limit(effectiveCandidateLimit)
+            .snapshots()
+            .listen((snapshot) {
+          postDocsByQueryKey[recentFallbackKey] = {
+            for (final doc in snapshot.docs) doc.id: doc,
+          };
+          initializedQueryKeys.add(recentFallbackKey);
+          unawaited(scheduleEmit());
+        }, onError: controller.addError);
+        postSubs.add(recentFallbackSub);
+
         final userGeo = currentUserGeo;
         if (userGeo == null) {
           activeGeoPrecision = -1;
-          const fallbackKey = 'fallback';
-          activeQueryKeys.add(fallbackKey);
-          final fallbackSub = _meetNowPosts
-              .where('status', isEqualTo: 'active')
-              .orderBy('createdAt', descending: true)
-              .snapshots()
-              .listen((snapshot) {
-            postDocsByQueryKey[fallbackKey] = {
-              for (final doc in snapshot.docs) doc.id: doc,
-            };
-            initializedQueryKeys.add(fallbackKey);
-            unawaited(scheduleEmit());
-          }, onError: controller.addError);
-          postSubs.add(fallbackSub);
           return;
         }
 
@@ -1260,22 +1271,22 @@ class AppHomeService {
               .endAt(['$prefix\uf8ff'])
               .snapshots()
               .listen((snapshot) {
-            postDocsByQueryKey[prefix] = {
-              for (final doc in snapshot.docs) doc.id: doc,
-            };
-            initializedQueryKeys.add(prefix);
+                postDocsByQueryKey[prefix] = {
+                  for (final doc in snapshot.docs) doc.id: doc,
+                };
+                initializedQueryKeys.add(prefix);
 
-            if (initializedQueryKeys.length == activeQueryKeys.length &&
-                nearbyPostDocs().length < effectiveCandidateLimit &&
-                activeGeoQueryPrecisionIndex <
-                    _meetNowQueryPrecisions.length - 1) {
-              activeGeoQueryPrecisionIndex += 1;
-              unawaited(resubscribeNearbyPosts());
-              return;
-            }
+                if (initializedQueryKeys.length == activeQueryKeys.length &&
+                    nearbyPostDocs().length < effectiveCandidateLimit &&
+                    activeGeoQueryPrecisionIndex <
+                        _meetNowQueryPrecisions.length - 1) {
+                  activeGeoQueryPrecisionIndex += 1;
+                  unawaited(resubscribeNearbyPosts());
+                  return;
+                }
 
-            unawaited(scheduleEmit());
-          }, onError: controller.addError);
+                unawaited(scheduleEmit());
+              }, onError: controller.addError);
           postSubs.add(sub);
         }
       }
@@ -1308,7 +1319,8 @@ class AppHomeService {
       }, onError: controller.addError);
 
       locationSub = _privateLocationRef(uid).snapshots().listen((snapshot) {
-        currentUserGeo = _geoPointFromData(snapshot.data() ?? <String, dynamic>{});
+        currentUserGeo =
+            _geoPointFromData(snapshot.data() ?? <String, dynamic>{});
         if (currentUserGeo == null) {
           onExactDistanceRefreshStateChanged?.call(false);
         }
@@ -1467,6 +1479,9 @@ class AppHomeService {
     final userGeo = _geoPointFromData(
       locationDoc.data() ?? <String, dynamic>{},
     );
+    if (userGeo == null) {
+      throw const MeetNowLocationUnavailableException();
+    }
     final normalizedDetails = details.trim();
 
     final payload = <String, dynamic>{
@@ -1485,17 +1500,15 @@ class AppHomeService {
       'createdAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
     };
-    if (userGeo != null) {
-      final discoveryGeo = GeoHashUtils.snapToCellCenter(
-        userGeo,
-        precision: meetNowGeoHashPrecision,
-      );
-      payload['discoveryGeo'] = discoveryGeo;
-      payload['geohash'] = GeoHashUtils.encodeGeoPoint(
-        discoveryGeo,
-        precision: meetNowGeoHashPrecision,
-      );
-    }
+    final discoveryGeo = GeoHashUtils.snapToCellCenter(
+      userGeo,
+      precision: meetNowGeoHashPrecision,
+    );
+    payload['discoveryGeo'] = discoveryGeo;
+    payload['geohash'] = GeoHashUtils.encodeGeoPoint(
+      discoveryGeo,
+      precision: meetNowGeoHashPrecision,
+    );
 
     await _meetNowPosts.add(payload);
   }

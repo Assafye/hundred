@@ -545,25 +545,37 @@ class GroupService {
       });
     });
 
-    await _chatService.sendGroupJoinAnnouncement(
-      chatId: groupId,
-      joiningUid: uid,
-    );
+    try {
+      await _chatService.sendGroupJoinAnnouncement(
+        chatId: groupId,
+        joiningUid: uid,
+      );
+    } catch (error) {
+      if (kDebugMode) {
+        debugPrint('Group join announcement skipped after approval: $error');
+      }
+    }
 
-    if (adminUid.isNotEmpty && uid.isNotEmpty && adminUid != uid) {
-      if (originType.trim() == 'pop') {
-        await _notificationService.sendPopJoinNotification(
-          recipientUid: adminUid,
-          groupId: groupId,
-          groupName: groupName,
-          joiningUid: uid,
-        );
-      } else {
-        await _notifyGroupJoinParticipants(
-          groupId: groupId,
-          groupName: groupName,
-          joiningUid: uid,
-        );
+    try {
+      if (adminUid.isNotEmpty && uid.isNotEmpty && adminUid != uid) {
+        if (originType.trim() == 'pop') {
+          await _notificationService.sendPopJoinNotification(
+            recipientUid: adminUid,
+            groupId: groupId,
+            groupName: groupName,
+            joiningUid: uid,
+          );
+        } else {
+          await _notifyGroupJoinParticipants(
+            groupId: groupId,
+            groupName: groupName,
+            joiningUid: uid,
+          );
+        }
+      }
+    } catch (error) {
+      if (kDebugMode) {
+        debugPrint('Group join notification skipped after approval: $error');
       }
     }
   }
@@ -929,23 +941,24 @@ class GroupService {
     String? imageUrl,
   }) async {
     final senderId = _requireUid();
-    final senderProfile = await _db.collection('users_public').doc(senderId).get();
+    final senderProfile =
+        await _db.collection('users_public').doc(senderId).get();
     final privateProfile = senderProfile.exists
         ? senderProfile.data() ?? const <String, dynamic>{}
         : (await _db.collection('users').doc(senderId).get()).data() ??
             const <String, dynamic>{};
     final senderName = ((privateProfile['displayName'] as String?) ??
-                (privateProfile['username'] as String?) ??
-                (privateProfile['name'] as String?) ??
-                '')
-            .toString()
-            .trim();
+            (privateProfile['username'] as String?) ??
+            (privateProfile['name'] as String?) ??
+            '')
+        .toString()
+        .trim();
     final senderAvatarUrl = ((privateProfile['profilePictureUrl'] as String?) ??
-                (privateProfile['profileImageUrl'] as String?) ??
-                (privateProfile['avatarUrl'] as String?) ??
-                '')
-            .toString()
-            .trim();
+            (privateProfile['profileImageUrl'] as String?) ??
+            (privateProfile['avatarUrl'] as String?) ??
+            '')
+        .toString()
+        .trim();
 
     final messageRef =
         _db.collection('groups').doc(groupId).collection('messages');

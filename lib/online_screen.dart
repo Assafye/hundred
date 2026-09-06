@@ -47,8 +47,7 @@ class _OnlineScreenState extends State<OnlineScreen>
   static const int _initialMeetNowVisibleCount = 60;
   static const int _meetNowVisibleCountStep = 30;
   static const double _meetNowLoadMoreThreshold = 320;
-  static const Duration _meetNowLoadMoreCooldown =
-      Duration(milliseconds: 320);
+  static const Duration _meetNowLoadMoreCooldown = Duration(milliseconds: 320);
 
   final AppHomeService _homeService = AppHomeService();
   final LocationService _locationService = LocationService();
@@ -78,7 +77,7 @@ class _OnlineScreenState extends State<OnlineScreen>
   final Set<String> _groupMemberAvatarLoadInFlight = <String>{};
   final Map<String, Stream<DocumentSnapshot<Map<String, dynamic>>>>
       _groupPrivacyStreamCache =
-          <String, Stream<DocumentSnapshot<Map<String, dynamic>>>>{};
+      <String, Stream<DocumentSnapshot<Map<String, dynamic>>>>{};
   String _lastUpcomingPrefetchKey = '';
 
   int? _meetFilterMinScore;
@@ -101,8 +100,7 @@ class _OnlineScreenState extends State<OnlineScreen>
   int _latestMeetNowFilteredCount = 0;
   int? _lastMeetNowQueryTargetCount;
   int _meetNowStreamGeneration = 0;
-  DateTime _lastMeetNowLoadMoreAt =
-      DateTime.fromMillisecondsSinceEpoch(0);
+  DateTime _lastMeetNowLoadMoreAt = DateTime.fromMillisecondsSinceEpoch(0);
   DateTime? _meetNowQueryStartedAt;
   bool _hasLoggedMeetNowFirstPaint = false;
   int _droppedFrameEvents = 0;
@@ -166,8 +164,7 @@ class _OnlineScreenState extends State<OnlineScreen>
     super.initState();
     KeyboardDismissController.suspend();
     _sectionRefreshTick = ValueNotifier<int>(0);
-    _mainScrollController = ScrollController()
-      ..addListener(_handleMainScroll);
+    _mainScrollController = ScrollController()..addListener(_handleMainScroll);
     _spaceUsersController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 14),
@@ -183,7 +180,7 @@ class _OnlineScreenState extends State<OnlineScreen>
     _upcomingGroupsStream =
         _homeService.streamUpcomingPublicGroups(withinDays: 7);
     _reportedMeetNowPostIdsStream =
-      _reportService.streamReportedMeetNowPostIds();
+        _reportService.streamReportedMeetNowPostIds();
     _configureMeetNowPostsStream();
     WidgetsBinding.instance.addTimingsCallback(_onFrameTimings);
     _forceOnlineRefreshTimer = Timer.periodic(_meetNowRefreshInterval, (_) {
@@ -223,7 +220,11 @@ class _OnlineScreenState extends State<OnlineScreen>
 
   bool _tapHitsEditable(PointerDownEvent event) {
     final hitTestResult = HitTestResult();
-    GestureBinding.instance.hitTest(hitTestResult, event.position);
+    GestureBinding.instance.hitTestInView(
+      hitTestResult,
+      event.position,
+      event.viewId,
+    );
     for (final entry in hitTestResult.path) {
       if (entry.target is RenderEditable) {
         return true;
@@ -1819,14 +1820,16 @@ class _OnlineScreenState extends State<OnlineScreen>
   }
 
   Future<bool> _hasLocationAccessForMeetNow() async {
-    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
+    var permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+    if (permission != LocationPermission.always &&
+        permission != LocationPermission.whileInUse) {
       return false;
     }
 
-    final permission = await Geolocator.checkPermission();
-    return permission == LocationPermission.always ||
-        permission == LocationPermission.whileInUse;
+    return Geolocator.isLocationServiceEnabled();
   }
 
   Future<void> _showMeetNowLocationAccessDialog() async {
@@ -1980,343 +1983,349 @@ class _OnlineScreenState extends State<OnlineScreen>
                 behavior: HitTestBehavior.translucent,
                 onPointerDown: _dismissKeyboardOnBackgroundTap,
                 child: Container(
-                constraints: BoxConstraints(
-                  maxHeight: MediaQuery.of(sheetContext).size.height * 0.75,
-                ),
-                margin: const EdgeInsets.fromLTRB(14, 6, 14, 14),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(28),
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF53C1F9), Color(0xFF9E7CFF)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
+                  constraints: BoxConstraints(
+                    maxHeight: MediaQuery.of(sheetContext).size.height * 0.75,
                   ),
-                ),
-                padding: const EdgeInsets.all(1.6),
-                child: Container(
+                  margin: const EdgeInsets.fromLTRB(14, 6, 14, 14),
                   decoration: BoxDecoration(
-                    color: isLight ? Colors.white : const Color(0xFF101826),
-                    borderRadius: BorderRadius.circular(26),
-                  ),
-                  child: Padding(
-                    padding: EdgeInsets.fromLTRB(
-                      16,
-                      16,
-                      16,
-                      MediaQuery.of(sheetContext).viewInsets.bottom + 16,
+                    borderRadius: BorderRadius.circular(28),
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF53C1F9), Color(0xFF9E7CFF)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Expanded(
-                          child: SingleChildScrollView(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                Text(
-                                  'בואו נעשה משהו!',
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                    color:
-                                        isLight ? Colors.black : Colors.white,
-                                    fontSize: 21,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                                const SizedBox(height: 14),
-                                TextField(
-                                  controller: _meetTitleController,
-                                  onTapOutside: (_) {},
-                                  maxLength: 36,
-                                  textAlign: TextAlign.right,
-                                  style: TextStyle(
-                                    color:
-                                        isLight ? Colors.black : Colors.white,
-                                  ),
-                                  decoration: InputDecoration(
-                                    hintText: 'מה בא לך לעשות? (עד 36 תווים)',
-                                    hintStyle: TextStyle(
-                                      color: isLight
-                                          ? Colors.black54
-                                          : Colors.white70,
-                                    ),
-                                    counterStyle: TextStyle(
-                                      color: isLight
-                                          ? Colors.black45
-                                          : Colors.white54,
-                                    ),
-                                    filled: true,
-                                    fillColor: Colors.transparent,
-                                    contentPadding: const EdgeInsets.symmetric(
-                                      horizontal: 14,
-                                      vertical: 13,
-                                    ),
-                                    enabledBorder: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(18),
-                                      borderSide: BorderSide(
-                                        color: (isLight
-                                                ? const Color(0xFF8FB7FF)
-                                                : const Color(0xFF46D3FF))
-                                            .withValues(alpha: 0.55),
-                                        width: 1.1,
-                                      ),
-                                    ),
-                                    focusedBorder: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(18),
-                                      borderSide: BorderSide(
-                                        color: (isLight
-                                                ? const Color(0xFF7A9BFF)
-                                                : const Color(0xFF8DE8FF))
-                                            .withValues(alpha: 0.95),
-                                        width: 1.35,
-                                      ),
+                  ),
+                  padding: const EdgeInsets.all(1.6),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: isLight ? Colors.white : const Color(0xFF101826),
+                      borderRadius: BorderRadius.circular(26),
+                    ),
+                    child: Padding(
+                      padding: EdgeInsets.fromLTRB(
+                        16,
+                        16,
+                        16,
+                        MediaQuery.of(sheetContext).viewInsets.bottom + 16,
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Expanded(
+                            child: SingleChildScrollView(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  Text(
+                                    'בואו נעשה משהו!',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      color:
+                                          isLight ? Colors.black : Colors.white,
+                                      fontSize: 21,
+                                      fontWeight: FontWeight.w800,
                                     ),
                                   ),
-                                ),
-                                const SizedBox(height: 10),
-                                TextField(
-                                  controller: _meetDetailsController,
-                                  onTapOutside: (_) {},
-                                  maxLines: 3,
-                                  textAlign: TextAlign.right,
-                                  style: TextStyle(
-                                    color:
-                                        isLight ? Colors.black : Colors.white,
-                                  ),
-                                  decoration: InputDecoration(
-                                    hintText: 'הוסף פרטים שיעזרו לאחרים להצטרף',
-                                    hintStyle: TextStyle(
-                                      color: isLight
-                                          ? Colors.black54
-                                          : Colors.white70,
-                                    ),
-                                    filled: true,
-                                    fillColor: Colors.transparent,
-                                    contentPadding: const EdgeInsets.symmetric(
-                                      horizontal: 14,
-                                      vertical: 13,
-                                    ),
-                                    enabledBorder: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(18),
-                                      borderSide: BorderSide(
-                                        color: (isLight
-                                                ? const Color(0xFF8FB7FF)
-                                                : const Color(0xFF46D3FF))
-                                            .withValues(alpha: 0.55),
-                                        width: 1.1,
-                                      ),
-                                    ),
-                                    focusedBorder: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(18),
-                                      borderSide: BorderSide(
-                                        color: (isLight
-                                                ? const Color(0xFF7A9BFF)
-                                                : const Color(0xFF8DE8FF))
-                                            .withValues(alpha: 0.95),
-                                        width: 1.35,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: 10),
-                                _buildMeetParticipantsSelector(
-                                  isLight: isLight,
-                                  selected: desiredParticipants,
-                                  onSelect: (value) {
-                                    setSheetState(() {
-                                      desiredParticipants = value;
-                                    });
-                                  },
-                                ),
-                                const SizedBox(height: 12),
-                                _buildMeetFilterPickerTile(
-                                  icon: Icons.category_rounded,
-                                  title: 'קטגוריה',
-                                  value: category ?? '',
-                                  hint: 'ללא קטגוריה',
-                                  onTap: () async {
-                                    final selected =
-                                        await _showMeetFilterChoiceSheet(
-                                      title: 'בחירת קטגוריה',
-                                      options: appMainCategories,
-                                      selectedValue: category,
-                                      includeEmptyOption: true,
-                                      emptyOptionLabel: 'ללא קטגוריה',
-                                      useCategoryIcons: true,
-                                    );
-                                    if (!context.mounted) return;
-                                    setSheetState(() {
-                                      category = selected;
-                                      final subCategories =
-                                          appSubCategories(selected);
-                                      if (!subCategories
-                                          .contains(subCategory)) {
-                                        subCategory = null;
-                                      }
-                                    });
-                                  },
-                                ),
-                                const SizedBox(height: 12),
-                                _buildMeetFilterPickerTile(
-                                  icon: Icons.grid_view_rounded,
-                                  title: 'תת קטגוריה',
-                                  value: subCategory ?? '',
-                                  hint: category == null
-                                      ? 'בחר קטגוריה קודם'
-                                      : 'ללא תת קטגוריה',
-                                  onTap: () async {
-                                    if (category == null ||
-                                        category!.trim().isEmpty) {
-                                      if (!mounted) return;
-                                      ScaffoldMessenger.of(this.context)
-                                          .showSnackBar(
-                                        const SnackBar(
-                                          content: Text(
-                                              'בחר קטגוריה לפני תת קטגוריה'),
-                                        ),
-                                      );
-                                      return;
-                                    }
-
-                                    final selected =
-                                        await _showMeetFilterChoiceSheet(
-                                      title: 'בחירת תת קטגוריה',
-                                      options: subCategoryOptions,
-                                      selectedValue: subCategory,
-                                      includeEmptyOption: true,
-                                      emptyOptionLabel: 'ללא תת קטגוריה',
-                                      useCategoryIcons: false,
-                                    );
-                                    if (!context.mounted) return;
-                                    setSheetState(() {
-                                      subCategory = selected;
-                                    });
-                                  },
-                                ),
-                                const SizedBox(height: 12),
-                                _buildMeetFilterPickerTile(
-                                  icon: Icons.schedule_rounded,
-                                  title: 'זמן למפגש',
-                                  value: timePreference,
-                                  hint: 'בחר זמן',
-                                  onTap: () async {
-                                    final selected =
-                                        await _showMeetTimePreferenceClockSheet(
-                                      selectedValue: timePreference,
-                                    );
-                                    if (!context.mounted || selected == null) {
-                                      return;
-                                    }
-                                    setSheetState(() {
-                                      timePreference = selected;
-                                    });
-                                  },
-                                ),
-                                const SizedBox(height: 10),
-                                SwitchListTile.adaptive(
-                                  value: useAgeRange,
-                                  activeThumbColor: _purple,
-                                  contentPadding: EdgeInsets.zero,
-                                  title: Text(
-                                    'להוסיף טווח גילאים',
+                                  const SizedBox(height: 14),
+                                  TextField(
+                                    controller: _meetTitleController,
+                                    onTapOutside: (_) {},
+                                    maxLength: 36,
+                                    textAlign: TextAlign.right,
                                     style: TextStyle(
                                       color:
                                           isLight ? Colors.black : Colors.white,
                                     ),
+                                    decoration: InputDecoration(
+                                      hintText: 'מה בא לך לעשות? (עד 36 תווים)',
+                                      hintStyle: TextStyle(
+                                        color: isLight
+                                            ? Colors.black54
+                                            : Colors.white70,
+                                      ),
+                                      counterStyle: TextStyle(
+                                        color: isLight
+                                            ? Colors.black45
+                                            : Colors.white54,
+                                      ),
+                                      filled: true,
+                                      fillColor: Colors.transparent,
+                                      contentPadding:
+                                          const EdgeInsets.symmetric(
+                                        horizontal: 14,
+                                        vertical: 13,
+                                      ),
+                                      enabledBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(18),
+                                        borderSide: BorderSide(
+                                          color: (isLight
+                                                  ? const Color(0xFF8FB7FF)
+                                                  : const Color(0xFF46D3FF))
+                                              .withValues(alpha: 0.55),
+                                          width: 1.1,
+                                        ),
+                                      ),
+                                      focusedBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(18),
+                                        borderSide: BorderSide(
+                                          color: (isLight
+                                                  ? const Color(0xFF7A9BFF)
+                                                  : const Color(0xFF8DE8FF))
+                                              .withValues(alpha: 0.95),
+                                          width: 1.35,
+                                        ),
+                                      ),
+                                    ),
                                   ),
-                                  onChanged: (value) {
-                                    setSheetState(() {
-                                      useAgeRange = value;
-                                    });
-                                  },
-                                ),
-                                if (useAgeRange) ...[
-                                  _buildMeetComposerAgeRange(
+                                  const SizedBox(height: 10),
+                                  TextField(
+                                    controller: _meetDetailsController,
+                                    onTapOutside: (_) {},
+                                    maxLines: 3,
+                                    textAlign: TextAlign.right,
+                                    style: TextStyle(
+                                      color:
+                                          isLight ? Colors.black : Colors.white,
+                                    ),
+                                    decoration: InputDecoration(
+                                      hintText:
+                                          'הוסף פרטים שיעזרו לאחרים להצטרף',
+                                      hintStyle: TextStyle(
+                                        color: isLight
+                                            ? Colors.black54
+                                            : Colors.white70,
+                                      ),
+                                      filled: true,
+                                      fillColor: Colors.transparent,
+                                      contentPadding:
+                                          const EdgeInsets.symmetric(
+                                        horizontal: 14,
+                                        vertical: 13,
+                                      ),
+                                      enabledBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(18),
+                                        borderSide: BorderSide(
+                                          color: (isLight
+                                                  ? const Color(0xFF8FB7FF)
+                                                  : const Color(0xFF46D3FF))
+                                              .withValues(alpha: 0.55),
+                                          width: 1.1,
+                                        ),
+                                      ),
+                                      focusedBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(18),
+                                        borderSide: BorderSide(
+                                          color: (isLight
+                                                  ? const Color(0xFF7A9BFF)
+                                                  : const Color(0xFF8DE8FF))
+                                              .withValues(alpha: 0.95),
+                                          width: 1.35,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 10),
+                                  _buildMeetParticipantsSelector(
                                     isLight: isLight,
-                                    ageRange: ageRange,
-                                    onChanged: (value) {
+                                    selected: desiredParticipants,
+                                    onSelect: (value) {
                                       setSheetState(() {
-                                        ageRange = value;
+                                        desiredParticipants = value;
                                       });
                                     },
                                   ),
+                                  const SizedBox(height: 12),
+                                  _buildMeetFilterPickerTile(
+                                    icon: Icons.category_rounded,
+                                    title: 'קטגוריה',
+                                    value: category ?? '',
+                                    hint: 'ללא קטגוריה',
+                                    onTap: () async {
+                                      final selected =
+                                          await _showMeetFilterChoiceSheet(
+                                        title: 'בחירת קטגוריה',
+                                        options: appMainCategories,
+                                        selectedValue: category,
+                                        includeEmptyOption: true,
+                                        emptyOptionLabel: 'ללא קטגוריה',
+                                        useCategoryIcons: true,
+                                      );
+                                      if (!context.mounted) return;
+                                      setSheetState(() {
+                                        category = selected;
+                                        final subCategories =
+                                            appSubCategories(selected);
+                                        if (!subCategories
+                                            .contains(subCategory)) {
+                                          subCategory = null;
+                                        }
+                                      });
+                                    },
+                                  ),
+                                  const SizedBox(height: 12),
+                                  _buildMeetFilterPickerTile(
+                                    icon: Icons.grid_view_rounded,
+                                    title: 'תת קטגוריה',
+                                    value: subCategory ?? '',
+                                    hint: category == null
+                                        ? 'בחר קטגוריה קודם'
+                                        : 'ללא תת קטגוריה',
+                                    onTap: () async {
+                                      if (category == null ||
+                                          category!.trim().isEmpty) {
+                                        if (!mounted) return;
+                                        ScaffoldMessenger.of(this.context)
+                                            .showSnackBar(
+                                          const SnackBar(
+                                            content: Text(
+                                                'בחר קטגוריה לפני תת קטגוריה'),
+                                          ),
+                                        );
+                                        return;
+                                      }
+
+                                      final selected =
+                                          await _showMeetFilterChoiceSheet(
+                                        title: 'בחירת תת קטגוריה',
+                                        options: subCategoryOptions,
+                                        selectedValue: subCategory,
+                                        includeEmptyOption: true,
+                                        emptyOptionLabel: 'ללא תת קטגוריה',
+                                        useCategoryIcons: false,
+                                      );
+                                      if (!context.mounted) return;
+                                      setSheetState(() {
+                                        subCategory = selected;
+                                      });
+                                    },
+                                  ),
+                                  const SizedBox(height: 12),
+                                  _buildMeetFilterPickerTile(
+                                    icon: Icons.schedule_rounded,
+                                    title: 'זמן למפגש',
+                                    value: timePreference,
+                                    hint: 'בחר זמן',
+                                    onTap: () async {
+                                      final selected =
+                                          await _showMeetTimePreferenceClockSheet(
+                                        selectedValue: timePreference,
+                                      );
+                                      if (!context.mounted ||
+                                          selected == null) {
+                                        return;
+                                      }
+                                      setSheetState(() {
+                                        timePreference = selected;
+                                      });
+                                    },
+                                  ),
+                                  const SizedBox(height: 10),
+                                  SwitchListTile.adaptive(
+                                    value: useAgeRange,
+                                    activeThumbColor: _purple,
+                                    contentPadding: EdgeInsets.zero,
+                                    title: Text(
+                                      'להוסיף טווח גילאים',
+                                      style: TextStyle(
+                                        color: isLight
+                                            ? Colors.black
+                                            : Colors.white,
+                                      ),
+                                    ),
+                                    onChanged: (value) {
+                                      setSheetState(() {
+                                        useAgeRange = value;
+                                      });
+                                    },
+                                  ),
+                                  if (useAgeRange) ...[
+                                    _buildMeetComposerAgeRange(
+                                      isLight: isLight,
+                                      ageRange: ageRange,
+                                      onChanged: (value) {
+                                        setSheetState(() {
+                                          ageRange = value;
+                                        });
+                                      },
+                                    ),
+                                  ],
+                                  const SizedBox(height: 10),
                                 ],
-                                const SizedBox(height: 10),
-                              ],
+                              ),
                             ),
                           ),
-                        ),
-                        const SizedBox(height: 10),
-                        ElevatedButton(
-                          onPressed: () async {
-                            final messenger =
-                                ScaffoldMessenger.of(this.context);
-                            final title = _meetTitleController.text.trim();
-                            if (title.isEmpty) {
-                              _showMeetComposerCenterNotice(
-                                'חייבים כותרת לפופ',
-                              );
-                              return;
-                            }
-                            FocusScope.of(sheetContext).unfocus();
-                            try {
-                              // Guarantee a fresh, persisted location before
-                              // creating the post so it always gets a geohash.
+                          const SizedBox(height: 10),
+                          ElevatedButton(
+                            onPressed: () async {
+                              final messenger =
+                                  ScaffoldMessenger.of(this.context);
+                              final title = _meetTitleController.text.trim();
+                              if (title.isEmpty) {
+                                _showMeetComposerCenterNotice(
+                                  'חייבים כותרת לפופ',
+                                );
+                                return;
+                              }
+                              FocusScope.of(sheetContext).unfocus();
                               try {
-                                await _locationService.syncCurrentLocation(
-                                    force: true);
-                              } catch (_) {
-                                // Best-effort; createMeetNowPost still works
-                                // with whatever location doc already exists.
+                                // Guarantee a fresh, persisted location before
+                                // creating the post so it always gets a geohash.
+                                try {
+                                  await _locationService.syncCurrentLocation(
+                                      force: true);
+                                } catch (_) {
+                                  // Best-effort; createMeetNowPost still works
+                                  // with whatever location doc already exists.
+                                }
+                                await _homeService.createMeetNowPost(
+                                  title: title,
+                                  details: _meetDetailsController.text.trim(),
+                                  category: category ?? '',
+                                  subCategory: subCategory ?? '',
+                                  meetingLocation: '',
+                                  desiredParticipants: desiredParticipants,
+                                  timePreference: timePreference,
+                                  minAge: useAgeRange
+                                      ? ageRange.start.round()
+                                      : null,
+                                  maxAge:
+                                      useAgeRange ? ageRange.end.round() : null,
+                                );
+                                if (!mounted) {
+                                  return;
+                                }
+                                if (!sheetContext.mounted) {
+                                  return;
+                                }
+                                Navigator.of(sheetContext).pop();
+                                messenger.showSnackBar(
+                                  const SnackBar(
+                                      content: Text('הפרסום עלה בהצלחה')),
+                                );
+                              } catch (error) {
+                                if (!mounted) {
+                                  return;
+                                }
+                                messenger.showSnackBar(
+                                  SnackBar(
+                                      content: Text(
+                                          _friendlyPublishErrorMessage(error))),
+                                );
                               }
-                              await _homeService.createMeetNowPost(
-                                title: title,
-                                details: _meetDetailsController.text.trim(),
-                                category: category ?? '',
-                                subCategory: subCategory ?? '',
-                                meetingLocation: '',
-                                desiredParticipants: desiredParticipants,
-                                timePreference: timePreference,
-                                minAge:
-                                    useAgeRange ? ageRange.start.round() : null,
-                                maxAge:
-                                    useAgeRange ? ageRange.end.round() : null,
-                              );
-                              if (!mounted) {
-                                return;
-                              }
-                              if (!sheetContext.mounted) {
-                                return;
-                              }
-                              Navigator.of(sheetContext).pop();
-                              messenger.showSnackBar(
-                                const SnackBar(
-                                    content: Text('הפרסום עלה בהצלחה')),
-                              );
-                            } catch (error) {
-                              if (!mounted) {
-                                return;
-                              }
-                              messenger.showSnackBar(
-                                SnackBar(
-                                    content: Text(
-                                        _friendlyPublishErrorMessage(error))),
-                              );
-                            }
-                          },
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: _purple,
-                            foregroundColor:
-                                isLight ? Colors.black : Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: _purple,
+                              foregroundColor:
+                                  isLight ? Colors.black : Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                            ),
+                            child: const Text('פרסם עכשיו'),
                           ),
-                          child: const Text('פרסם עכשיו'),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ),
-              ),
               ),
             );
           },
@@ -2522,6 +2531,9 @@ class _OnlineScreenState extends State<OnlineScreen>
   String _friendlyPublishErrorMessage(Object error) {
     if (error is MeetNowPublishLimitException) {
       return 'אפשר לפרסם עד 2 פופים בשעה. בינתיים שווה להציץ בפופים של משתמשים אחרים.';
+    }
+    if (error is MeetNowLocationUnavailableException) {
+      return 'לא הצלחנו לקבל מיקום לפרסום הפופ. ודא שהמיקום פעיל ונסה שוב.';
     }
     if (error is FirebaseException && error.code == 'permission-denied') {
       return 'אין הרשאה לפרסם כרגע. אם הבעיה ממשיכה, נסה שוב אחרי התחברות מחדש.';
@@ -3171,7 +3183,8 @@ class _OnlineScreenState extends State<OnlineScreen>
                         Icons.access_time_rounded,
                         _formatRelativeTime(entry.createdAt),
                       ),
-                      _infoPill(Icons.stars_rounded, '${entry.authorScore} נקודות'),
+                      _infoPill(
+                          Icons.stars_rounded, '${entry.authorScore} נקודות'),
                       if (entry.linkedGroupMembersCount > 0)
                         _infoPill(Icons.people_alt_rounded,
                             '${entry.linkedGroupMembersCount} חברים'),
@@ -3256,7 +3269,8 @@ class _OnlineScreenState extends State<OnlineScreen>
                           }
                           Navigator.of(dialogContext).pop();
                           messenger.showSnackBar(
-                            const SnackBar(content: Text('הצטרפת להצעה בהצלחה')),
+                            const SnackBar(
+                                content: Text('הצטרפת להצעה בהצלחה')),
                           );
                         } catch (error) {
                           if (!mounted) {
@@ -3299,7 +3313,8 @@ class _OnlineScreenState extends State<OnlineScreen>
                         final status = statusSnapshot.data;
                         final isPending = status == 'pending';
                         final isApproved = status == 'approved';
-                        final canJoinNow = !isJoinClosed && !isPending && !isApproved;
+                        final canJoinNow =
+                            !isJoinClosed && !isPending && !isApproved;
 
                         return ElevatedButton(
                           onPressed: isApproved
@@ -3315,11 +3330,13 @@ class _OnlineScreenState extends State<OnlineScreen>
                                   : (canJoinNow
                                       ? () async {
                                           final messenger =
-                                            ScaffoldMessenger.of(dialogContext);
+                                              ScaffoldMessenger.of(
+                                                  dialogContext);
                                           try {
                                             await _groupService
                                                 .joinGroup(entry.linkedGroupId);
-                                            await _homeService.registerMeetNowJoin(
+                                            await _homeService
+                                                .registerMeetNowJoin(
                                               entry: entry,
                                               groupId: entry.linkedGroupId,
                                             );
@@ -4202,8 +4219,7 @@ class _OnlineScreenState extends State<OnlineScreen>
             ),
             const Spacer(),
             IconButton(
-              onPressed:
-                  _isMeetNowRefreshing ? null : _refreshMeetNowPosts,
+              onPressed: _isMeetNowRefreshing ? null : _refreshMeetNowPosts,
               tooltip: 'רענון פופים',
               icon: _isMeetNowRefreshing
                   ? const SizedBox(
@@ -4409,214 +4425,244 @@ class _OnlineScreenState extends State<OnlineScreen>
                 return ValueListenableBuilder<int>(
                   valueListenable: _sectionRefreshTick,
                   builder: (context, _, __) {
-                final entries = _applyMeetFilters(visibleEntries);
-                _latestMeetNowFilteredCount = entries.length;
-                final pagedEntries = entries
-                    .take(_visibleMeetNowPostCount)
-                    .toList(growable: false);
-                _reportMeetNowFirstPaintIfNeeded(pagedEntries.length);
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    if (isSoftLoading)
-                      const Padding(
-                        padding: EdgeInsets.fromLTRB(16, 0, 16, 10),
-                        child: LinearProgressIndicator(minHeight: 2),
-                      ),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
-                      child: Directionality(
-                        textDirection: TextDirection.rtl,
-                        child: GridView.builder(
-                          shrinkWrap: true,
-                          physics: const NeverScrollableScrollPhysics(),
-                          itemCount: pagedEntries.length + 1,
-                          gridDelegate:
-                              const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 3,
-                            crossAxisSpacing: 10,
-                            mainAxisSpacing: 10,
-                            childAspectRatio: 0.58,
+                    final entries = _applyMeetFilters(visibleEntries);
+                    _latestMeetNowFilteredCount = entries.length;
+                    final pagedEntries = entries
+                        .take(_visibleMeetNowPostCount)
+                        .toList(growable: false);
+                    _reportMeetNowFirstPaintIfNeeded(pagedEntries.length);
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        if (isSoftLoading)
+                          const Padding(
+                            padding: EdgeInsets.fromLTRB(16, 0, 16, 10),
+                            child: LinearProgressIndicator(minHeight: 2),
                           ),
-                          itemBuilder: (context, index) {
-                        if (index == 0) {
-                          return _buildStaticDiscoverPopCard();
-                        }
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
+                          child: Directionality(
+                            textDirection: TextDirection.rtl,
+                            child: GridView.builder(
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              itemCount: pagedEntries.length + 1,
+                              gridDelegate:
+                                  const SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: 3,
+                                crossAxisSpacing: 10,
+                                mainAxisSpacing: 10,
+                                childAspectRatio: 0.58,
+                              ),
+                              itemBuilder: (context, index) {
+                                if (index == 0) {
+                                  return _buildStaticDiscoverPopCard();
+                                }
 
-                        final entry = pagedEntries[index - 1];
-                        final card = Container(
-                          decoration: BoxDecoration(
-                            color: isLight ? Colors.white : null,
-                            gradient: isLight
-                                ? null
-                                : LinearGradient(
-                                    colors: [
-                                      const Color(0xFF14233A)
-                                          .withValues(alpha: 0.96),
-                                      const Color(0xFF312357)
-                                          .withValues(alpha: 0.96),
-                                    ],
-                                    begin: Alignment.topRight,
-                                    end: Alignment.bottomLeft,
+                                final entry = pagedEntries[index - 1];
+                                final card = Container(
+                                  decoration: BoxDecoration(
+                                    color: isLight ? Colors.white : null,
+                                    gradient: isLight
+                                        ? null
+                                        : LinearGradient(
+                                            colors: [
+                                              const Color(0xFF14233A)
+                                                  .withValues(alpha: 0.96),
+                                              const Color(0xFF312357)
+                                                  .withValues(alpha: 0.96),
+                                            ],
+                                            begin: Alignment.topRight,
+                                            end: Alignment.bottomLeft,
+                                          ),
+                                    borderRadius: BorderRadius.circular(20),
+                                    border: Border.all(
+                                      color: isLight
+                                          ? const Color(0xFFA9C3FF)
+                                          : _cyan.withValues(alpha: 0.18),
+                                    ),
                                   ),
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(
-                              color: isLight
-                                  ? const Color(0xFFA9C3FF)
-                                  : _cyan.withValues(alpha: 0.18),
+                                  padding: const EdgeInsets.all(10),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
+                                    children: [
+                                      Expanded(
+                                        child: Stack(
+                                          children: [
+                                            Positioned.fill(
+                                              child: ClipRRect(
+                                                borderRadius:
+                                                    BorderRadius.circular(16),
+                                                child: Container(
+                                                  color: isLight
+                                                      ? const Color(0xFFEFF5FF)
+                                                      : const Color(0xFF0D1524),
+                                                  child: entry.authorAvatarUrl
+                                                          .isNotEmpty
+                                                      ? Image.network(
+                                                          entry.authorAvatarUrl,
+                                                          fit: BoxFit.cover,
+                                                          errorBuilder:
+                                                              (_, __, ___) =>
+                                                                  Icon(
+                                                            Icons
+                                                                .person_outline_rounded,
+                                                            color: isLight
+                                                                ? Colors.black45
+                                                                : Colors
+                                                                    .white54,
+                                                            size: 30,
+                                                          ),
+                                                        )
+                                                      : Icon(
+                                                          Icons
+                                                              .person_outline_rounded,
+                                                          color: isLight
+                                                              ? Colors.black45
+                                                              : Colors.white54,
+                                                          size: 30,
+                                                        ),
+                                                ),
+                                              ),
+                                            ),
+                                            Positioned(
+                                              top: 8,
+                                              right: 8,
+                                              child: () {
+                                                final count = math.max(
+                                                  1,
+                                                  entry.linkedGroupMembersCount,
+                                                );
+                                                final countLabel = count == 1
+                                                    ? '1 חבר'
+                                                    : '$count חברים';
+                                                return Container(
+                                                  padding: const EdgeInsets
+                                                      .symmetric(
+                                                    horizontal: 8,
+                                                    vertical: 5,
+                                                  ),
+                                                  decoration: BoxDecoration(
+                                                    color: isLight
+                                                        ? Colors.white
+                                                            .withValues(
+                                                                alpha: 0.9)
+                                                        : const Color(
+                                                            0xCC111A28),
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                            999),
+                                                    border: Border.all(
+                                                      color: _cyan.withValues(
+                                                          alpha: 0.45),
+                                                    ),
+                                                  ),
+                                                  child: Text(
+                                                    countLabel,
+                                                    style: TextStyle(
+                                                      color: isLight
+                                                          ? Colors.black
+                                                          : Colors.white,
+                                                      fontSize: 10,
+                                                      fontWeight:
+                                                          FontWeight.w800,
+                                                    ),
+                                                  ),
+                                                );
+                                              }(),
+                                            ),
+                                            if (entry.linkedGroupId
+                                                .trim()
+                                                .isNotEmpty)
+                                              StreamBuilder<
+                                                  DocumentSnapshot<
+                                                      Map<String, dynamic>>>(
+                                                stream: _groupPrivacyStream(
+                                                  entry.linkedGroupId,
+                                                ),
+                                                builder:
+                                                    (context, groupSnapshot) {
+                                                  final groupData =
+                                                      groupSnapshot.data
+                                                              ?.data() ??
+                                                          <String, dynamic>{};
+                                                  final isJoinClosed =
+                                                      _isMeetJoinClosed(
+                                                          groupData);
+                                                  if (!isJoinClosed) {
+                                                    return const SizedBox
+                                                        .shrink();
+                                                  }
+                                                  return Positioned(
+                                                    left: 8,
+                                                    top: 8,
+                                                    child: Container(
+                                                      width: 22,
+                                                      height: 22,
+                                                      decoration:
+                                                          const BoxDecoration(
+                                                        color:
+                                                            Color(0xFFE93E4E),
+                                                        shape: BoxShape.circle,
+                                                      ),
+                                                      child: const Icon(
+                                                        Icons.lock_rounded,
+                                                        size: 13,
+                                                        color: Colors.white,
+                                                      ),
+                                                    ),
+                                                  );
+                                                },
+                                              ),
+                                          ],
+                                        ),
+                                      ),
+                                      const SizedBox(height: 10),
+                                      Text(
+                                        entry.title,
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        textAlign: TextAlign.center,
+                                        style: TextStyle(
+                                          color: isLight
+                                              ? Colors.black
+                                              : Colors.white,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w800,
+                                          height: 1.2,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        entry.authorName,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        textAlign: TextAlign.center,
+                                        style: TextStyle(
+                                          color: isLight
+                                              ? Colors.black54
+                                              : Colors.grey[300],
+                                          fontSize: 11,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+
+                                return GestureDetector(
+                                  onTap: () => _openMeetPostsViewer(
+                                    entries: entries,
+                                    initialIndex: index - 1,
+                                  ),
+                                  child: card,
+                                );
+                              },
                             ),
                           ),
-                          padding: const EdgeInsets.all(10),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              Expanded(
-                                child: Stack(
-                                  children: [
-                                    Positioned.fill(
-                                      child: ClipRRect(
-                                        borderRadius: BorderRadius.circular(16),
-                                        child: Container(
-                                          color: isLight
-                                              ? const Color(0xFFEFF5FF)
-                                              : const Color(0xFF0D1524),
-                                          child: entry.authorAvatarUrl.isNotEmpty
-                                              ? Image.network(
-                                                  entry.authorAvatarUrl,
-                                                  fit: BoxFit.cover,
-                                                  errorBuilder: (_, __, ___) => Icon(
-                                                    Icons.person_outline_rounded,
-                                                    color: isLight
-                                                        ? Colors.black45
-                                                        : Colors.white54,
-                                                    size: 30,
-                                                  ),
-                                                )
-                                              : Icon(
-                                                  Icons.person_outline_rounded,
-                                                  color: isLight
-                                                      ? Colors.black45
-                                                      : Colors.white54,
-                                                  size: 30,
-                                                ),
-                                        ),
-                                      ),
-                                    ),
-                                    Positioned(
-                                      top: 8,
-                                      right: 8,
-                                      child: () {
-                                        final count = math.max(
-                                          1,
-                                          entry.linkedGroupMembersCount,
-                                        );
-                                        final countLabel =
-                                            count == 1 ? '1 חבר' : '$count חברים';
-                                        return Container(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 8,
-                                            vertical: 5,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: isLight
-                                                ? Colors.white.withValues(alpha: 0.9)
-                                                : const Color(0xCC111A28),
-                                            borderRadius:
-                                                BorderRadius.circular(999),
-                                            border: Border.all(
-                                              color: _cyan.withValues(alpha: 0.45),
-                                            ),
-                                          ),
-                                          child: Text(
-                                            countLabel,
-                                            style: TextStyle(
-                                              color: isLight
-                                                  ? Colors.black
-                                                  : Colors.white,
-                                              fontSize: 10,
-                                              fontWeight: FontWeight.w800,
-                                            ),
-                                          ),
-                                        );
-                                      }(),
-                                    ),
-                                    if (entry.linkedGroupId.trim().isNotEmpty)
-                                      StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                                        stream: _groupPrivacyStream(
-                                          entry.linkedGroupId,
-                                        ),
-                                        builder: (context, groupSnapshot) {
-                                          final groupData =
-                                              groupSnapshot.data?.data() ??
-                                                  <String, dynamic>{};
-                                          final isJoinClosed =
-                                              _isMeetJoinClosed(groupData);
-                                          if (!isJoinClosed) {
-                                            return const SizedBox.shrink();
-                                          }
-                                          return Positioned(
-                                            left: 8,
-                                            top: 8,
-                                            child: Container(
-                                              width: 22,
-                                              height: 22,
-                                              decoration: const BoxDecoration(
-                                                color: Color(0xFFE93E4E),
-                                                shape: BoxShape.circle,
-                                              ),
-                                              child: const Icon(
-                                                Icons.lock_rounded,
-                                                size: 13,
-                                                color: Colors.white,
-                                              ),
-                                            ),
-                                          );
-                                        },
-                                      ),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(height: 10),
-                              Text(
-                                entry.title,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  color: isLight ? Colors.black : Colors.white,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w800,
-                                  height: 1.2,
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                entry.authorName,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  color: isLight ? Colors.black54 : Colors.grey[300],
-                                  fontSize: 11,
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
-
-                            return GestureDetector(
-                              onTap: () => _openMeetPostsViewer(
-                                entries: entries,
-                                initialIndex: index - 1,
-                              ),
-                              child: card,
-                            );
-                          },
                         ),
-                      ),
-                    ),
-                  ],
-                );
+                      ],
+                    );
                   },
                 );
               },
@@ -5432,70 +5478,74 @@ class _OnlineScreenState extends State<OnlineScreen>
               onPointerDown: _dismissKeyboardOnBackgroundTap,
               child: SingleChildScrollView(
                 controller: _mainScrollController,
-              physics: const BouncingScrollPhysics(),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const SizedBox(height: 12),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: SizedBox(
-                      height: 52,
-                      child: Stack(
-                        alignment: Alignment.center,
-                        children: [
-                          Center(
-                            child: ShaderMask(
-                              shaderCallback: (bounds) => const LinearGradient(
-                                colors: [Color(0xFF53C1F9), Color(0xFF9E7CFF)],
-                                begin: Alignment.centerLeft,
-                                end: Alignment.centerRight,
-                              ).createShader(bounds),
-                              child: const FittedBox(
-                                fit: BoxFit.scaleDown,
-                                child: Text(
-                                  'hundred',
-                                  textAlign: TextAlign.center,
-                                  maxLines: 1,
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 30,
-                                    fontWeight: FontWeight.w900,
-                                    letterSpacing: 1.1,
-                                    shadows: [
-                                      Shadow(
-                                        color: Color(0x6653C1F9),
-                                        blurRadius: 18,
-                                        offset: Offset(0, 4),
-                                      ),
-                                      Shadow(
-                                        color: Color(0x669E7CFF),
-                                        blurRadius: 24,
-                                        offset: Offset(0, 6),
-                                      ),
-                                    ],
+                physics: const BouncingScrollPhysics(),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const SizedBox(height: 12),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: SizedBox(
+                        height: 52,
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            Center(
+                              child: ShaderMask(
+                                shaderCallback: (bounds) =>
+                                    const LinearGradient(
+                                  colors: [
+                                    Color(0xFF53C1F9),
+                                    Color(0xFF9E7CFF)
+                                  ],
+                                  begin: Alignment.centerLeft,
+                                  end: Alignment.centerRight,
+                                ).createShader(bounds),
+                                child: const FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  child: Text(
+                                    'hundred',
+                                    textAlign: TextAlign.center,
+                                    maxLines: 1,
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 30,
+                                      fontWeight: FontWeight.w900,
+                                      letterSpacing: 1.1,
+                                      shadows: [
+                                        Shadow(
+                                          color: Color(0x6653C1F9),
+                                          blurRadius: 18,
+                                          offset: Offset(0, 4),
+                                        ),
+                                        Shadow(
+                                          color: Color(0x669E7CFF),
+                                          blurRadius: 24,
+                                          offset: Offset(0, 6),
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 ),
                               ),
                             ),
-                          ),
-                          Align(
-                            alignment: Alignment.centerRight,
-                            child: _buildAllTasksButton(),
-                          ),
-                        ],
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: _buildAllTasksButton(),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 14),
-                  _buildFriendsSection(),
-                  _buildWeeklyChallengeSection(),
-                  const SizedBox(height: 14),
-                  _buildUpcomingGroupsSection(),
-                  _buildDiscoverNowSection(),
-                  _buildMeetNowGrid(),
-                ],
-              ),
+                    const SizedBox(height: 14),
+                    _buildFriendsSection(),
+                    _buildWeeklyChallengeSection(),
+                    const SizedBox(height: 14),
+                    _buildUpcomingGroupsSection(),
+                    _buildDiscoverNowSection(),
+                    _buildMeetNowGrid(),
+                  ],
+                ),
               ),
             ),
           ),
@@ -6015,7 +6065,7 @@ class _MeetNowPostsViewerState extends State<_MeetNowPostsViewer> {
                             onTap: () async {
                               final reported =
                                   await widget.onReportPressed(entry);
-                              if (reported && mounted) {
+                              if (reported && context.mounted) {
                                 Navigator.of(context).pop();
                               }
                             },
@@ -6225,7 +6275,8 @@ class _MeetNowPostsViewerState extends State<_MeetNowPostsViewer> {
                                                           await widget
                                                               .onJoinPressed(
                                                                   entry);
-                                                      if (joined && mounted) {
+                                                      if (joined &&
+                                                          context.mounted) {
                                                         Navigator.of(context)
                                                             .pop();
                                                       }

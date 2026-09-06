@@ -24,6 +24,8 @@ class NotificationsPreviewScreen extends StatefulWidget {
 class _NotificationsPreviewScreenState
     extends State<NotificationsPreviewScreen> {
   final NotificationService _notificationService = NotificationService();
+  final Map<String, Future<String>> _actorDisplayNameFutureByUid =
+      <String, Future<String>>{};
   DateTime? _lastVisitedAt;
   bool _visitMarkerLoaded = false;
 
@@ -191,6 +193,41 @@ class _NotificationsPreviewScreenState
     return actorName.isNotEmpty ? actorName : 'משתמש';
   }
 
+  Future<String> _resolveActorDisplayName(Map<String, dynamic> data) {
+    final actorName = (data['actorName'] as String? ?? '').trim();
+    if (actorName.isNotEmpty && actorName != 'משתמש') {
+      return Future<String>.value(actorName);
+    }
+
+    final actorUid = _actorUid(data);
+    if (actorUid.isEmpty) {
+      return Future<String>.value('משתמש');
+    }
+
+    return _actorDisplayNameFutureByUid.putIfAbsent(actorUid, () async {
+      Future<Map<String, dynamic>> readUserDoc(String collection) async {
+        final snapshot = await FirebaseFirestore.instance
+            .collection(collection)
+            .doc(actorUid)
+            .get();
+        return snapshot.data() ?? <String, dynamic>{};
+      }
+
+      var profile = await readUserDoc('users_public');
+      if (profile.isEmpty) {
+        profile = await readUserDoc('users');
+      }
+
+      final displayName = ((profile['displayName'] as String?) ??
+              (profile['username'] as String?) ??
+              (profile['name'] as String?) ??
+              '')
+          .trim()
+          .replaceFirst(RegExp(r'^@'), '');
+      return displayName.isNotEmpty ? displayName : 'משתמש';
+    });
+  }
+
   bool _isUnread(Map<String, dynamic> data) {
     return (data['isRead'] as bool? ?? false) == false;
   }
@@ -350,7 +387,8 @@ class _NotificationsPreviewScreenState
         if (!context.mounted) return;
         Navigator.of(context).push(
           MaterialPageRoute(
-            builder: (_) => const StarsScreen(openSpontaneousModalOnStart: true),
+            builder: (_) =>
+                const StarsScreen(openSpontaneousModalOnStart: true),
           ),
         );
         return;
@@ -391,10 +429,11 @@ class _NotificationsPreviewScreenState
     final chatName = (chatData['name'] as String? ?? '').trim();
     final avatarUrl = (chatData['groupImageUrl'] as String? ?? '').trim();
     final isPublic = (chatData['isPublic'] as bool?) ?? false;
-    final participants = (chatData['participants'] as List<dynamic>? ?? const [])
-        .map((item) => item.toString().trim())
-        .where((item) => item.isNotEmpty)
-        .toList(growable: false);
+    final participants =
+        (chatData['participants'] as List<dynamic>? ?? const [])
+            .map((item) => item.toString().trim())
+            .where((item) => item.isNotEmpty)
+            .toList(growable: false);
 
     Navigator.of(context).push(
       MaterialPageRoute(
@@ -699,8 +738,8 @@ class _NotificationsPreviewScreenState
   Widget _buildSpontaneousRotatingIconBadge({required bool isLight}) {
     final categories = _spontaneousRotationCategories();
     return StreamBuilder<int>(
-      stream: Stream<int>.periodic(const Duration(milliseconds: 1200),
-          (tick) => tick),
+      stream: Stream<int>.periodic(
+          const Duration(milliseconds: 1200), (tick) => tick),
       initialData: 0,
       builder: (context, snapshot) {
         final tick = snapshot.data ?? 0;
@@ -869,7 +908,8 @@ class _NotificationsPreviewScreenState
             width: size,
             height: size,
             color: const Color(0xFFBFD9FF),
-            child: const Icon(Icons.person_rounded, size: 14, color: Colors.white),
+            child:
+                const Icon(Icons.person_rounded, size: 14, color: Colors.white),
           ),
         ),
       ),
@@ -886,6 +926,7 @@ class _NotificationsPreviewScreenState
     final isNew = _shouldHighlightAsNew(data);
     final accent = _accentForNotification(data);
     final actorName = _actorName(data);
+    final actorNameFuture = _resolveActorDisplayName(data);
     final likeCount = _intValue(data, const ['likeCount']);
     final postImageUrl = (data['postImageUrl'] as String? ?? '').trim();
     final actorAvatarUrl = _actorAvatarUrl(data);
@@ -916,7 +957,8 @@ class _NotificationsPreviewScreenState
       );
     }
 
-    final stackWidth = avatarUrls.isEmpty ? 0.0 : avatarUrls.length * 12.0 + 22.0;
+    final stackWidth =
+        avatarUrls.isEmpty ? 0.0 : avatarUrls.length * 12.0 + 22.0;
     final currentLikeCount = likeCount > 0 ? likeCount : 1;
 
     return InkWell(
@@ -997,7 +1039,8 @@ class _NotificationsPreviewScreenState
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
-                                    color: isLight ? Colors.black : Colors.white,
+                                    color:
+                                        isLight ? Colors.black : Colors.white,
                                     fontSize: 15,
                                     fontWeight: isUnread
                                         ? FontWeight.w800
@@ -1009,17 +1052,59 @@ class _NotificationsPreviewScreenState
                               const SizedBox(height: 4),
                               SizedBox(
                                 width: double.infinity,
-                                child: Text(
-                                  'עשה עכשיו לייק: $actorName',
-                                  textAlign: TextAlign.right,
+                                child: Row(
                                   textDirection: TextDirection.rtl,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    color:
-                                        isLight ? Colors.black87 : Colors.white70,
-                                    fontSize: 12.5,
-                                  ),
+                                  children: [
+                                    Text(
+                                      'עשה עכשיו לייק: ',
+                                      textAlign: TextAlign.right,
+                                      textDirection: TextDirection.rtl,
+                                      style: TextStyle(
+                                        color: isLight
+                                            ? Colors.black87
+                                            : Colors.white70,
+                                        fontSize: 12.5,
+                                      ),
+                                    ),
+                                    Flexible(
+                                      child: FutureBuilder<String>(
+                                        future: actorNameFuture,
+                                        initialData: actorName,
+                                        builder: (context, snapshot) {
+                                          final displayName =
+                                              (snapshot.data ?? actorName)
+                                                  .trim();
+                                          return GestureDetector(
+                                            behavior: HitTestBehavior.opaque,
+                                            onTap: _actorUid(data).isEmpty
+                                                ? null
+                                                : () => _openUserProfile(
+                                                      context,
+                                                      doc,
+                                                      data,
+                                                    ),
+                                            child: Text(
+                                              displayName.isNotEmpty
+                                                  ? displayName
+                                                  : 'משתמש',
+                                              textAlign: TextAlign.right,
+                                              textDirection: TextDirection.rtl,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(
+                                                color: accent,
+                                                fontSize: 12.5,
+                                                fontWeight: FontWeight.w700,
+                                                decoration:
+                                                    TextDecoration.underline,
+                                                decorationColor: accent,
+                                              ),
+                                            ),
+                                          );
+                                        },
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ],
@@ -1060,12 +1145,14 @@ class _NotificationsPreviewScreenState
                         fit: BoxFit.cover,
                         errorBuilder: (_, __, ___) => Container(
                           color: const Color(0xFFBFD9FF),
-                          child: const Icon(Icons.image_rounded, color: Colors.white),
+                          child: const Icon(Icons.image_rounded,
+                              color: Colors.white),
                         ),
                       )
                     : Container(
                         color: const Color(0xFFE9EBFF),
-                        child: const Icon(Icons.image_rounded, color: Color(0xFF7C7CEF)),
+                        child: const Icon(Icons.image_rounded,
+                            color: Color(0xFF7C7CEF)),
                       ),
               ),
             ),
@@ -1411,12 +1498,14 @@ class _NotificationsPreviewScreenState
                         fit: BoxFit.cover,
                         errorBuilder: (_, __, ___) => Container(
                           color: const Color(0xFFBFD9FF),
-                          child: const Icon(Icons.image_rounded, color: Colors.white),
+                          child: const Icon(Icons.image_rounded,
+                              color: Colors.white),
                         ),
                       )
                     : Container(
                         color: const Color(0xFFE9EBFF),
-                        child: const Icon(Icons.image_rounded, color: Color(0xFF7C7CEF)),
+                        child: const Icon(Icons.image_rounded,
+                            color: Color(0xFF7C7CEF)),
                       ),
               ),
             ),
@@ -1440,11 +1529,11 @@ class _NotificationsPreviewScreenState
     final postImageUrl = (data['postImageUrl'] as String? ?? '').trim();
     final rawComment = (data['title'] as String? ?? '').trim();
     final commentText = rawComment.replaceAll('"', '').trim();
-    final commentCount = _intValue(data, const ['commentCount', 'commentsCount'],
-        fallback: 1);
+    final commentCount =
+        _intValue(data, const ['commentCount', 'commentsCount'], fallback: 1);
     final title = actorName.isNotEmpty
-      ? '$actorName הגיב/ה: $commentText'
-      : 'הגיבו: $commentText';
+        ? '$actorName הגיב/ה: $commentText'
+        : 'הגיבו: $commentText';
     final dynamicNewBorder = _dynamicNewBorderColor(
       isLight: isLight,
       docId: doc.id,
@@ -1552,12 +1641,14 @@ class _NotificationsPreviewScreenState
                         fit: BoxFit.cover,
                         errorBuilder: (_, __, ___) => Container(
                           color: const Color(0xFFBFD9FF),
-                          child: const Icon(Icons.image_rounded, color: Colors.white),
+                          child: const Icon(Icons.image_rounded,
+                              color: Colors.white),
                         ),
                       )
                     : Container(
                         color: const Color(0xFFE9EBFF),
-                        child: const Icon(Icons.image_rounded, color: Color(0xFF7C7CEF)),
+                        child: const Icon(Icons.image_rounded,
+                            color: Color(0xFF7C7CEF)),
                       ),
               ),
             ),
@@ -1694,12 +1785,14 @@ class _NotificationsPreviewScreenState
                         fit: BoxFit.cover,
                         errorBuilder: (_, __, ___) => Container(
                           color: const Color(0xFFBFD9FF),
-                          child: const Icon(Icons.image_rounded, color: Colors.white),
+                          child: const Icon(Icons.image_rounded,
+                              color: Colors.white),
                         ),
                       )
                     : Container(
                         color: const Color(0xFFE9EBFF),
-                        child: const Icon(Icons.image_rounded, color: Color(0xFF7C7CEF)),
+                        child: const Icon(Icons.image_rounded,
+                            color: Color(0xFF7C7CEF)),
                       ),
               ),
             ),
@@ -1859,7 +1952,8 @@ class _NotificationsPreviewScreenState
     final challengeIcon = categoryIconFor(
       challengeCategory.isEmpty ? kGeneralCategory : challengeCategory,
     );
-    final title = 'המשימה היומית התעדכנה! המשימה היומית החדשה היא $dailyTaskLabel';
+    final title =
+        'המשימה היומית התעדכנה! המשימה היומית החדשה היא $dailyTaskLabel';
     final dynamicNewBorder = _dynamicNewBorderColor(
       isLight: isLight,
       docId: doc.id,
@@ -1975,7 +2069,8 @@ class _NotificationsPreviewScreenState
     final isNew = _shouldHighlightAsNew(data);
     final accent = _accentForNotification(data);
     final postImageUrl = (data['postImageUrl'] as String? ?? '').trim();
-    const title = 'מסתבר שכוכבים יש לא רק בשמיים... הפוסט שלך במסך כוכבי השבוע!';
+    const title =
+        'מסתבר שכוכבים יש לא רק בשמיים... הפוסט שלך במסך כוכבי השבוע!';
     final dynamicNewBorder = _dynamicNewBorderColor(
       isLight: isLight,
       docId: doc.id,
@@ -2554,7 +2649,8 @@ class _NotificationsPreviewScreenState
       );
     }
 
-    final stackWidth = avatarUrls.isEmpty ? 30.0 : avatarUrls.length * 14.0 + 30.0;
+    final stackWidth =
+        avatarUrls.isEmpty ? 30.0 : avatarUrls.length * 14.0 + 30.0;
 
     return InkWell(
       borderRadius: BorderRadius.circular(24),
@@ -2846,122 +2942,128 @@ class _NotificationsPreviewScreenState
       textDirection: TextDirection.rtl,
       child: SwipeBackWrapper(
         child: Scaffold(
-        backgroundColor: isLight ? Colors.white : const Color(0xFF0B1019),
-        appBar: AppBar(
-          backgroundColor:
-              isLight ? const Color(0xFFBFD9FF) : const Color(0xFF101A2B),
-          elevation: 0,
-          title: Text(
-            'עדכוני מערכת',
-            style: TextStyle(
-                color: isLight ? Colors.black : Colors.white,
-                fontWeight: FontWeight.w800),
+          backgroundColor: isLight ? Colors.white : const Color(0xFF0B1019),
+          appBar: AppBar(
+            backgroundColor:
+                isLight ? const Color(0xFFBFD9FF) : const Color(0xFF101A2B),
+            elevation: 0,
+            title: Text(
+              'עדכוני מערכת',
+              style: TextStyle(
+                  color: isLight ? Colors.black : Colors.white,
+                  fontWeight: FontWeight.w800),
+            ),
+            centerTitle: true,
           ),
-          centerTitle: true,
-        ),
-        body: Stack(
-          children: [
-            if (isLight)
-              Positioned(
-                top: -120,
-                right: -90,
-                child: IgnorePointer(
-                  child: Container(
-                    width: orbSizeA,
-                    height: orbSizeA,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: const Color(0xFFB9A9FF).withValues(alpha:  0.12),
+          body: Stack(
+            children: [
+              if (isLight)
+                Positioned(
+                  top: -120,
+                  right: -90,
+                  child: IgnorePointer(
+                    child: Container(
+                      width: orbSizeA,
+                      height: orbSizeA,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: const Color(0xFFB9A9FF).withValues(alpha: 0.12),
+                      ),
                     ),
                   ),
                 ),
-              ),
-            if (isLight)
-              Positioned(
-                bottom: -130,
-                left: -90,
-                child: IgnorePointer(
-                  child: Container(
-                    width: orbSizeB,
-                    height: orbSizeB,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: const Color(0xFF9EEBFF).withValues(alpha:  0.12),
+              if (isLight)
+                Positioned(
+                  bottom: -130,
+                  left: -90,
+                  child: IgnorePointer(
+                    child: Container(
+                      width: orbSizeB,
+                      height: orbSizeB,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: const Color(0xFF9EEBFF).withValues(alpha: 0.12),
+                      ),
                     ),
                   ),
                 ),
-              ),
-            uid.isEmpty
-                ? Center(
-                    child: Text(
-                      'יש להתחבר כדי לראות עדכוני מערכת.',
-                      style: TextStyle(
-                          color: isLight ? Colors.black87 : Colors.white70),
-                    ),
-                  )
-                : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                    stream: _notificationsStream(uid),
-                    builder: (context, snapshot) {
-                      if (snapshot.hasError) {
-                        return Center(
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 24),
-                            child: Text(
-                              'לא ניתן לטעון התראות כרגע.\n${snapshot.error}',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                color:
-                                    isLight ? Colors.black87 : Colors.white70,
-                                height: 1.4,
-                              ),
-                            ),
-                          ),
-                        );
-                      }
-
-                      final docs = (snapshot.data?.docs ??
-                              const <QueryDocumentSnapshot<
-                                  Map<String, dynamic>>>[])
-                          .where((doc) {
-                        final type =
-                            (doc.data()['type'] as String? ?? '').trim();
-                        return type != NotificationTypes.newMessage;
-                      }).toList(growable: false);
-                      if (snapshot.connectionState == ConnectionState.waiting &&
-                          docs.isEmpty) {
-                        return const Center(child: CircularProgressIndicator());
-                      }
-
-                      if (docs.isEmpty) {
-                        return Center(
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 28),
-                            child: Text(
-                              'אין עדכונים חדשים כרגע. ברגע שמישהו יגיב, יאהב או יעקוב אחריך, הם יופיעו כאן.',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
+              uid.isEmpty
+                  ? Center(
+                      child: Text(
+                        'יש להתחבר כדי לראות עדכוני מערכת.',
+                        style: TextStyle(
+                            color: isLight ? Colors.black87 : Colors.white70),
+                      ),
+                    )
+                  : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                      stream: _notificationsStream(uid),
+                      builder: (context, snapshot) {
+                        if (snapshot.hasError) {
+                          return Center(
+                            child: Padding(
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 24),
+                              child: Text(
+                                'לא ניתן לטעון התראות כרגע.\n${snapshot.error}',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
                                   color:
                                       isLight ? Colors.black87 : Colors.white70,
-                                  height: 1.5),
+                                  height: 1.4,
+                                ),
+                              ),
                             ),
-                          ),
-                        );
-                      }
+                          );
+                        }
 
-                      return ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(14, 14, 14, 24),
-                        itemCount: docs.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 10),
-                        itemBuilder: (context, index) {
-                          final doc = docs[index];
-                          final data = doc.data();
-                          return _buildNotificationCard(context, doc, data);
-                        },
-                      );
-                    },
-                  ),
-          ],
-        ),
+                        final docs = (snapshot.data?.docs ??
+                                const <QueryDocumentSnapshot<
+                                    Map<String, dynamic>>>[])
+                            .where((doc) {
+                          final type =
+                              (doc.data()['type'] as String? ?? '').trim();
+                          return type != NotificationTypes.newMessage;
+                        }).toList(growable: false);
+                        if (snapshot.connectionState ==
+                                ConnectionState.waiting &&
+                            docs.isEmpty) {
+                          return const Center(
+                              child: CircularProgressIndicator());
+                        }
+
+                        if (docs.isEmpty) {
+                          return Center(
+                            child: Padding(
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 28),
+                              child: Text(
+                                'אין עדכונים חדשים כרגע. ברגע שמישהו יגיב, יאהב או יעקוב אחריך, הם יופיעו כאן.',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                    color: isLight
+                                        ? Colors.black87
+                                        : Colors.white70,
+                                    height: 1.5),
+                              ),
+                            ),
+                          );
+                        }
+
+                        return ListView.separated(
+                          padding: const EdgeInsets.fromLTRB(14, 14, 14, 24),
+                          itemCount: docs.length,
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(height: 10),
+                          itemBuilder: (context, index) {
+                            final doc = docs[index];
+                            final data = doc.data();
+                            return _buildNotificationCard(context, doc, data);
+                          },
+                        );
+                      },
+                    ),
+            ],
+          ),
         ),
       ),
     );

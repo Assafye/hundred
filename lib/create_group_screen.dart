@@ -82,7 +82,11 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
 
   bool _tapHitsEditable(PointerDownEvent event) {
     final hitTestResult = HitTestResult();
-    GestureBinding.instance.hitTest(hitTestResult, event.position);
+    GestureBinding.instance.hitTestInView(
+      hitTestResult,
+      event.position,
+      event.viewId,
+    );
     for (final entry in hitTestResult.path) {
       if (entry.target is RenderEditable) {
         return true;
@@ -946,554 +950,564 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
               onPointerDown: _dismissKeyboardOnBackgroundTap,
               child: SafeArea(
                 child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  children: [
-                    Expanded(
-                      child: SingleChildScrollView(
-                        child: Column(
-                          children: [
-                            Row(
-                              children: [
-                                GestureDetector(
-                                  onTap: _pickImage,
-                                  child: Stack(
-                                    alignment: Alignment.center,
-                                    children: [
-                                      GroupAvatar(
-                                        radius: 39,
-                                        memoryBytes: _pickedBytes,
-                                        borderColor: isLight
-                                            ? const Color(0xFFA9C3FF)
-                                            : const Color(0xFF53C1F9)
-                                                .withValues(alpha: 0.18),
-                                        borderWidth: 1.2,
-                                      ),
-                                      Positioned(
-                                        bottom: 2,
-                                        child: Container(
-                                          padding: const EdgeInsets.all(5),
-                                          decoration: BoxDecoration(
-                                            color: isLight
-                                                ? Colors.white
-                                                    .withValues(alpha: 0.94)
-                                                : const Color(0xFF1E2632),
-                                            shape: BoxShape.circle,
-                                            border: Border.all(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    children: [
+                      Expanded(
+                        child: SingleChildScrollView(
+                          child: Column(
+                            children: [
+                              Row(
+                                children: [
+                                  GestureDetector(
+                                    onTap: _pickImage,
+                                    child: Stack(
+                                      alignment: Alignment.center,
+                                      children: [
+                                        GroupAvatar(
+                                          radius: 39,
+                                          memoryBytes: _pickedBytes,
+                                          borderColor: isLight
+                                              ? const Color(0xFFA9C3FF)
+                                              : const Color(0xFF53C1F9)
+                                                  .withValues(alpha: 0.18),
+                                          borderWidth: 1.2,
+                                        ),
+                                        Positioned(
+                                          bottom: 2,
+                                          child: Container(
+                                            padding: const EdgeInsets.all(5),
+                                            decoration: BoxDecoration(
                                               color: isLight
-                                                  ? const Color(0xFFA9C3FF)
-                                                  : const Color(0xFF53C1F9)
-                                                      .withValues(alpha: 0.18),
+                                                  ? Colors.white
+                                                      .withValues(alpha: 0.94)
+                                                  : const Color(0xFF1E2632),
+                                              shape: BoxShape.circle,
+                                              border: Border.all(
+                                                color: isLight
+                                                    ? const Color(0xFFA9C3FF)
+                                                    : const Color(0xFF53C1F9)
+                                                        .withValues(
+                                                            alpha: 0.18),
+                                              ),
+                                            ),
+                                            child: Icon(
+                                              Icons.camera_alt_rounded,
+                                              size: 16,
+                                              color: isLight
+                                                  ? const Color(0xFF7B6BE0)
+                                                  : const Color(0xFF9EDBFF),
                                             ),
                                           ),
-                                          child: Icon(
-                                            Icons.camera_alt_rounded,
-                                            size: 16,
-                                            color: isLight
-                                                ? const Color(0xFF7B6BE0)
-                                                : const Color(0xFF9EDBFF),
-                                          ),
                                         ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: TextField(
-                                    controller: _nameController,
-                                    onTapOutside: (_) {},
-                                    maxLength: 40,
-                                    style: TextStyle(
-                                        color: isLight
-                                            ? Colors.black
-                                            : Colors.white,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 16),
-                                    decoration: InputDecoration(
-                                        counterStyle: TextStyle(
-                                            color: isLight
-                                                ? Colors.black54
-                                                : Colors.white54),
-                                        hintText: 'שם הקבוצה',
-                                        hintStyle: TextStyle(
-                                            color: isLight
-                                                ? Colors.black54
-                                                : Colors.white54),
-                                        border: InputBorder.none),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            TextField(
-                              controller: _descriptionController,
-                              onTapOutside: (_) {},
-                              maxLines: 3,
-                              style: TextStyle(
-                                  color: isLight
-                                      ? Colors.black87
-                                      : Colors.white70),
-                              decoration: InputDecoration(
-                                  hintText: 'תיאור הקבוצה',
-                                  hintStyle: TextStyle(
-                                      color: isLight
-                                          ? Colors.black54
-                                          : Colors.white54),
-                                  filled: true,
-                                  fillColor: isLight
-                                      ? Colors.white.withValues(alpha: 0.62)
-                                      : const Color(0xFF1E2632),
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(14),
-                                    borderSide: BorderSide(
-                                      color: isLight
-                                          ? const Color(0xFFA9C3FF)
-                                          : Colors.transparent,
+                                      ],
                                     ),
                                   ),
-                                  enabledBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(14),
-                                    borderSide: BorderSide(
-                                      color: isLight
-                                          ? const Color(0xFFA9C3FF)
-                                          : Colors.transparent,
-                                    ),
-                                  ),
-                                  focusedBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(14),
-                                    borderSide: BorderSide(
-                                      color: isLight
-                                          ? const Color(0xFF8FAEFF)
-                                          : Colors.transparent,
-                                      width: 1.2,
-                                    ),
-                                  )),
-                            ),
-                            const SizedBox(height: 12),
-                            ListTile(
-                              onTap: _openAddFriends,
-                              tileColor: isLight
-                                  ? Colors.white.withValues(alpha: 0.62)
-                                  : const Color(0xFF1E2632),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(14),
-                                side: BorderSide(
-                                  color: isLight
-                                      ? const Color(0xFFA9C3FF)
-                                      : Colors.transparent,
-                                ),
-                              ),
-                              leading: Icon(Icons.person_add,
-                                  color: isLight
-                                      ? const Color(0xFF9AB0FF)
-                                      : Colors.white),
-                              title: Text('הוסף חברים (אופציונלי)',
-                                  style: TextStyle(
-                                      color: isLight
-                                          ? Colors.black
-                                          : Colors.white)),
-                              subtitle: _selectedFriendUids.isEmpty
-                                  ? null
-                                  : Text(
-                                      'נבחרו ${_selectedFriendUids.length} חברים',
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: TextField(
+                                      controller: _nameController,
+                                      onTapOutside: (_) {},
+                                      maxLength: 40,
                                       style: TextStyle(
                                           color: isLight
-                                              ? Colors.black54
-                                              : Colors.white54),
+                                              ? Colors.black
+                                              : Colors.white,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 16),
+                                      decoration: InputDecoration(
+                                          counterStyle: TextStyle(
+                                              color: isLight
+                                                  ? Colors.black54
+                                                  : Colors.white54),
+                                          hintText: 'שם הקבוצה',
+                                          hintStyle: TextStyle(
+                                              color: isLight
+                                                  ? Colors.black54
+                                                  : Colors.white54),
+                                          border: InputBorder.none),
                                     ),
-                              trailing: Icon(
-                                Icons.chevron_right,
-                                color:
-                                    isLight ? Colors.black54 : Colors.white70,
+                                  ),
+                                ],
                               ),
-                            ),
-                            const SizedBox(height: 8),
-                            _buildCategoryPickerTile(
-                              icon: Icons.category,
-                              title: 'קטגוריה ראשית',
-                              value: _mainCategory ?? kGeneralCategory,
-                              hint: 'בחר קטגוריה',
-                              onTap: () async {
-                                final selected = await _showCategoryChoiceSheet(
-                                  title: 'בחר קטגוריה ראשית',
-                                  options: appMainCategories,
-                                  selectedValue: _mainCategory,
-                                );
-                                if (!mounted || selected == null) return;
-                                setState(() {
-                                  _mainCategory = selected;
-                                  _subCategory = null;
-                                });
-                              },
-                            ),
-                            const SizedBox(height: 8),
-                            if (_mainCategory != null &&
-                                !isGeneralCategory(_mainCategory) &&
-                                subCategories.isNotEmpty)
-                              _buildCategoryPickerTile(
-                                icon: Icons.subdirectory_arrow_right,
-                                title: 'תת קטגוריה',
-                                value: _subCategory ?? 'אחר',
-                                hint: 'בחר תת קטגוריה',
-                                onTap: () async {
-                                  final selected =
-                                      await _showCategoryChoiceSheet(
-                                    title: _mainCategory!,
-                                    options: subCategories,
-                                    selectedValue: _subCategory,
-                                  );
-                                  if (!mounted || selected == null) return;
-                                  setState(() {
-                                    _subCategory = selected;
-                                  });
-                                },
+                              const SizedBox(height: 8),
+                              TextField(
+                                controller: _descriptionController,
+                                onTapOutside: (_) {},
+                                maxLines: 3,
+                                style: TextStyle(
+                                    color: isLight
+                                        ? Colors.black87
+                                        : Colors.white70),
+                                decoration: InputDecoration(
+                                    hintText: 'תיאור הקבוצה',
+                                    hintStyle: TextStyle(
+                                        color: isLight
+                                            ? Colors.black54
+                                            : Colors.white54),
+                                    filled: true,
+                                    fillColor: isLight
+                                        ? Colors.white.withValues(alpha: 0.62)
+                                        : const Color(0xFF1E2632),
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(14),
+                                      borderSide: BorderSide(
+                                        color: isLight
+                                            ? const Color(0xFFA9C3FF)
+                                            : Colors.transparent,
+                                      ),
+                                    ),
+                                    enabledBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(14),
+                                      borderSide: BorderSide(
+                                        color: isLight
+                                            ? const Color(0xFFA9C3FF)
+                                            : Colors.transparent,
+                                      ),
+                                    ),
+                                    focusedBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(14),
+                                      borderSide: BorderSide(
+                                        color: isLight
+                                            ? const Color(0xFF8FAEFF)
+                                            : Colors.transparent,
+                                        width: 1.2,
+                                      ),
+                                    )),
                               ),
-
-                            const SizedBox(height: 12),
-                            // Privacy selector
-                            Row(
-                              children: [
-                                Text('פרטיות:',
+                              const SizedBox(height: 12),
+                              ListTile(
+                                onTap: _openAddFriends,
+                                tileColor: isLight
+                                    ? Colors.white.withValues(alpha: 0.62)
+                                    : const Color(0xFF1E2632),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                  side: BorderSide(
+                                    color: isLight
+                                        ? const Color(0xFFA9C3FF)
+                                        : Colors.transparent,
+                                  ),
+                                ),
+                                leading: Icon(Icons.person_add,
+                                    color: isLight
+                                        ? const Color(0xFF9AB0FF)
+                                        : Colors.white),
+                                title: Text('הוסף חברים (אופציונלי)',
                                     style: TextStyle(
                                         color: isLight
                                             ? Colors.black
                                             : Colors.white)),
-                                const SizedBox(width: 12),
-                                ChoiceChip(
-                                  label: Text('ציבורית',
-                                      style: TextStyle(
-                                          color: isLight
-                                              ? Colors.black
-                                              : Colors.white)),
-                                  selected: _isPublic,
-                                  onSelected: (v) =>
-                                      setState(() => _isPublic = true),
-                                  selectedColor: const Color(0xFF9E7CFF),
-                                  backgroundColor: isLight
-                                      ? Colors.white.withValues(alpha: 0.62)
-                                      : const Color(0xFF1E2632),
-                                ),
-                                const SizedBox(width: 8),
-                                ChoiceChip(
-                                  label: Text('פרטית',
-                                      style: TextStyle(
-                                          color: isLight
-                                              ? Colors.black
-                                              : Colors.white)),
-                                  selected: !_isPublic,
-                                  onSelected: (v) =>
-                                      setState(() => _isPublic = false),
-                                  selectedColor: const Color(0xFF9E7CFF),
-                                  backgroundColor: isLight
-                                      ? Colors.white.withValues(alpha: 0.62)
-                                      : const Color(0xFF1E2632),
-                                ),
-                              ],
-                            ),
-
-                            const SizedBox(height: 12),
-                            if (_isPublic) ...[
-                              GestureDetector(
-                                onTap: _selectExecutionDate,
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      vertical: 16, horizontal: 16),
-                                  decoration: BoxDecoration(
-                                    color: isLight
-                                        ? Colors.white.withValues(alpha: 0.62)
-                                        : const Color(0xFF1E2632),
-                                    borderRadius: BorderRadius.circular(16),
-                                    border: Border.all(
-                                      color: isLight
-                                          ? const Color(0xFFA9C3FF)
-                                          : Colors.transparent,
-                                    ),
-                                  ),
-                                  child: Row(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Text(
-                                        _executionDate != null
-                                            ? 'תאריך ביצוע: ${_executionDate!.day}/${_executionDate!.month}/${_executionDate!.year} ${_executionDate!.hour.toString().padLeft(2, '0')}:${_executionDate!.minute.toString().padLeft(2, '0')}'
-                                            : 'תאריך ביצוע',
+                                subtitle: _selectedFriendUids.isEmpty
+                                    ? null
+                                    : Text(
+                                        'נבחרו ${_selectedFriendUids.length} חברים',
                                         style: TextStyle(
                                             color: isLight
-                                                ? Colors.black87
-                                                : Colors.white70),
+                                                ? Colors.black54
+                                                : Colors.white54),
                                       ),
-                                      Icon(Icons.calendar_today,
-                                          color: isLight
-                                              ? Colors.black54
-                                              : Colors.white54,
-                                          size: 20),
-                                    ],
-                                  ),
+                                trailing: Icon(
+                                  Icons.chevron_right,
+                                  color:
+                                      isLight ? Colors.black54 : Colors.white70,
                                 ),
                               ),
                               const SizedBox(height: 8),
-                              TextField(
-                                controller: _regionController,
-                                onTapOutside: (_) {},
-                                style: TextStyle(
-                                    color:
-                                        isLight ? Colors.black : Colors.white),
-                                decoration: InputDecoration(
-                                    hintText: 'אזור הקבוצה',
-                                    hintStyle: TextStyle(
-                                        color: isLight
-                                            ? Colors.black54
-                                            : Colors.white54),
-                                    filled: true,
-                                    fillColor: isLight
-                                        ? Colors.white.withValues(alpha: 0.62)
-                                        : const Color(0xFF1E2632),
-                                    border: InputBorder.none),
+                              _buildCategoryPickerTile(
+                                icon: Icons.category,
+                                title: 'קטגוריה ראשית',
+                                value: _mainCategory ?? kGeneralCategory,
+                                hint: 'בחר קטגוריה',
+                                onTap: () async {
+                                  final selected =
+                                      await _showCategoryChoiceSheet(
+                                    title: 'בחר קטגוריה ראשית',
+                                    options: appMainCategories,
+                                    selectedValue: _mainCategory,
+                                  );
+                                  if (!mounted || selected == null) return;
+                                  setState(() {
+                                    _mainCategory = selected;
+                                    _subCategory = null;
+                                  });
+                                },
                               ),
-                              const Padding(
-                                padding: EdgeInsets.only(top: 6, right: 4),
-                                child: Text(
-                                  'אין לציין כתובת מדויקת! רק אזור כללי כמו שכונה, עיר או מקום ציבורי',
-                                  textAlign: TextAlign.right,
-                                  style: TextStyle(
-                                    color: Color(0xFF9AB0FF),
-                                    fontSize: 12,
-                                  ),
+                              const SizedBox(height: 8),
+                              if (_mainCategory != null &&
+                                  !isGeneralCategory(_mainCategory) &&
+                                  subCategories.isNotEmpty)
+                                _buildCategoryPickerTile(
+                                  icon: Icons.subdirectory_arrow_right,
+                                  title: 'תת קטגוריה',
+                                  value: _subCategory ?? 'אחר',
+                                  hint: 'בחר תת קטגוריה',
+                                  onTap: () async {
+                                    final selected =
+                                        await _showCategoryChoiceSheet(
+                                      title: _mainCategory!,
+                                      options: subCategories,
+                                      selectedValue: _subCategory,
+                                    );
+                                    if (!mounted || selected == null) return;
+                                    setState(() {
+                                      _subCategory = selected;
+                                    });
+                                  },
                                 ),
-                              ),
-                              const SizedBox(height: 8),
-                              TextField(
-                                controller: _minScoreController,
-                                onTapOutside: (_) {},
-                                keyboardType: TextInputType.number,
-                                style: TextStyle(
-                                    color:
-                                        isLight ? Colors.black : Colors.white),
-                                decoration: InputDecoration(
-                                    hintText: 'ניקוד מינימלי (אופציונלי)',
-                                    hintStyle: TextStyle(
-                                        color: isLight
-                                            ? Colors.black54
-                                            : Colors.white54),
-                                    filled: true,
-                                    fillColor: isLight
-                                        ? Colors.white.withValues(alpha: 0.62)
-                                        : const Color(0xFF1E2632),
-                                    border: InputBorder.none),
-                              ),
-                              const SizedBox(height: 8),
+
+                              const SizedBox(height: 12),
+                              // Privacy selector
                               Row(
                                 children: [
-                                  Text('טווח גילאים',
+                                  Text('פרטיות:',
                                       style: TextStyle(
                                           color: isLight
                                               ? Colors.black
                                               : Colors.white)),
                                   const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.stretch,
+                                  ChoiceChip(
+                                    label: Text('ציבורית',
+                                        style: TextStyle(
+                                            color: isLight
+                                                ? Colors.black
+                                                : Colors.white)),
+                                    selected: _isPublic,
+                                    onSelected: (v) =>
+                                        setState(() => _isPublic = true),
+                                    selectedColor: const Color(0xFF9E7CFF),
+                                    backgroundColor: isLight
+                                        ? Colors.white.withValues(alpha: 0.62)
+                                        : const Color(0xFF1E2632),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  ChoiceChip(
+                                    label: Text('פרטית',
+                                        style: TextStyle(
+                                            color: isLight
+                                                ? Colors.black
+                                                : Colors.white)),
+                                    selected: !_isPublic,
+                                    onSelected: (v) =>
+                                        setState(() => _isPublic = false),
+                                    selectedColor: const Color(0xFF9E7CFF),
+                                    backgroundColor: isLight
+                                        ? Colors.white.withValues(alpha: 0.62)
+                                        : const Color(0xFF1E2632),
+                                  ),
+                                ],
+                              ),
+
+                              const SizedBox(height: 12),
+                              if (_isPublic) ...[
+                                GestureDetector(
+                                  onTap: _selectExecutionDate,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        vertical: 16, horizontal: 16),
+                                    decoration: BoxDecoration(
+                                      color: isLight
+                                          ? Colors.white.withValues(alpha: 0.62)
+                                          : const Color(0xFF1E2632),
+                                      borderRadius: BorderRadius.circular(16),
+                                      border: Border.all(
+                                        color: isLight
+                                            ? const Color(0xFFA9C3FF)
+                                            : Colors.transparent,
+                                      ),
+                                    ),
+                                    child: Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.spaceBetween,
                                       children: [
-                                        LayoutBuilder(
-                                          builder: (context, constraints) {
-                                            final minAge =
-                                                _ageRange.start.round();
-                                            final maxAge =
-                                                _ageRange.end.round();
-                                            final isRtl =
-                                                Directionality.of(context) ==
-                                                    TextDirection.rtl;
-                                            const bubbleWidth = 42.0;
-                                            const thumbRadius = 10.0;
-                                            final trackWidth =
-                                                constraints.maxWidth >
-                                                        thumbRadius * 2
-                                                    ? constraints.maxWidth -
-                                                        thumbRadius * 2
-                                                    : 0.0;
-                                            final maxBubbleLeft = (constraints
-                                                        .maxWidth -
-                                                    bubbleWidth)
-                                                .clamp(0.0, double.infinity);
-                                            double thumbOffsetFor(int value) {
-                                              final normalized =
-                                                  (value - minimumUserAge) /
-                                                      (maximumAgeRange -
-                                                          minimumUserAge);
-                                              final adjusted = isRtl
-                                                  ? 1 - normalized
-                                                  : normalized;
-                                              final thumbCenter = thumbRadius +
-                                                  trackWidth *
-                                                      adjusted.clamp(
-                                                        0.0,
-                                                        1.0,
-                                                      );
-                                              return thumbCenter -
-                                                  (bubbleWidth / 2);
-                                            }
-
-                                            double bubbleLeftFor(int value) {
-                                              return thumbOffsetFor(value)
-                                                  .clamp(0.0, maxBubbleLeft);
-                                            }
-
-                                            final minOffset =
-                                                bubbleLeftFor(minAge);
-                                            final maxOffset =
-                                                bubbleLeftFor(maxAge);
-
-                                            Widget valueBubble(int value) {
-                                              return Container(
-                                                width: bubbleWidth,
-                                                alignment: Alignment.center,
-                                                padding:
-                                                    const EdgeInsets.symmetric(
-                                                  vertical: 5,
-                                                ),
-                                                decoration: BoxDecoration(
-                                                  gradient:
-                                                      const LinearGradient(
-                                                    colors: [
-                                                      Color(0xFF8DE8FF),
-                                                      Color(0xFFC6B2FF),
-                                                    ],
-                                                    begin: Alignment.topLeft,
-                                                    end: Alignment.bottomRight,
-                                                  ),
-                                                  borderRadius:
-                                                      BorderRadius.circular(
-                                                          999),
-                                                  border: Border.all(
-                                                    color: Colors.white
-                                                        .withValues(alpha: 0.7),
-                                                  ),
-                                                ),
-                                                child: Text(
-                                                  value.toString(),
-                                                  style: const TextStyle(
-                                                    color: Color(0xFF2A2C5A),
-                                                    fontSize: 12,
-                                                    fontWeight: FontWeight.w800,
-                                                  ),
-                                                ),
-                                              );
-                                            }
-
-                                            return Column(
-                                              children: [
-                                                SizedBox(
-                                                  height: 32,
-                                                  child: Stack(
-                                                    children: [
-                                                      Positioned(
-                                                        left: minOffset,
-                                                        child:
-                                                            valueBubble(minAge),
-                                                      ),
-                                                      Positioned(
-                                                        left: maxOffset,
-                                                        child:
-                                                            valueBubble(maxAge),
-                                                      ),
-                                                    ],
-                                                  ),
-                                                ),
-                                                RangeSlider(
-                                                  values: _ageRange,
-                                                  min:
-                                                      minimumUserAge.toDouble(),
-                                                  max: maximumAgeRange
-                                                      .toDouble(),
-                                                  divisions: maximumAgeRange -
-                                                      minimumUserAge,
-                                                  onChanged: (v) => setState(
-                                                      () => _ageRange = v),
-                                                  activeColor:
-                                                      const Color(0xFF9E7CFF),
-                                                ),
-                                              ],
-                                            );
-                                          },
+                                        Text(
+                                          _executionDate != null
+                                              ? 'תאריך ביצוע: ${_executionDate!.day}/${_executionDate!.month}/${_executionDate!.year} ${_executionDate!.hour.toString().padLeft(2, '0')}:${_executionDate!.minute.toString().padLeft(2, '0')}'
+                                              : 'תאריך ביצוע',
+                                          style: TextStyle(
+                                              color: isLight
+                                                  ? Colors.black87
+                                                  : Colors.white70),
                                         ),
+                                        Icon(Icons.calendar_today,
+                                            color: isLight
+                                                ? Colors.black54
+                                                : Colors.white54,
+                                            size: 20),
                                       ],
                                     ),
                                   ),
-                                ],
-                              ),
-                              Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text('אישור מנהל',
-                                      style: TextStyle(
-                                          color: isLight
-                                              ? Colors.black
-                                              : Colors.white)),
-                                  Switch(
-                                    value: _adminApproval,
-                                    activeThumbColor: const Color(0xFF9E7CFF),
-                                    onChanged: (v) =>
-                                        setState(() => _adminApproval = v),
-                                  ),
-                                ],
-                              ),
-                              Align(
-                                alignment: Alignment.centerRight,
-                                child: Text(
-                                  _adminApproval
-                                      ? 'מצב אישור מנהל פעיל: כל בקשת הצטרפות תמתין לאישור.'
-                                      : 'מצב אישור מנהל כבוי: משתמשים מתאימים יצורפו אוטומטית.',
-                                  textAlign: TextAlign.right,
+                                ),
+                                const SizedBox(height: 8),
+                                TextField(
+                                  controller: _regionController,
+                                  onTapOutside: (_) {},
                                   style: TextStyle(
-                                    color: isLight
-                                        ? Colors.black54
-                                        : Colors.white54,
-                                    fontSize: 12,
-                                    height: 1.25,
+                                      color: isLight
+                                          ? Colors.black
+                                          : Colors.white),
+                                  decoration: InputDecoration(
+                                      hintText: 'אזור הקבוצה',
+                                      hintStyle: TextStyle(
+                                          color: isLight
+                                              ? Colors.black54
+                                              : Colors.white54),
+                                      filled: true,
+                                      fillColor: isLight
+                                          ? Colors.white.withValues(alpha: 0.62)
+                                          : const Color(0xFF1E2632),
+                                      border: InputBorder.none),
+                                ),
+                                const Padding(
+                                  padding: EdgeInsets.only(top: 6, right: 4),
+                                  child: Text(
+                                    'אין לציין כתובת מדויקת! רק אזור כללי כמו שכונה, עיר או מקום ציבורי',
+                                    textAlign: TextAlign.right,
+                                    style: TextStyle(
+                                      color: Color(0xFF9AB0FF),
+                                      fontSize: 12,
+                                    ),
                                   ),
                                 ),
-                              ),
+                                const SizedBox(height: 8),
+                                TextField(
+                                  controller: _minScoreController,
+                                  onTapOutside: (_) {},
+                                  keyboardType: TextInputType.number,
+                                  style: TextStyle(
+                                      color: isLight
+                                          ? Colors.black
+                                          : Colors.white),
+                                  decoration: InputDecoration(
+                                      hintText: 'ניקוד מינימלי (אופציונלי)',
+                                      hintStyle: TextStyle(
+                                          color: isLight
+                                              ? Colors.black54
+                                              : Colors.white54),
+                                      filled: true,
+                                      fillColor: isLight
+                                          ? Colors.white.withValues(alpha: 0.62)
+                                          : const Color(0xFF1E2632),
+                                      border: InputBorder.none),
+                                ),
+                                const SizedBox(height: 8),
+                                Row(
+                                  children: [
+                                    Text('טווח גילאים',
+                                        style: TextStyle(
+                                            color: isLight
+                                                ? Colors.black
+                                                : Colors.white)),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.stretch,
+                                        children: [
+                                          LayoutBuilder(
+                                            builder: (context, constraints) {
+                                              final minAge =
+                                                  _ageRange.start.round();
+                                              final maxAge =
+                                                  _ageRange.end.round();
+                                              final isRtl =
+                                                  Directionality.of(context) ==
+                                                      TextDirection.rtl;
+                                              const bubbleWidth = 42.0;
+                                              const thumbRadius = 10.0;
+                                              final trackWidth =
+                                                  constraints.maxWidth >
+                                                          thumbRadius * 2
+                                                      ? constraints.maxWidth -
+                                                          thumbRadius * 2
+                                                      : 0.0;
+                                              final maxBubbleLeft = (constraints
+                                                          .maxWidth -
+                                                      bubbleWidth)
+                                                  .clamp(0.0, double.infinity);
+                                              double thumbOffsetFor(int value) {
+                                                final normalized =
+                                                    (value - minimumUserAge) /
+                                                        (maximumAgeRange -
+                                                            minimumUserAge);
+                                                final adjusted = isRtl
+                                                    ? 1 - normalized
+                                                    : normalized;
+                                                final thumbCenter =
+                                                    thumbRadius +
+                                                        trackWidth *
+                                                            adjusted.clamp(
+                                                              0.0,
+                                                              1.0,
+                                                            );
+                                                return thumbCenter -
+                                                    (bubbleWidth / 2);
+                                              }
+
+                                              double bubbleLeftFor(int value) {
+                                                return thumbOffsetFor(value)
+                                                    .clamp(0.0, maxBubbleLeft);
+                                              }
+
+                                              final minOffset =
+                                                  bubbleLeftFor(minAge);
+                                              final maxOffset =
+                                                  bubbleLeftFor(maxAge);
+
+                                              Widget valueBubble(int value) {
+                                                return Container(
+                                                  width: bubbleWidth,
+                                                  alignment: Alignment.center,
+                                                  padding: const EdgeInsets
+                                                      .symmetric(
+                                                    vertical: 5,
+                                                  ),
+                                                  decoration: BoxDecoration(
+                                                    gradient:
+                                                        const LinearGradient(
+                                                      colors: [
+                                                        Color(0xFF8DE8FF),
+                                                        Color(0xFFC6B2FF),
+                                                      ],
+                                                      begin: Alignment.topLeft,
+                                                      end:
+                                                          Alignment.bottomRight,
+                                                    ),
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                            999),
+                                                    border: Border.all(
+                                                      color: Colors.white
+                                                          .withValues(
+                                                              alpha: 0.7),
+                                                    ),
+                                                  ),
+                                                  child: Text(
+                                                    value.toString(),
+                                                    style: const TextStyle(
+                                                      color: Color(0xFF2A2C5A),
+                                                      fontSize: 12,
+                                                      fontWeight:
+                                                          FontWeight.w800,
+                                                    ),
+                                                  ),
+                                                );
+                                              }
+
+                                              return Column(
+                                                children: [
+                                                  SizedBox(
+                                                    height: 32,
+                                                    child: Stack(
+                                                      children: [
+                                                        Positioned(
+                                                          left: minOffset,
+                                                          child: valueBubble(
+                                                              minAge),
+                                                        ),
+                                                        Positioned(
+                                                          left: maxOffset,
+                                                          child: valueBubble(
+                                                              maxAge),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  ),
+                                                  RangeSlider(
+                                                    values: _ageRange,
+                                                    min: minimumUserAge
+                                                        .toDouble(),
+                                                    max: maximumAgeRange
+                                                        .toDouble(),
+                                                    divisions: maximumAgeRange -
+                                                        minimumUserAge,
+                                                    onChanged: (v) => setState(
+                                                        () => _ageRange = v),
+                                                    activeColor:
+                                                        const Color(0xFF9E7CFF),
+                                                  ),
+                                                ],
+                                              );
+                                            },
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text('אישור מנהל',
+                                        style: TextStyle(
+                                            color: isLight
+                                                ? Colors.black
+                                                : Colors.white)),
+                                    Switch(
+                                      value: _adminApproval,
+                                      activeThumbColor: const Color(0xFF9E7CFF),
+                                      onChanged: (v) =>
+                                          setState(() => _adminApproval = v),
+                                    ),
+                                  ],
+                                ),
+                                Align(
+                                  alignment: Alignment.centerRight,
+                                  child: Text(
+                                    _adminApproval
+                                        ? 'מצב אישור מנהל פעיל: כל בקשת הצטרפות תמתין לאישור.'
+                                        : 'מצב אישור מנהל כבוי: משתמשים מתאימים יצורפו אוטומטית.',
+                                    textAlign: TextAlign.right,
+                                    style: TextStyle(
+                                      color: isLight
+                                          ? Colors.black54
+                                          : Colors.white54,
+                                      fontSize: 12,
+                                      height: 1.25,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                              const SizedBox(height: 10),
                             ],
-                            const SizedBox(height: 10),
-                          ],
+                          ),
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 4),
-                    ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                          backgroundColor:
-                              isLight ? Colors.white : const Color(0xFF9E7CFF),
-                          foregroundColor:
-                              isLight ? const Color(0xFF9E7CFF) : Colors.black,
-                          side: isLight
-                              ? const BorderSide(color: Color(0xFFB79BFF))
-                              : BorderSide.none,
-                          minimumSize: const Size.fromHeight(52)),
-                      onPressed: _isCreating ? null : _createGroup,
-                      child: _isCreating
-                          ? SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: isLight
-                                      ? const Color(0xFF9E7CFF)
-                                      : Colors.black),
-                            )
-                          : Text('צור קבוצה!',
-                              style: TextStyle(
-                                  color: isLight
-                                      ? const Color(0xFF9E7CFF)
-                                      : Colors.black,
-                                  fontWeight: FontWeight.bold)),
-                    ),
-                  ],
+                      const SizedBox(height: 4),
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                            backgroundColor: isLight
+                                ? Colors.white
+                                : const Color(0xFF9E7CFF),
+                            foregroundColor: isLight
+                                ? const Color(0xFF9E7CFF)
+                                : Colors.black,
+                            side: isLight
+                                ? const BorderSide(color: Color(0xFFB79BFF))
+                                : BorderSide.none,
+                            minimumSize: const Size.fromHeight(52)),
+                        onPressed: _isCreating ? null : _createGroup,
+                        child: _isCreating
+                            ? SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: isLight
+                                        ? const Color(0xFF9E7CFF)
+                                        : Colors.black),
+                              )
+                            : Text('צור קבוצה!',
+                                style: TextStyle(
+                                    color: isLight
+                                        ? const Color(0xFF9E7CFF)
+                                        : Colors.black,
+                                    fontWeight: FontWeight.bold)),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
               ),
             ),
           ],

@@ -76,11 +76,12 @@ class NotificationRuntimeService with WidgetsBindingObserver {
     }
 
     final localPlugin = FlutterLocalNotificationsPlugin();
-    const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const androidSettings =
+        AndroidInitializationSettings('@mipmap/ic_launcher');
     const darwinSettings = DarwinInitializationSettings(
-      requestAlertPermission: true,
-      requestBadgePermission: true,
-      requestSoundPermission: true,
+      requestAlertPermission: false,
+      requestBadgePermission: false,
+      requestSoundPermission: false,
       defaultPresentAlert: true,
       defaultPresentBadge: true,
       defaultPresentSound: true,
@@ -115,14 +116,16 @@ class NotificationRuntimeService with WidgetsBindingObserver {
           const AndroidNotificationChannel(
             'hundred_notifications',
             'Hundred Notifications',
-            description: 'Heads-up notifications for user activity and challenges',
+            description:
+                'Heads-up notifications for user activity and challenges',
             importance: Importance.max,
             playSound: true,
             enableVibration: true,
           ),
         );
 
-    final id = 'background_${message.messageId ?? DateTime.now().microsecondsSinceEpoch}';
+    final id =
+        'background_${message.messageId ?? DateTime.now().microsecondsSinceEpoch}';
     final rendered = _renderExternalNotificationContent(
       data: payload,
       fallbackTitle: title,
@@ -131,7 +134,8 @@ class NotificationRuntimeService with WidgetsBindingObserver {
     final previewUrl = _resolvePostPreviewUrl(payload);
     final previewPath = await _downloadImageToTemp(
       imageUrl: previewUrl,
-      filePrefix: 'bg_notif_${message.messageId ?? DateTime.now().microsecondsSinceEpoch}',
+      filePrefix:
+          'bg_notif_${message.messageId ?? DateTime.now().microsecondsSinceEpoch}',
     );
     final details = _buildExternalNotificationDetails(
       body: rendered.body,
@@ -184,11 +188,12 @@ class NotificationRuntimeService with WidgetsBindingObserver {
   Future<void> initialize() async {
     WidgetsBinding.instance.addObserver(this);
 
-    const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const androidSettings =
+        AndroidInitializationSettings('@mipmap/ic_launcher');
     const darwinSettings = DarwinInitializationSettings(
-      requestAlertPermission: true,
-      requestBadgePermission: true,
-      requestSoundPermission: true,
+      requestAlertPermission: false,
+      requestBadgePermission: false,
+      requestSoundPermission: false,
       defaultPresentAlert: true,
       defaultPresentBadge: true,
       defaultPresentSound: true,
@@ -231,12 +236,8 @@ class NotificationRuntimeService with WidgetsBindingObserver {
             AndroidFlutterLocalNotificationsPlugin>()
         ?.createNotificationChannel(channel);
 
-    await _localNotifications
-        .resolvePlatformSpecificImplementation<
-            IOSFlutterLocalNotificationsPlugin>()
-        ?.requestPermissions(alert: true, badge: true, sound: true);
-
-    final permission = await _messaging.requestPermission(alert: true, badge: true, sound: true);
+    final permission = await _messaging.requestPermission(
+        alert: true, badge: true, sound: true);
     debugPrint('FCM permission status: ${permission.authorizationStatus.name}');
     await _messaging.setForegroundNotificationPresentationOptions(
       alert: true,
@@ -396,21 +397,21 @@ class NotificationRuntimeService with WidgetsBindingObserver {
         }
       }
     });
-
   }
 
   Future<void> _saveMessagingToken(String uid, {String? forcedToken}) async {
     try {
       final token = forcedToken ?? await _messaging.getToken();
       final normalizedToken = (token ?? '').trim();
-      debugPrint('FCM token generated for uid=$uid: ${normalizedToken.isEmpty ? 'EMPTY' : normalizedToken.substring(0, 20)}...');
+      debugPrint(
+          'FCM token generated for uid=$uid: ${normalizedToken.isEmpty ? 'EMPTY' : normalizedToken.substring(0, 20)}...');
       if (normalizedToken.isEmpty) {
         return;
       }
 
       await _db.collection('users').doc(uid).set(
         <String, dynamic>{
-          'fcmTokens.$normalizedToken': true,
+          'fcmTokenList': FieldValue.arrayUnion(<String>[normalizedToken]),
           'fcmTokenUpdatedAt': FieldValue.serverTimestamp(),
         },
         SetOptions(merge: true),
@@ -598,7 +599,8 @@ class NotificationRuntimeService with WidgetsBindingObserver {
         final likeTitle = likeCount > 1
             ? 'יש לך $likeCount לייקים על הפוסט'
             : 'יש לך לייק חדש על הפוסט';
-        final likeBody = actorName.isEmpty ? body : '$actorName אהב/ה את הפוסט שלך';
+        final likeBody =
+            actorName.isEmpty ? body : '$actorName אהב/ה את הפוסט שלך';
         return _ExternalNotificationContent(title: likeTitle, body: likeBody);
       case NotificationTypes.groupJoin:
         final groupName = (data['groupName'] as String? ?? '').trim();
@@ -701,10 +703,11 @@ class NotificationRuntimeService with WidgetsBindingObserver {
       }
     }
 
-    final names = (data['addedUserNames'] as List<dynamic>? ?? const <dynamic>[])
-        .map((item) => item.toString().trim())
-        .where((item) => item.isNotEmpty)
-        .toSet();
+    final names =
+        (data['addedUserNames'] as List<dynamic>? ?? const <dynamic>[])
+            .map((item) => item.toString().trim())
+            .where((item) => item.isNotEmpty)
+            .toSet();
     return names.isEmpty ? 1 : names.length;
   }
 
@@ -714,10 +717,11 @@ class NotificationRuntimeService with WidgetsBindingObserver {
       return singleName;
     }
 
-    final names = (data['addedUserNames'] as List<dynamic>? ?? const <dynamic>[])
-        .map((item) => item.toString().trim())
-        .where((item) => item.isNotEmpty)
-        .toList(growable: false);
+    final names =
+        (data['addedUserNames'] as List<dynamic>? ?? const <dynamic>[])
+            .map((item) => item.toString().trim())
+            .where((item) => item.isNotEmpty)
+            .toList(growable: false);
     if (names.isNotEmpty) {
       return names.first;
     }
@@ -725,7 +729,8 @@ class NotificationRuntimeService with WidgetsBindingObserver {
     return 'משתמש';
   }
 
-  static int _parseWarningHours(Map<String, dynamic> data, String fallbackBody) {
+  static int _parseWarningHours(
+      Map<String, dynamic> data, String fallbackBody) {
     final raw = data['warningHoursRemaining'];
     if (raw is num && raw.toInt() > 0) {
       return raw.toInt();
@@ -748,12 +753,15 @@ class NotificationRuntimeService with WidgetsBindingObserver {
     return 1;
   }
 
-  static String _parseMessagePreviewText(Map<String, dynamic> data, String fallbackBody) {
+  static String _parseMessagePreviewText(
+      Map<String, dynamic> data, String fallbackBody) {
     final rawBody = (data['body'] as String? ?? fallbackBody).trim();
     if (rawBody.isEmpty) {
       return 'שלח/ה הודעה חדשה';
     }
-    if (rawBody.length >= 2 && rawBody.startsWith('"') && rawBody.endsWith('"')) {
+    if (rawBody.length >= 2 &&
+        rawBody.startsWith('"') &&
+        rawBody.endsWith('"')) {
       return rawBody.substring(1, rawBody.length - 1).trim();
     }
     return rawBody;

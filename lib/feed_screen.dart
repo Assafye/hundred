@@ -377,7 +377,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
     unawaited(
       Future<void>.delayed(const Duration(seconds: 2), () async {
         final contextToClose = dialogRouteContext;
-        if (!mounted || contextToClose == null) {
+        if (!mounted || contextToClose == null || !contextToClose.mounted) {
           return;
         }
 
@@ -666,25 +666,26 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
               colors: isLight
                   ? [timerTopColor, timerBottomColor]
                   : [
-                      timerTopColor.withOpacity(0.82),
-                      timerBottomColor.withOpacity(0.82)
+                      timerTopColor.withValues(alpha: 0.82),
+                      timerBottomColor.withValues(alpha: 0.82)
                     ],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
             borderRadius: BorderRadius.circular(22),
             border: Border.all(
-              color: Colors.white.withOpacity(0.8),
+              color: Colors.white.withValues(alpha: 0.8),
               width: 1.4,
             ),
             boxShadow: [
               BoxShadow(
-                color: timerTopColor.withOpacity(isLight ? 0.28 : 0.22),
+                color: timerTopColor.withValues(alpha: isLight ? 0.28 : 0.22),
                 blurRadius: 18,
                 offset: const Offset(0, 7),
               ),
               BoxShadow(
-                color: timerBottomColor.withOpacity(isLight ? 0.24 : 0.18),
+                color:
+                    timerBottomColor.withValues(alpha: isLight ? 0.24 : 0.18),
                 blurRadius: 20,
                 offset: const Offset(0, 10),
               ),
@@ -751,12 +752,14 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
         ),
         borderRadius: BorderRadius.circular(18),
         border: Border.all(
-          color: const Color(0xFF9AC7FF).withOpacity(isLight ? 0.55 : 0.6),
+          color:
+              const Color(0xFF9AC7FF).withValues(alpha: isLight ? 0.55 : 0.6),
           width: 1,
         ),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF8DE8FF).withOpacity(isLight ? 0.12 : 0.16),
+            color: const Color(0xFF8DE8FF)
+                .withValues(alpha: isLight ? 0.12 : 0.16),
             blurRadius: 12,
             offset: const Offset(0, 4),
           ),
@@ -3518,7 +3521,8 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
         // already blocked/scoped posts instead of showing nothing.
         _audienceFilteredPostsCache.remove(signature);
         if (kDebugMode) {
-          debugPrint('Audience filter failed, showing posts unfiltered: $error');
+          debugPrint(
+              'Audience filter failed, showing posts unfiltered: $error');
         }
         return posts;
       }),
@@ -3918,7 +3922,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                         audienceSnapshot.connectionState ==
                                 ConnectionState.waiting &&
                             !audienceSnapshot.hasData &&
-                            !feedPosts.isEmpty;
+                            feedPosts.isNotEmpty;
 
                     return Scaffold(
                       extendBody: true,

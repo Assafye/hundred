@@ -24,7 +24,8 @@ class _NotificationSettingsScreenState
 
   Future<void> _setAll(bool value) async {
     if (_isBulkSaving) return;
-    final keys = NotificationService.defaultSettings.keys.toList(growable: false);
+    final keys =
+        NotificationService.defaultSettings.keys.toList(growable: false);
     setState(() {
       _isBulkSaving = true;
       for (final key in keys) {
@@ -49,11 +50,12 @@ class _NotificationSettingsScreenState
         }
       });
     } finally {
-      if (!mounted) return;
-      setState(() {
-        _isBulkSaving = false;
-        _savingKeys.clear();
-      });
+      if (mounted) {
+        setState(() {
+          _isBulkSaving = false;
+          _savingKeys.clear();
+        });
+      }
     }
   }
 
@@ -82,10 +84,11 @@ class _NotificationSettingsScreenState
         SnackBar(content: Text('עדכון הגדרת התראה נכשל: $error')),
       );
     } finally {
-      if (!mounted) return;
-      setState(() {
-        _savingKeys.remove(key);
-      });
+      if (mounted) {
+        setState(() {
+          _savingKeys.remove(key);
+        });
+      }
     }
   }
 
@@ -184,16 +187,18 @@ class _NotificationSettingsScreenState
                                 children: [
                                   Expanded(
                                     child: OutlinedButton(
-                                      onPressed:
-                                          _isBulkSaving ? null : () => _setAll(true),
+                                      onPressed: _isBulkSaving
+                                          ? null
+                                          : () => _setAll(true),
                                       child: const Text('הפעל הכל'),
                                     ),
                                   ),
                                   const SizedBox(width: 10),
                                   Expanded(
                                     child: OutlinedButton(
-                                      onPressed:
-                                          _isBulkSaving ? null : () => _setAll(false),
+                                      onPressed: _isBulkSaving
+                                          ? null
+                                          : () => _setAll(false),
                                       child: const Text('כבה הכל'),
                                     ),
                                   ),

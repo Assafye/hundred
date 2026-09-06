@@ -1,5 +1,6 @@
 const { initializeApp } = require('firebase-admin/app');
 const { FieldValue, getFirestore } = require('firebase-admin/firestore');
+const { getMessaging } = require('firebase-admin/messaging');
 const { HttpsError, onCall } = require('firebase-functions/v2/https');
 const { onDocumentCreated } = require('firebase-functions/v2/firestore');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
@@ -10,11 +11,46 @@ const {
 
 initializeApp();
 const db = getFirestore();
+const messaging = getMessaging();
 const REGION = 'europe-west3';
 const MAX_RESULTS = 360;
 const POST_LIFETIME_MS = 24 * 60 * 60 * 1000;
 const RATE_LIMIT_MS = 10 * 1000;
 const GEOHASH_ALPHABET = '0123456789bcdefghjkmnpqrstuvwxyz';
+
+function collectFcmTokens(data) {
+  const tokens = new Set();
+  const tokenList = Array.isArray(data.fcmTokenList) ? data.fcmTokenList : [];
+  for (const token of tokenList) {
+    const normalized = String(token ?? '').trim();
+    if (normalized) tokens.add(normalized);
+  }
+
+  function collectFromMap(value, prefix = '') {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return;
+    for (const [key, child] of Object.entries(value)) {
+      const path = prefix ? `${prefix}.${key}` : key;
+      if (child === true) {
+        const normalized = path.trim();
+        if (normalized) tokens.add(normalized);
+      } else {
+        collectFromMap(child, path);
+      }
+    }
+  }
+
+  collectFromMap(data.fcmTokens || {});
+  return [...tokens];
+}
+
+function notificationDataPayload(notificationId, data) {
+  const payload = { notificationId };
+  for (const key of ['type', 'postId', 'chatId', 'groupId', 'commentId']) {
+    const value = String(data[key] ?? '').trim();
+    if (value) payload[key] = value;
+  }
+  return payload;
+}
 
 function encodeGeoHash(latitude, longitude, precision) {
   let minLatitude = -90;
@@ -134,6 +170,57 @@ exports.processFollowSecureAction = onDocumentCreated(
         updatedAt: FieldValue.serverTimestamp(),
       }, { merge: true });
       throw error;
+    }
+  },
+);
+
+exports.sendPushForNotification = onDocumentCreated(
+  { document: 'users/{uid}/notifications/{notificationId}', region: REGION },
+  async (event) => {
+    const snapshot = event.data;
+    if (!snapshot) return;
+
+    const uid = String(event.params.uid ?? '').trim();
+    if (!uid) return;
+
+    const data = snapshot.data() || {};
+    const title = String(data.title ?? '').trim();
+    const body = String(data.body ?? '').trim();
+    if (!title && !body) return;
+
+    const userSnap = await db.collection('users').doc(uid).get();
+    if (!userSnap.exists) return;
+
+    const tokens = collectFcmTokens(userSnap.data() || {});
+    if (!tokens.length) return;
+
+    const response = await messaging.sendEachForMulticast({
+      tokens,
+      notification: { title, body },
+      data: notificationDataPayload(snapshot.id, data),
+      android: {
+        priority: 'high',
+        notification: {
+          channelId: 'hundred_notifications',
+          priority: 'high',
+          defaultSound: true,
+        },
+      },
+      apns: {
+        payload: {
+          aps: {
+            sound: 'default',
+          },
+        },
+      },
+    });
+
+    if (response.failureCount > 0) {
+      console.warn('Push notification failures', {
+        uid,
+        notificationId: snapshot.id,
+        failureCount: response.failureCount,
+      });
     }
   },
 );

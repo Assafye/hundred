@@ -23,14 +23,16 @@ class LocationService with WidgetsBindingObserver {
   Position? _lastPosition;
   DateTime? _lastSyncAt;
   bool _started = false;
-  bool _syncInFlight = false;
+  Future<void>? _syncInFlight;
 
   Future<void> _syncActiveMeetNowPostsLocation({
     required String uid,
     required GeoPoint geoPoint,
   }) async {
-    final authoredPosts =
-        await _firestore.collection('meet_now_posts').where('authorUid', isEqualTo: uid).get();
+    final authoredPosts = await _firestore
+        .collection('meet_now_posts')
+        .where('authorUid', isEqualTo: uid)
+        .get();
     if (authoredPosts.docs.isEmpty) {
       return;
     }
@@ -63,7 +65,8 @@ class LocationService with WidgetsBindingObserver {
 
     for (final doc in authoredPosts.docs) {
       final data = doc.data();
-      final status = (data['status'] as String? ?? 'active').trim().toLowerCase();
+      final status =
+          (data['status'] as String? ?? 'active').trim().toLowerCase();
       if (status != 'active') {
         continue;
       }
@@ -80,14 +83,17 @@ class LocationService with WidgetsBindingObserver {
       }
 
       batch ??= _firestore.batch();
-      batch!.set(doc.reference, {
-        'geo': FieldValue.delete(),
-        'latitude': FieldValue.delete(),
-        'longitude': FieldValue.delete(),
-        'discoveryGeo': discoveryGeo,
-        'geohash': geohash,
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      batch!.set(
+          doc.reference,
+          {
+            'geo': FieldValue.delete(),
+            'latitude': FieldValue.delete(),
+            'longitude': FieldValue.delete(),
+            'discoveryGeo': discoveryGeo,
+            'geohash': geohash,
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true));
       writesInBatch += 1;
       await commitBatchIfNeeded();
     }
@@ -120,10 +126,23 @@ class LocationService with WidgetsBindingObserver {
   }
 
   Future<void> syncCurrentLocation({bool force = false}) async {
-    if (_syncInFlight) {
-      return;
+    final activeSync = _syncInFlight;
+    if (activeSync != null) {
+      return activeSync;
     }
 
+    final syncFuture = _syncCurrentLocation(force: force);
+    _syncInFlight = syncFuture;
+    try {
+      await syncFuture;
+    } finally {
+      if (identical(_syncInFlight, syncFuture)) {
+        _syncInFlight = null;
+      }
+    }
+  }
+
+  Future<void> _syncCurrentLocation({required bool force}) async {
     final uid = _auth.currentUser?.uid.trim();
     if (uid == null || uid.isEmpty) {
       return;
@@ -138,19 +157,18 @@ class LocationService with WidgetsBindingObserver {
       }
     }
 
-    _syncInFlight = true;
     try {
-      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        return;
-      }
-
       var permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
       }
       if (permission == LocationPermission.denied ||
           permission == LocationPermission.deniedForever) {
+        return;
+      }
+
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
         return;
       }
 
@@ -186,10 +204,7 @@ class LocationService with WidgetsBindingObserver {
       };
 
       await Future.wait([
-        _firestore
-            .collection('users')
-            .doc(uid)
-            .set({
+        _firestore.collection('users').doc(uid).set({
           'geo': FieldValue.delete(),
           'latitude': FieldValue.delete(),
           'longitude': FieldValue.delete(),
@@ -214,8 +229,6 @@ class LocationService with WidgetsBindingObserver {
       ]);
     } catch (error) {
       debugPrint('[LocationService] sync failed: $error');
-    } finally {
-      _syncInFlight = false;
     }
   }
 

@@ -306,10 +306,11 @@ class _ChatRoomScreenState extends State<ChatRoomScreen>
         SnackBar(content: Text(message)),
       );
     } finally {
-      if (!mounted) return;
-      setState(() {
-        _isSendingText = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isSendingText = false;
+        });
+      }
     }
   }
 

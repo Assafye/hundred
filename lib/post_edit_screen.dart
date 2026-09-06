@@ -123,9 +123,12 @@ class _PostEditScreenState extends State<PostEditScreen> {
   List<String> _editableExistingMediaUrls = <String>[];
   final Map<String, Future<Uint8List?>> _videoPreviewFutureByUrl = {};
   final Map<String, Future<String?>> _resolvedPreviewUrlFutureBySource = {};
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>?
+      _editedPostSubscription;
   bool _friendsLoading = false;
   bool _isPublishing = false;
   bool _isDeleting = false;
+  bool _isLeavingDeletedPost = false;
   int _currentMediaIndex = 0;
 
   String? _mainCategory;
@@ -221,7 +224,50 @@ class _PostEditScreenState extends State<PostEditScreen> {
           (post.audience.trim().isNotEmpty ? post.audience : 'public').trim();
 
       _editableExistingMediaUrls = _existingMediaUrlsForEdit();
+      _watchEditedPostExists(post.id);
     }
+  }
+
+  void _watchEditedPostExists(String postId) {
+    final normalizedPostId = postId.trim();
+    if (normalizedPostId.isEmpty) {
+      return;
+    }
+
+    _editedPostSubscription = FirebaseFirestore.instance
+        .collection('posts')
+        .doc(normalizedPostId)
+        .snapshots()
+        .listen((snapshot) {
+      if (!mounted || snapshot.exists) {
+        return;
+      }
+      _leaveDeletedPostEditor(showSnackBar: false);
+    });
+  }
+
+  void _leaveDeletedPostEditor({required bool showSnackBar}) {
+    if (!mounted || _isLeavingDeletedPost) {
+      return;
+    }
+    _isLeavingDeletedPost = true;
+    unawaited(_editedPostSubscription?.cancel());
+    _editedPostSubscription = null;
+
+    if (showSnackBar) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('הפוסט נמחק בהצלחה'),
+          backgroundColor: Color(0xFFD94B4B),
+        ),
+      );
+    }
+
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(builder: (context) => const MainUserProfileScreen()),
+      (route) => false,
+    );
   }
 
   Future<void> _hydrateLinkedGroupLabel(String groupId) async {
@@ -389,6 +435,7 @@ class _PostEditScreenState extends State<PostEditScreen> {
 
   @override
   void dispose() {
+    unawaited(_editedPostSubscription?.cancel());
     KeyboardDismissController.resume();
     _titleController.dispose();
     _descController.dispose();
@@ -399,7 +446,11 @@ class _PostEditScreenState extends State<PostEditScreen> {
 
   bool _tapHitsEditable(PointerDownEvent event) {
     final hitTestResult = HitTestResult();
-    GestureBinding.instance.hitTest(hitTestResult, event.position);
+    GestureBinding.instance.hitTestInView(
+      hitTestResult,
+      event.position,
+      event.viewId,
+    );
     for (final entry in hitTestResult.path) {
       if (entry.target is RenderEditable) {
         return true;
@@ -2310,7 +2361,8 @@ class _PostEditScreenState extends State<PostEditScreen> {
 
       if (error is StateError) {
         final message = error.message.toString().toLowerCase();
-        if (message.contains('logged in') || message.contains('authenticated')) {
+        if (message.contains('logged in') ||
+            message.contains('authenticated')) {
           return 'צריך להתחבר כדי לפרסם פוסט.';
         }
       }
@@ -2634,6 +2686,10 @@ class _PostEditScreenState extends State<PostEditScreen> {
       return;
     }
 
+    if (!mounted) {
+      return;
+    }
+
     setState(() {
       _isDeleting = true;
     });
@@ -2656,18 +2712,7 @@ class _PostEditScreenState extends State<PostEditScreen> {
       return;
     }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('הפוסט נמחק בהצלחה'),
-        backgroundColor: Color(0xFFD94B4B),
-      ),
-    );
-
-    Navigator.pushAndRemoveUntil(
-      context,
-      MaterialPageRoute(builder: (context) => const MainUserProfileScreen()),
-      (route) => false,
-    );
+    _leaveDeletedPostEditor(showSnackBar: true);
   }
 
   List<PostMediaItem> _existingMediaItemsForEdit() {
@@ -2862,7 +2907,8 @@ class _PostEditScreenState extends State<PostEditScreen> {
                                     return Image.network(
                                       resolvedUrl,
                                       fit: BoxFit.cover,
-                                      errorBuilder: (context, error, stackTrace) {
+                                      errorBuilder:
+                                          (context, error, stackTrace) {
                                         return Container(
                                           color: isLight
                                               ? const Color(0xFFE9F1FF)
@@ -3016,108 +3062,109 @@ class _PostEditScreenState extends State<PostEditScreen> {
           child: SizedBox(
             height: previewHeight,
             child: Stack(
-            children: [
-              PageView.builder(
-                controller: _mediaPageController,
-                padEnds: false,
-                itemCount: _draftMediaItems.length,
-                onPageChanged: (index) {
-                  setState(() {
-                    _currentMediaIndex = index;
-                  });
-                },
-                itemBuilder: (context, index) {
-                  final item = _draftMediaItems[index];
-                  return AnimatedBuilder(
-                    animation: _mediaPageController,
-                    builder: (context, child) {
-                      double pageValue = _currentMediaIndex.toDouble();
-                      if (_mediaPageController.hasClients &&
-                          _mediaPageController.position.hasContentDimensions) {
-                        pageValue = _mediaPageController.page ?? pageValue;
-                      }
-                      final distance =
-                          (index - pageValue).abs().clamp(0.0, 1.6);
-                      final scale = 1 - (distance * 0.18);
-                      final rotation = (index - pageValue) * 0.10;
-                      final verticalOffset = distance * 34;
+              children: [
+                PageView.builder(
+                  controller: _mediaPageController,
+                  padEnds: false,
+                  itemCount: _draftMediaItems.length,
+                  onPageChanged: (index) {
+                    setState(() {
+                      _currentMediaIndex = index;
+                    });
+                  },
+                  itemBuilder: (context, index) {
+                    final item = _draftMediaItems[index];
+                    return AnimatedBuilder(
+                      animation: _mediaPageController,
+                      builder: (context, child) {
+                        double pageValue = _currentMediaIndex.toDouble();
+                        if (_mediaPageController.hasClients &&
+                            _mediaPageController
+                                .position.hasContentDimensions) {
+                          pageValue = _mediaPageController.page ?? pageValue;
+                        }
+                        final distance =
+                            (index - pageValue).abs().clamp(0.0, 1.6);
+                        final scale = 1 - (distance * 0.18);
+                        final rotation = (index - pageValue) * 0.10;
+                        final verticalOffset = distance * 34;
 
-                      return Center(
-                        child: Transform.translate(
-                          offset: Offset(0, verticalOffset),
-                          child: Transform.rotate(
-                            angle: rotation,
-                            child: Transform.scale(
-                              scale: scale,
-                              child: Opacity(
-                                opacity: 1 - (distance * 0.28),
-                                child: child,
+                        return Center(
+                          child: Transform.translate(
+                            offset: Offset(0, verticalOffset),
+                            child: Transform.rotate(
+                              angle: rotation,
+                              child: Transform.scale(
+                                scale: scale,
+                                child: Opacity(
+                                  opacity: 1 - (distance * 0.28),
+                                  child: child,
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                      );
-                    },
-                    child: AspectRatio(
-                      aspectRatio: 9 / 16,
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(24),
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF0F1522),
-                            border: Border.all(
-                              color: index == _currentMediaIndex
-                                  ? const Color(0xFF9E7CFF)
-                                  : Colors.white12,
+                        );
+                      },
+                      child: AspectRatio(
+                        aspectRatio: 9 / 16,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(24),
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF0F1522),
+                              border: Border.all(
+                                color: index == _currentMediaIndex
+                                    ? const Color(0xFF9E7CFF)
+                                    : Colors.white12,
+                              ),
                             ),
+                            child: _buildLocalMediaPreview(item),
                           ),
-                          child: _buildLocalMediaPreview(item),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+                if (_draftMediaItems.length > 1)
+                  Positioned(
+                    bottom: 14,
+                    left: 0,
+                    right: 0,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: List.generate(
+                        _draftMediaItems.length,
+                        (index) => Container(
+                          width: 8,
+                          height: 8,
+                          margin: const EdgeInsets.symmetric(horizontal: 3),
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: index == _currentMediaIndex
+                                ? Colors.white
+                                : Colors.white38,
+                          ),
                         ),
                       ),
                     ),
-                  );
-                },
-              ),
-              if (_draftMediaItems.length > 1)
+                  ),
                 Positioned(
-                  bottom: 14,
-                  left: 0,
-                  right: 0,
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: List.generate(
-                      _draftMediaItems.length,
-                      (index) => Container(
-                        width: 8,
-                        height: 8,
-                        margin: const EdgeInsets.symmetric(horizontal: 3),
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: index == _currentMediaIndex
-                              ? Colors.white
-                              : Colors.white38,
-                        ),
-                      ),
+                  top: 10,
+                  left: 10,
+                  child: ElevatedButton.icon(
+                    onPressed: _draftMediaItems[_currentMediaIndex].isVideo
+                        ? null
+                        : _openCropEditor,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.black.withValues(alpha: 0.65),
+                      foregroundColor: Colors.white,
                     ),
+                    icon: const Icon(Icons.crop_rounded, size: 18),
+                    label: const Text('חתוך'),
                   ),
                 ),
-              Positioned(
-                top: 10,
-                left: 10,
-                child: ElevatedButton.icon(
-                  onPressed: _draftMediaItems[_currentMediaIndex].isVideo
-                      ? null
-                      : _openCropEditor,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.black.withValues(alpha: 0.65),
-                    foregroundColor: Colors.white,
-                  ),
-                  icon: const Icon(Icons.crop_rounded, size: 18),
-                  label: const Text('חתוך'),
-                ),
-              ),
-            ],
-          ),
+              ],
+            ),
           ),
         ),
         const SizedBox(height: 10),
@@ -3427,156 +3474,158 @@ class _PostEditScreenState extends State<PostEditScreen> {
             behavior: HitTestBehavior.translucent,
             onPointerDown: _dismissKeyboardOnBackgroundTap,
             child: LayoutBuilder(
-            builder: (context, constraints) {
-              final screenHeight = MediaQuery.of(context).size.height;
-              final mediaPreviewHeight =
-                  (screenHeight * 0.31).clamp(210.0, 320.0);
-              final keyboardInset = MediaQuery.of(context).viewInsets.bottom;
+              builder: (context, constraints) {
+                final screenHeight = MediaQuery.of(context).size.height;
+                final mediaPreviewHeight =
+                    (screenHeight * 0.31).clamp(210.0, 320.0);
+                final keyboardInset = MediaQuery.of(context).viewInsets.bottom;
 
-              return AnimatedPadding(
-                duration: const Duration(milliseconds: 180),
-                curve: Curves.easeOut,
-                padding: EdgeInsets.only(bottom: keyboardInset),
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(16),
-                  child: ConstrainedBox(
-                    constraints:
-                        BoxConstraints(minHeight: constraints.maxHeight),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        _buildMediaEditor(previewHeight: mediaPreviewHeight),
-                        const SizedBox(height: 12),
-                        TextField(
-                          controller: _titleController,
-                          onTapOutside: (_) {},
-                          maxLength: 60,
-                          style: TextStyle(
-                            color: _primaryTextColor(context),
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
-                          ),
-                          decoration: InputDecoration(
-                            counterStyle:
-                                TextStyle(color: _secondaryTextColor(context)),
-                            hintText: 'כותרת *',
-                            hintStyle:
-                                TextStyle(color: _secondaryTextColor(context)),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide:
-                                  BorderSide(color: _borderColor(context)),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide:
-                                  BorderSide(color: _borderColor(context)),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        TextField(
-                          controller: _descController,
-                          onTapOutside: (_) {},
-                          maxLength: 300,
-                          maxLines: 4,
-                          style: TextStyle(color: _primaryTextColor(context)),
-                          decoration: InputDecoration(
-                            counterStyle:
-                                TextStyle(color: _secondaryTextColor(context)),
-                            hintText: 'תיאור',
-                            hintStyle:
-                                TextStyle(color: _secondaryTextColor(context)),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide:
-                                  BorderSide(color: _borderColor(context)),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide:
-                                  BorderSide(color: _borderColor(context)),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        _buildEventSelector(),
-                        _buildCategorySelectionCard(
-                          title: 'קטגוריה',
-                          valueText: selectedCategoryLabel,
-                          hintText: 'בחר קטגוריה',
-                          icon: Icons.category_rounded,
-                          onTap: _openMainCategoryPicker,
-                        ),
-                        const SizedBox(height: 8),
-                        if (hasSelectedCategory) ...[
-                          _buildCategorySelectionCard(
-                            title: 'תת קטגוריה',
-                            valueText: selectedSubCategoryLabel,
-                            hintText: 'בחר תת קטגוריה',
-                            icon: Icons.subdirectory_arrow_right_rounded,
-                            onTap: () => _openSubCategoryPicker(
-                                category: _mainCategory!),
-                          ),
-                          const SizedBox(height: 8),
-                        ],
-                        ListTile(
-                          tileColor: _surfaceColor(context),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            side: BorderSide(color: _borderColor(context)),
-                          ),
-                          leading: Icon(
-                            Icons.location_on,
-                            color: _primaryTextColor(context),
-                          ),
-                          title: TextField(
-                            controller: _locationController,
+                return AnimatedPadding(
+                  duration: const Duration(milliseconds: 180),
+                  curve: Curves.easeOut,
+                  padding: EdgeInsets.only(bottom: keyboardInset),
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.all(16),
+                    child: ConstrainedBox(
+                      constraints:
+                          BoxConstraints(minHeight: constraints.maxHeight),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _buildMediaEditor(previewHeight: mediaPreviewHeight),
+                          const SizedBox(height: 12),
+                          TextField(
+                            controller: _titleController,
                             onTapOutside: (_) {},
-                            style: TextStyle(color: _primaryTextColor(context)),
+                            maxLength: 60,
+                            style: TextStyle(
+                              color: _primaryTextColor(context),
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                            ),
                             decoration: InputDecoration(
-                              border: InputBorder.none,
-                              hintText: 'מיקום',
+                              counterStyle: TextStyle(
+                                  color: _secondaryTextColor(context)),
+                              hintText: 'כותרת *',
                               hintStyle: TextStyle(
                                   color: _secondaryTextColor(context)),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide:
+                                    BorderSide(color: _borderColor(context)),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide:
+                                    BorderSide(color: _borderColor(context)),
+                              ),
                             ),
                           ),
-                        ),
-                        const SizedBox(height: 8),
-                        _buildAudienceSelector(),
-                        const SizedBox(height: 8),
-                        ListTile(
-                          tileColor: _surfaceColor(context),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            side: BorderSide(color: _borderColor(context)),
-                          ),
-                          leading: Icon(
-                            Icons.person_add,
-                            color: _primaryTextColor(context),
-                          ),
-                          title: Text(
-                            'הוסף חברים (${_selectedFriendUids.length})',
+                          const SizedBox(height: 8),
+                          TextField(
+                            controller: _descController,
+                            onTapOutside: (_) {},
+                            maxLength: 300,
+                            maxLines: 4,
                             style: TextStyle(color: _primaryTextColor(context)),
-                          ),
-                          trailing: IconButton(
-                            icon: Icon(
-                              Icons.chevron_right,
-                              color: _secondaryTextColor(context),
+                            decoration: InputDecoration(
+                              counterStyle: TextStyle(
+                                  color: _secondaryTextColor(context)),
+                              hintText: 'תיאור',
+                              hintStyle: TextStyle(
+                                  color: _secondaryTextColor(context)),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide:
+                                    BorderSide(color: _borderColor(context)),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide:
+                                    BorderSide(color: _borderColor(context)),
+                              ),
                             ),
-                            onPressed: _openAddFriends,
                           ),
-                        ),
-                        const SizedBox(height: 8),
-                        _buildLinkedGroupSelector(),
-                        const SizedBox(height: 16),
-                      ],
+                          const SizedBox(height: 8),
+                          _buildEventSelector(),
+                          _buildCategorySelectionCard(
+                            title: 'קטגוריה',
+                            valueText: selectedCategoryLabel,
+                            hintText: 'בחר קטגוריה',
+                            icon: Icons.category_rounded,
+                            onTap: _openMainCategoryPicker,
+                          ),
+                          const SizedBox(height: 8),
+                          if (hasSelectedCategory) ...[
+                            _buildCategorySelectionCard(
+                              title: 'תת קטגוריה',
+                              valueText: selectedSubCategoryLabel,
+                              hintText: 'בחר תת קטגוריה',
+                              icon: Icons.subdirectory_arrow_right_rounded,
+                              onTap: () => _openSubCategoryPicker(
+                                  category: _mainCategory!),
+                            ),
+                            const SizedBox(height: 8),
+                          ],
+                          ListTile(
+                            tileColor: _surfaceColor(context),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              side: BorderSide(color: _borderColor(context)),
+                            ),
+                            leading: Icon(
+                              Icons.location_on,
+                              color: _primaryTextColor(context),
+                            ),
+                            title: TextField(
+                              controller: _locationController,
+                              onTapOutside: (_) {},
+                              style:
+                                  TextStyle(color: _primaryTextColor(context)),
+                              decoration: InputDecoration(
+                                border: InputBorder.none,
+                                hintText: 'מיקום',
+                                hintStyle: TextStyle(
+                                    color: _secondaryTextColor(context)),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          _buildAudienceSelector(),
+                          const SizedBox(height: 8),
+                          ListTile(
+                            tileColor: _surfaceColor(context),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              side: BorderSide(color: _borderColor(context)),
+                            ),
+                            leading: Icon(
+                              Icons.person_add,
+                              color: _primaryTextColor(context),
+                            ),
+                            title: Text(
+                              'הוסף חברים (${_selectedFriendUids.length})',
+                              style:
+                                  TextStyle(color: _primaryTextColor(context)),
+                            ),
+                            trailing: IconButton(
+                              icon: Icon(
+                                Icons.chevron_right,
+                                color: _secondaryTextColor(context),
+                              ),
+                              onPressed: _openAddFriends,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          _buildLinkedGroupSelector(),
+                          const SizedBox(height: 16),
+                        ],
+                      ),
                     ),
                   ),
-                ),
-              );
-            },
-          ),
+                );
+              },
+            ),
           ),
         ),
         bottomNavigationBar: Container(

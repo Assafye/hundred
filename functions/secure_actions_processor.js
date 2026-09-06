@@ -27,6 +27,10 @@ const ACTION_TYPE = {
   registerPostShare: 'register_post_share',
   syncPostCommentSideEffects: 'sync_post_comment_side_effects',
   deletePostCommentCascade: 'delete_post_comment_cascade',
+  createNotification: 'create_notification',
+  reconcilePostLikeNotification: 'reconcile_post_like_notification',
+  deletePostSaveNotification: 'delete_post_save_notification',
+  deletePostCommentNotifications: 'delete_post_comment_notifications',
   joinGroup: 'join_group',
   cancelGroupJoinRequest: 'cancel_group_join_request',
   inviteUserToGroup: 'invite_user_to_group',
@@ -36,6 +40,24 @@ const ACTION_TYPE = {
   joinPublicChat: 'join_public_chat',
 };
 
+const NOTIFICATION_SETTING_BY_TYPE = {
+  post_like: 'postLikes',
+  post_save: 'postSaves',
+  new_message: 'newMessages',
+  post_comment: 'postComments',
+  comment_reply: 'commentReplies',
+  pop_join: 'popJoins',
+  group_join: 'groupJoins',
+  added_to_group: 'addedToGroups',
+  weekly_challenge_updated: 'weeklyChallengeUpdates',
+  daily_challenge_updated: 'dailyChallengeUpdates',
+  spontaneous_reminder: 'spontaneousReminders',
+  spontaneous_time_warning: 'spontaneousTimeWarnings',
+  weekly_stars: 'weeklyStars',
+  new_follower: 'newFollowers',
+  new_friend: 'newFriends',
+};
+
 function normalizeUidSet(raw) {
   if (!Array.isArray(raw)) return new Set();
   return new Set(
@@ -43,6 +65,37 @@ function normalizeUidSet(raw) {
       .map((v) => String(v ?? '').trim())
       .filter((v) => v.length > 0)
   );
+}
+
+async function actorSummary(uid) {
+  const normalizedUid = String(uid ?? '').trim();
+  if (!normalizedUid) {
+    return { uid: '', name: 'משתמש', avatarUrl: '' };
+  }
+
+  const publicSnap = await db.collection('users_public').doc(normalizedUid).get();
+  const privateSnap = publicSnap.exists
+    ? null
+    : await db.collection('users').doc(normalizedUid).get();
+  const data = publicSnap.exists ? (publicSnap.data() || {}) : (privateSnap?.data() || {});
+  const name = String(
+    data.displayName ??
+    data.username ??
+    data.name ??
+    ''
+  ).trim().replace(/^@/, '');
+  const avatarUrl = String(
+    data.profilePictureUrl ??
+    data.profileImageUrl ??
+    data.avatarUrl ??
+    ''
+  ).trim();
+
+  return {
+    uid: normalizedUid,
+    name: name || 'משתמש',
+    avatarUrl,
+  };
 }
 
 function postScoreFromData(data = {}) {
@@ -114,33 +167,346 @@ async function syncTaggedScoreFromPostDelta(postBefore, postAfter) {
   }
 }
 
-async function createNotification({ recipientUid, type, title, body = '', actorUid = '', postId = '', postImageUrl = '' }) {
+async function isNotificationEnabled(recipientUid, type) {
+  const settingKey = NOTIFICATION_SETTING_BY_TYPE[String(type ?? '').trim()];
+  if (!settingKey) return true;
+
+  const userSnap = await db.collection('users').doc(recipientUid).get();
+  const settings = userSnap.data()?.notificationSettings || {};
+  return settings[settingKey] !== false;
+}
+
+async function createNotification({
+  recipientUid,
+  type,
+  title,
+  body = '',
+  actorUid = '',
+  actorName = '',
+  actorAvatarUrl = '',
+  postId = '',
+  postImageUrl = '',
+  chatId = '',
+  groupId = '',
+  groupName = '',
+  commentId = '',
+  extra = {},
+}) {
   const uid = String(recipientUid ?? '').trim();
   if (!uid) return;
+
+  const notificationType = String(type ?? '').trim();
+  if (!notificationType) return;
+
+  if (!(await isNotificationEnabled(uid, notificationType))) return;
 
   if (DRY_RUN) return;
 
   const userRef = db.collection('users').doc(uid);
   const notifRef = userRef.collection('notifications').doc();
   const actor = String(actorUid ?? '').trim();
+  const actorProfile = await actorSummary(actor);
+  const resolvedActorName = String(actorName ?? '').trim() || actorProfile.name;
+  const resolvedActorAvatarUrl =
+    String(actorAvatarUrl ?? '').trim() || actorProfile.avatarUrl;
 
   await notifRef.set({
     recipientUid: uid,
-    type,
+    type: notificationType,
     title: String(title ?? '').trim(),
     body: String(body ?? '').trim(),
     actorUid: actor,
+    actorName: resolvedActorName,
+    actorAvatarUrl: resolvedActorAvatarUrl,
     postId: String(postId ?? '').trim(),
     postImageUrl: String(postImageUrl ?? '').trim(),
+    chatId: String(chatId ?? '').trim(),
+    groupId: String(groupId ?? '').trim(),
+    groupName: String(groupName ?? '').trim(),
+    commentId: String(commentId ?? '').trim(),
     isRead: false,
     createdAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),
+    ...(extra && typeof extra === 'object' ? extra : {}),
   });
 
   await userRef.set(
     { unreadNotificationsCount: FieldValue.increment(1) },
     { merge: true }
   );
+}
+
+async function deleteNotificationDocs(docs) {
+  if (!docs.length || DRY_RUN) return;
+
+  const unreadByUserPath = new Map();
+  const batch = db.batch();
+  for (const doc of docs) {
+    const isRead = Boolean(doc.get('isRead') ?? false);
+    if (!isRead) {
+      const userRef = doc.ref.parent.parent;
+      if (userRef) {
+        unreadByUserPath.set(
+          userRef.path,
+          (unreadByUserPath.get(userRef.path) ?? 0) + 1,
+        );
+      }
+    }
+    batch.delete(doc.ref);
+  }
+  for (const [path, count] of unreadByUserPath.entries()) {
+    batch.set(db.doc(path), {
+      unreadNotificationsCount: FieldValue.increment(-count),
+    }, { merge: true });
+  }
+  await batch.commit();
+}
+
+async function queryUserNotifications(uid, filters) {
+  let query = db.collection('users').doc(uid).collection('notifications');
+  for (const [field, value] of filters) {
+    query = query.where(field, '==', value);
+  }
+  const snapshot = await query.get();
+  return snapshot.docs;
+}
+
+async function upsertPostLikeNotification({
+  recipientUid,
+  postId,
+  actorUid,
+  postImageUrl = '',
+  likeCount,
+  currentLikeUids = null,
+}) {
+  const recipient = String(recipientUid ?? '').trim();
+  const normalizedPostId = String(postId ?? '').trim();
+  if (!recipient || !normalizedPostId) return;
+  if (!(await isNotificationEnabled(recipient, 'post_like'))) return;
+
+  const canonicalRef = db
+    .collection('users')
+    .doc(recipient)
+    .collection('notifications')
+    .doc(`post_like_${normalizedPostId}`);
+
+  const canonicalSnap = await canonicalRef.get();
+  const existing = canonicalSnap.data() || {};
+  const normalizedActorUid = String(actorUid ?? '').trim();
+  const likes = Array.isArray(currentLikeUids)
+    ? currentLikeUids.map((uid) => String(uid ?? '').trim()).filter(Boolean)
+    : null;
+  const resolvedLikeCount = Number.isFinite(Number(likeCount))
+    ? Math.max(0, Number(likeCount) || 0)
+    : (likes ? likes.length : 1);
+
+  if (resolvedLikeCount <= 0 || (likes && likes.length === 0)) {
+    if (canonicalSnap.exists) await deleteNotificationDocs([canonicalSnap]);
+    return;
+  }
+
+  const existingRecent = Array.isArray(existing.recentLikeActorUids)
+    ? existing.recentLikeActorUids.map((uid) => String(uid ?? '').trim()).filter(Boolean)
+    : [];
+  const allowedLikes = likes ? new Set(likes) : null;
+  const recent = [];
+  const addRecent = (uid) => {
+    const normalized = String(uid ?? '').trim();
+    if (!normalized || normalized === recipient) return;
+    if (allowedLikes && !allowedLikes.has(normalized)) return;
+    if (!recent.includes(normalized)) recent.push(normalized);
+  };
+
+  addRecent(normalizedActorUid);
+  for (const uid of existingRecent) addRecent(uid);
+  if (likes) {
+    for (const uid of likes) addRecent(uid);
+  }
+
+  const recentActorUids = recent.slice(0, 3);
+  const primaryActorUid = recentActorUids[0] || normalizedActorUid;
+  const primaryActor = await actorSummary(primaryActorUid);
+  const recentProfiles = await Promise.all(recentActorUids.map(actorSummary));
+  const recentAvatarUrls = recentProfiles
+    .map((profile) => profile.avatarUrl)
+    .filter(Boolean);
+
+  const wasRead = Boolean(existing.isRead ?? false);
+  const payload = {
+    recipientUid: recipient,
+    type: 'post_like',
+    title: `${primaryActor.name} עשה לך לייק על הפוסט`,
+    body: `יש לך עכשיו ${resolvedLikeCount} לייקים על הפוסט`,
+    actorUid: primaryActor.uid,
+    actorName: primaryActor.name,
+    actorAvatarUrl: primaryActor.avatarUrl,
+    postId: normalizedPostId,
+    postImageUrl: String(postImageUrl || existing.postImageUrl || '').trim(),
+    isRead: canonicalSnap.exists ? wasRead : false,
+    likeCount: resolvedLikeCount,
+    recentLikeActorUids,
+    recentLikeActorAvatarUrls: recentAvatarUrls,
+    updatedAt: FieldValue.serverTimestamp(),
+    ...(canonicalSnap.exists ? {} : { createdAt: FieldValue.serverTimestamp() }),
+  };
+
+  await canonicalRef.set(payload, { merge: true });
+  if (!canonicalSnap.exists) {
+    await db.collection('users').doc(recipient).set(
+      { unreadNotificationsCount: FieldValue.increment(1) },
+      { merge: true }
+    );
+  }
+}
+
+async function deletePostSaveNotification({ recipientUid, postId, actorUid }) {
+  const recipient = String(recipientUid ?? '').trim();
+  const normalizedPostId = String(postId ?? '').trim();
+  const actor = String(actorUid ?? '').trim();
+  if (!recipient || !normalizedPostId || !actor) return;
+
+  const docs = await queryUserNotifications(recipient, [
+    ['type', 'post_save'],
+    ['postId', normalizedPostId],
+    ['actorUid', actor],
+  ]);
+  await deleteNotificationDocs(docs);
+}
+
+async function deletePostCommentNotifications({ postId, comments, postAuthorId = '' }) {
+  const normalizedPostId = String(postId ?? '').trim();
+  if (!normalizedPostId || !Array.isArray(comments) || comments.length === 0) return;
+
+  const docsToDelete = [];
+  const seenPaths = new Set();
+  const addDocs = async (recipientUid, filters) => {
+    const recipient = String(recipientUid ?? '').trim();
+    if (!recipient) return;
+    const docs = await queryUserNotifications(recipient, filters);
+    for (const doc of docs) {
+      if (seenPaths.has(doc.ref.path)) continue;
+      seenPaths.add(doc.ref.path);
+      docsToDelete.push(doc);
+    }
+  };
+
+  for (const comment of comments) {
+    const commentId = String(comment.id ?? comment.commentId ?? '').trim();
+    if (!commentId) continue;
+    const authorId = String(comment.authorId ?? '').trim();
+    const parentAuthorId = String(comment.parentAuthorId ?? '').trim();
+    const recipientPostAuthor = String(comment.postAuthorId ?? postAuthorId).trim();
+
+    await addDocs(recipientPostAuthor, [
+      ['type', 'post_comment'],
+      ['postId', normalizedPostId],
+      ['commentId', commentId],
+    ]);
+    await addDocs(parentAuthorId, [
+      ['type', 'comment_reply'],
+      ['postId', normalizedPostId],
+      ['commentId', commentId],
+    ]);
+
+    // Older reply notifications used the parent comment id instead of the
+    // reply id. Limit the cleanup by actor to avoid deleting unrelated replies.
+    const parentId = String(comment.parentId ?? '').trim();
+    if (parentId && authorId) {
+      await addDocs(parentAuthorId, [
+        ['type', 'comment_reply'],
+        ['postId', normalizedPostId],
+        ['commentId', parentId],
+        ['actorUid', authorId],
+      ]);
+    }
+  }
+
+  await deleteNotificationDocs(docsToDelete);
+}
+
+async function processCreateNotification(actorUid, payload) {
+  const recipientUid = String(payload.recipientUid ?? '').trim();
+  if (!recipientUid || recipientUid === actorUid) return;
+
+  if (String(payload.type ?? '').trim() === 'post_like') {
+    const postId = String(payload.postId ?? '').trim();
+    const postSnap = postId ? await db.collection('posts').doc(postId).get() : null;
+    if (!postSnap?.exists) return;
+    const postData = postSnap?.data() || {};
+    const currentLikeUids = Array.isArray(postData.likes) ? postData.likes : null;
+    await upsertPostLikeNotification({
+      recipientUid,
+      postId,
+      actorUid: currentLikeUids?.map((uid) => String(uid ?? '').trim()).includes(actorUid)
+        ? actorUid
+        : '',
+      postImageUrl: payload.postImageUrl ?? postData.imageUrl ?? postData.mediaUrl,
+      likeCount: currentLikeUids ? currentLikeUids.length : payload.likeCount,
+      currentLikeUids,
+    });
+    return;
+  }
+
+  const type = String(payload.type ?? '').trim();
+  const postId = String(payload.postId ?? '').trim();
+  if (type === 'post_save' && postId) {
+    const postSnap = await db.collection('posts').doc(postId).get();
+    const savedBy = normalizeUidSet(postSnap.data()?.savedBy);
+    if (!savedBy.has(actorUid)) return;
+  }
+
+  if ((type === 'post_comment' || type === 'comment_reply') && postId) {
+    const commentId = String(payload.commentId ?? '').trim();
+    if (commentId) {
+      const commentSnap = await db
+        .collection('posts')
+        .doc(postId)
+        .collection('comments')
+        .doc(commentId)
+        .get();
+      if (!commentSnap.exists) return;
+    }
+  }
+
+  const reservedKeys = new Set([
+    'recipientUid',
+    'type',
+    'title',
+    'body',
+    'actorUid',
+    'actorName',
+    'actorAvatarUrl',
+    'postId',
+    'postImageUrl',
+    'chatId',
+    'groupId',
+    'groupName',
+    'commentId',
+    'isRead',
+    'createdAt',
+    'updatedAt',
+  ]);
+  const extra = {};
+  for (const [key, value] of Object.entries(payload)) {
+    if (!reservedKeys.has(key)) extra[key] = value;
+  }
+
+  await createNotification({
+    recipientUid,
+    type: payload.type,
+    title: payload.title,
+    body: payload.body,
+    actorUid,
+    actorName: payload.actorName,
+    actorAvatarUrl: payload.actorAvatarUrl,
+    postId: payload.postId,
+    postImageUrl: payload.postImageUrl,
+    chatId: payload.chatId,
+    groupId: payload.groupId,
+    groupName: payload.groupName,
+    commentId: payload.commentId,
+    extra,
+  });
 }
 
 async function processFollowUser(actorUid, payload) {
@@ -464,18 +830,58 @@ async function processTogglePostLike(actorUid, payload) {
   const authorId = String(postAfter.authorId ?? payload.postAuthorId ?? '').trim();
   if (authorId) {
     await incrementUserScoreIfExists(authorId, didAddLike ? 1 : -1);
-    if (didAddLike) {
-      await createNotification({
-        recipientUid: authorId,
-        type: 'post_like',
-        title: 'אהבו את הפוסט שלך',
-        body: 'משתמש אהב את הפוסט שלך',
-        actorUid,
-        postId,
-        postImageUrl: String(postAfter.imageUrl ?? postAfter.mediaUrl ?? '').trim(),
-      });
-    }
+    await upsertPostLikeNotification({
+      recipientUid: authorId,
+      postId,
+      actorUid: didAddLike ? actorUid : '',
+      postImageUrl: String(postAfter.imageUrl ?? postAfter.mediaUrl ?? '').trim(),
+      likeCount: Number(postAfter.likesCount ?? 0) || 0,
+      currentLikeUids: Array.isArray(postAfter.likes) ? postAfter.likes : [],
+    });
   }
+}
+
+async function processReconcilePostLikeNotification(actorUid, payload) {
+  const postId = String(payload.postId ?? '').trim();
+  const recipientUid = String(payload.recipientUid ?? payload.postAuthorId ?? '').trim();
+  if (!postId || !recipientUid) return;
+
+  const postSnap = await db.collection('posts').doc(postId).get();
+  const postData = postSnap.data() || {};
+  await upsertPostLikeNotification({
+    recipientUid,
+    postId,
+    actorUid: '',
+    postImageUrl: String(
+      payload.postImageUrl ?? postData.imageUrl ?? postData.mediaUrl ?? ''
+    ).trim(),
+    likeCount: Number(postData.likesCount ?? 0) || 0,
+    currentLikeUids: Array.isArray(postData.likes) ? postData.likes : [],
+  });
+}
+
+async function processDeletePostSaveNotification(actorUid, payload) {
+  const postId = String(payload.postId ?? '').trim();
+  const recipientUid = String(payload.recipientUid ?? payload.postAuthorId ?? '').trim();
+  if (!postId || !recipientUid) return;
+
+  await deletePostSaveNotification({
+    recipientUid,
+    postId,
+    actorUid,
+  });
+}
+
+async function processDeletePostCommentNotifications(actorUid, payload) {
+  const postId = String(payload.postId ?? '').trim();
+  const comments = Array.isArray(payload.comments) ? payload.comments : [];
+  if (!postId || comments.length === 0) return;
+
+  await deletePostCommentNotifications({
+    postId,
+    comments,
+    postAuthorId: payload.postAuthorId,
+  });
 }
 
 async function processTogglePostSave(actorUid, payload) {
@@ -546,6 +952,12 @@ async function processTogglePostSave(actorUid, payload) {
         actorUid,
         postId,
         postImageUrl: String(postAfter.mediaUrl ?? postAfter.imageUrl ?? '').trim(),
+      });
+    } else {
+      await deletePostSaveNotification({
+        recipientUid: authorId,
+        postId,
+        actorUid,
       });
     }
   }
@@ -673,6 +1085,7 @@ async function processCommentSideEffects(actorUid, payload) {
       body: commentText || 'משתמש הגיב על הפוסט שלך',
       actorUid,
       postId,
+        commentId,
       postImageUrl,
     });
   }
@@ -689,6 +1102,7 @@ async function processCommentSideEffects(actorUid, payload) {
       body: commentText || 'משתמש השיב לתגובה שלך',
       actorUid,
       postId,
+      commentId,
       postImageUrl,
     });
   }
@@ -814,6 +1228,12 @@ async function processDeletePostCommentCascade(actorUid, payload) {
       await incrementUserScoreIfExists(uid, taggedScoreDelta);
     }
   }
+
+  await deletePostCommentNotifications({
+    postId,
+    comments,
+    postAuthorId,
+  });
 }
 
 async function processJoinGroup(actorUid, payload) {
@@ -1179,6 +1599,18 @@ async function processSingleAction(actionDoc) {
       return;
     case ACTION_TYPE.deletePostCommentCascade:
       await processDeletePostCommentCascade(actorUid, payload);
+      return;
+    case ACTION_TYPE.createNotification:
+      await processCreateNotification(actorUid, payload);
+      return;
+    case ACTION_TYPE.reconcilePostLikeNotification:
+      await processReconcilePostLikeNotification(actorUid, payload);
+      return;
+    case ACTION_TYPE.deletePostSaveNotification:
+      await processDeletePostSaveNotification(actorUid, payload);
+      return;
+    case ACTION_TYPE.deletePostCommentNotifications:
+      await processDeletePostCommentNotifications(actorUid, payload);
       return;
     case ACTION_TYPE.joinGroup:
       await processJoinGroup(actorUid, payload);

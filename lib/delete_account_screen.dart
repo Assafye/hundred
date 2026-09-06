@@ -45,7 +45,11 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
 
   bool _tapHitsEditable(PointerDownEvent event) {
     final hitTestResult = HitTestResult();
-    GestureBinding.instance.hitTest(hitTestResult, event.position);
+    GestureBinding.instance.hitTestInView(
+      hitTestResult,
+      event.position,
+      event.viewId,
+    );
     for (final entry in hitTestResult.path) {
       if (entry.target is RenderEditable) {
         return true;
@@ -421,12 +425,12 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
                   onPointerDown: _dismissKeyboardOnBackgroundTap,
                   child: SafeArea(
                     child: Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
-                    child: SingleChildScrollView(
-                      child: _buildCard(isLight: isLight),
+                      padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+                      child: SingleChildScrollView(
+                        child: _buildCard(isLight: isLight),
+                      ),
                     ),
                   ),
-                ),
                 ),
               ],
             ),

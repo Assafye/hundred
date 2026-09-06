@@ -37,7 +37,7 @@ class _ExpandablePostDescriptionState extends State<ExpandablePostDescription> {
       return const SizedBox.shrink();
     }
 
-    final defaultToggleStyle = const TextStyle(
+    const defaultToggleStyle = TextStyle(
       color: Colors.white,
       fontSize: 12,
       fontWeight: FontWeight.w700,
@@ -71,7 +71,8 @@ class _ExpandablePostDescriptionState extends State<ExpandablePostDescription> {
                 textAlign: widget.textAlign,
                 style: widget.style,
                 maxLines: _isExpanded ? null : widget.maxLines,
-                overflow: _isExpanded ? TextOverflow.visible : TextOverflow.ellipsis,
+                overflow:
+                    _isExpanded ? TextOverflow.visible : TextOverflow.ellipsis,
               ),
               if (needsToggle)
                 GestureDetector(

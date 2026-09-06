@@ -4,9 +4,11 @@ import 'package:video_thumbnail/video_thumbnail.dart';
 
 void main() {
   const MethodChannel channel = MethodChannel('video_thumbnail');
+  final messenger =
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
 
   setUp(() {
-    channel.setMockMethodCallHandler((MethodCall methodCall) async {
+    messenger.setMockMethodCallHandler(channel, (MethodCall methodCall) async {
       final m = methodCall.method;
       final a = methodCall.arguments;
 
@@ -15,7 +17,7 @@ void main() {
   });
 
   tearDown(() {
-    channel.setMockMethodCallHandler(null);
+    messenger.setMockMethodCallHandler(channel, null);
   });
 
   test('thumbnailData', () async {

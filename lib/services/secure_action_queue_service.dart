@@ -15,8 +15,14 @@ class SecureActionTypes {
   static const String registerPostShare = 'register_post_share';
   static const String syncPostCommentSideEffects =
       'sync_post_comment_side_effects';
-  static const String deletePostCommentCascade =
-      'delete_post_comment_cascade';
+  static const String deletePostCommentCascade = 'delete_post_comment_cascade';
+  static const String createNotification = 'create_notification';
+  static const String reconcilePostLikeNotification =
+      'reconcile_post_like_notification';
+  static const String deletePostSaveNotification =
+      'delete_post_save_notification';
+  static const String deletePostCommentNotifications =
+      'delete_post_comment_notifications';
 
   static const String joinGroup = 'join_group';
   static const String cancelGroupJoinRequest = 'cancel_group_join_request';

@@ -276,8 +276,10 @@ class MainBottomNav extends StatelessWidget {
             height: 9,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: missingBackupEmail ? Colors.redAccent : Color(0xFF8D74E6),
-              boxShadow: [
+              color: missingBackupEmail
+                  ? Colors.redAccent
+                  : const Color(0xFF8D74E6),
+              boxShadow: const [
                 BoxShadow(
                   color: Color(0xAA8D74E6),
                   blurRadius: 8,

@@ -72,7 +72,11 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
 
   bool _tapHitsEditable(PointerDownEvent event) {
     final hitTestResult = HitTestResult();
-    GestureBinding.instance.hitTest(hitTestResult, event.position);
+    GestureBinding.instance.hitTestInView(
+      hitTestResult,
+      event.position,
+      event.viewId,
+    );
     for (final entry in hitTestResult.path) {
       if (entry.target is RenderEditable) {
         return true;
@@ -1371,356 +1375,16 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
                     behavior: HitTestBehavior.translucent,
                     onPointerDown: _dismissKeyboardOnBackgroundTap,
                     child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: ListView(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(14),
-                          decoration: BoxDecoration(
-                            color: isLight
-                                ? Colors.white.withValues(alpha: 0.82)
-                                : const Color(0xFF1E2632),
-                            borderRadius: BorderRadius.circular(24),
-                            border: Border.all(
-                              color: isLight
-                                  ? const Color(0xFFA9C3FF)
-                                  : Colors.transparent,
-                            ),
-                          ),
-                          child: Column(
-                            children: [
-                              LayoutBuilder(
-                                builder: (context, constraints) {
-                                  final isCompact = constraints.maxWidth < 390;
-                                  final avatarWidget = GestureDetector(
-                                    onTap: () => _editGroupImage(groupData),
-                                    child: Stack(
-                                      alignment: Alignment.center,
-                                      children: [
-                                        GroupAvatar(
-                                          radius: 34,
-                                          imageUrl: resolvedImageUrl,
-                                        ),
-                                        if (_isImageUpdating)
-                                          const SizedBox(
-                                            width: 16,
-                                            height: 16,
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2,
-                                              color: Colors.white,
-                                            ),
-                                          )
-                                        else
-                                          Positioned(
-                                            bottom: 1,
-                                            child: Container(
-                                              padding: const EdgeInsets.all(5),
-                                              decoration: BoxDecoration(
-                                                color: isLight
-                                                    ? Colors.white
-                                                        .withValues(alpha: 0.94)
-                                                    : const Color(0xFF1E2632),
-                                                shape: BoxShape.circle,
-                                              ),
-                                              child: Icon(
-                                                Icons.camera_alt_rounded,
-                                                color: isLight
-                                                    ? const Color(0xFF7B6BE0)
-                                                    : const Color(0xFF9EDBFF),
-                                                size: 16,
-                                              ),
-                                            ),
-                                          ),
-                                      ],
-                                    ),
-                                  );
-
-                                  if (isCompact) {
-                                    return Column(
-                                      children: [
-                                        avatarWidget,
-                                        const SizedBox(height: 12),
-                                        Row(
-                                          children: [
-                                            Expanded(
-                                              child: _buildInfoChip(
-                                                  'מיקום המפגש', location),
-                                            ),
-                                            const SizedBox(width: 12),
-                                            Expanded(
-                                              child: _buildInfoChip(
-                                                'תאריך מפגש',
-                                                _displayDate(date),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ],
-                                    );
-                                  }
-
-                                  return Row(
-                                    children: [
-                                      Expanded(
-                                        child: _buildInfoChip(
-                                            'מיקום המפגש', location),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      avatarWidget,
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                        child: _buildInfoChip(
-                                          'תאריך מפגש',
-                                          _displayDate(date),
-                                        ),
-                                      ),
-                                    ],
-                                  );
-                                },
-                              ),
-                              const SizedBox(height: 20),
-                              Text(
-                                groupName,
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  color: isLight ? Colors.black : Colors.white,
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              const SizedBox(height: 10),
-                              Text(
-                                description,
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  color:
-                                      isLight ? Colors.black54 : Colors.white70,
-                                  fontSize: 14,
-                                ),
-                              ),
-                              const SizedBox(height: 16),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                    vertical: 14, horizontal: 16),
-                                decoration: BoxDecoration(
-                                  color: isLight
-                                      ? const Color(0xFFEFF5FF)
-                                      : const Color(0xFF18181E),
-                                  borderRadius: BorderRadius.circular(20),
-                                  border: Border.all(
-                                    color: isLight
-                                        ? const Color(0xFFA9C3FF)
-                                        : Colors.transparent,
-                                  ),
-                                ),
-                                child: StreamBuilder<
-                                    QuerySnapshot<Map<String, dynamic>>>(
-                                  stream: _groupService
-                                      .attendanceStream(widget.groupId),
-                                  builder: (context, attendanceSnapshot) {
-                                    final attendanceDocs =
-                                        attendanceSnapshot.data?.docs ?? [];
-                                    final attendees = attendanceDocs.length;
-
-                                    return Directionality(
-                                      textDirection: TextDirection.rtl,
-                                      child: Row(
-                                        children: [
-                                          Expanded(
-                                            child: Column(
-                                              crossAxisAlignment:
-                                                  CrossAxisAlignment.start,
-                                              children: [
-                                                Text(
-                                                  '$attendees אישרו הגעה',
-                                                  textAlign: TextAlign.right,
-                                                  style: TextStyle(
-                                                    color: isLight
-                                                        ? Colors.black
-                                                        : Colors.white,
-                                                    fontWeight: FontWeight.bold,
-                                                  ),
-                                                ),
-                                                const SizedBox(height: 6),
-                                                Text(
-                                                  'לחץ אישור הגעה ואז תוכל לצפות ברשימת המאשרים',
-                                                  textAlign: TextAlign.right,
-                                                  style: TextStyle(
-                                                    color: isLight
-                                                        ? Colors.black54
-                                                        : Colors.white54,
-                                                    fontSize: 12,
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                          StreamBuilder<bool>(
-                                            stream: _groupService
-                                                .myAttendanceStream(
-                                                    widget.groupId),
-                                            builder: (context,
-                                                myAttendanceSnapshot) {
-                                              final isAttending =
-                                                  myAttendanceSnapshot.data ??
-                                                      false;
-
-                                              if (isAttending) {
-                                                return ElevatedButton(
-                                                  style:
-                                                      ElevatedButton.styleFrom(
-                                                    backgroundColor: isLight
-                                                        ? const Color(
-                                                            0xFFE9F0FF)
-                                                        : Colors.white12,
-                                                  ),
-                                                  onPressed:
-                                                      _openAttendanceList,
-                                                  child: Text(
-                                                    'צפה במאשרים',
-                                                    style: TextStyle(
-                                                      color: isLight
-                                                          ? Colors.black
-                                                          : Colors.white,
-                                                    ),
-                                                  ),
-                                                );
-                                              }
-
-                                              return ElevatedButton(
-                                                style: ElevatedButton.styleFrom(
-                                                    backgroundColor:
-                                                        const Color(0xFF9E7CFF),
-                                                    foregroundColor:
-                                                        Colors.black),
-                                                onPressed: _isRsvpLoading
-                                                    ? null
-                                                    : _handleRsvp,
-                                                child: _isRsvpLoading
-                                                    ? const SizedBox(
-                                                        width: 16,
-                                                        height: 16,
-                                                        child:
-                                                            CircularProgressIndicator(
-                                                                strokeWidth: 2,
-                                                                color: Colors
-                                                                    .black),
-                                                      )
-                                                    : const Text('אישור הגעה'),
-                                              );
-                                            },
-                                          ),
-                                        ],
-                                      ),
-                                    );
-                                  },
-                                ),
-                              ),
-                              if (hasMainCategory || hasSubCategory) ...[
-                                const SizedBox(height: 12),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      vertical: 18, horizontal: 16),
-                                  decoration: BoxDecoration(
-                                    gradient: isLight
-                                        ? const LinearGradient(
-                                            colors: [
-                                              Color(0xFFFFFFFF),
-                                              Color(0xFFF1E8FF),
-                                              Color(0xFFEAF8FF),
-                                            ],
-                                            begin: Alignment.topLeft,
-                                            end: Alignment.bottomRight,
-                                          )
-                                        : const LinearGradient(
-                                            colors: [
-                                              Color(0xFF2B1652),
-                                              Color(0xFF4D2A91)
-                                            ],
-                                            begin: Alignment.topRight,
-                                            end: Alignment.bottomLeft,
-                                          ),
-                                    borderRadius: BorderRadius.circular(20),
-                                    border: Border.all(
-                                        color: isLight
-                                            ? const Color(0xFF9EDBFF)
-                                            : const Color(0xFF9E7CFF),
-                                        width: 1.2),
-                                    boxShadow: isLight
-                                        ? [
-                                            BoxShadow(
-                                              color: const Color(0xFF9EDBFF)
-                                                  .withValues(alpha: 0.14),
-                                              blurRadius: 16,
-                                              offset: const Offset(0, 8),
-                                            ),
-                                          ]
-                                        : const [
-                                            BoxShadow(
-                                              color: Color(0x339E7CFF),
-                                              blurRadius: 18,
-                                              offset: Offset(0, 8),
-                                            ),
-                                          ],
-                                  ),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.center,
-                                    children: [
-                                      if (hasSubCategory)
-                                        Text(
-                                          _fallbackText(subCategory),
-                                          textAlign: TextAlign.center,
-                                          style: TextStyle(
-                                            color: isLight
-                                                ? const Color(0xFF2A3352)
-                                                : Colors.white,
-                                            fontSize: 24,
-                                            fontWeight: FontWeight.w800,
-                                            letterSpacing: 0.3,
-                                            shadows: isLight
-                                                ? const []
-                                                : const [
-                                                    Shadow(
-                                                      color: Color(0x669E7CFF),
-                                                      blurRadius: 10,
-                                                      offset: Offset(0, 2),
-                                                    ),
-                                                  ],
-                                          ),
-                                        ),
-                                      if (hasSubCategory && hasMainCategory)
-                                        const SizedBox(height: 8),
-                                      if (hasMainCategory)
-                                        Text(
-                                          _fallbackText(mainCategory),
-                                          textAlign: TextAlign.center,
-                                          style: TextStyle(
-                                            color: isLight
-                                                ? const Color(0xFF6A5BFF)
-                                                : const Color(0xFFE4DAFF),
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w600,
-                                            letterSpacing: 1.4,
-                                          ),
-                                        ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        if (isActualAdmin &&
-                            (approvalRequired || !isPublicGroup)) ...[
+                      padding: const EdgeInsets.all(16),
+                      child: ListView(
+                        children: [
                           Container(
-                            padding: const EdgeInsets.all(16),
+                            padding: const EdgeInsets.all(14),
                             decoration: BoxDecoration(
                               color: isLight
                                   ? Colors.white.withValues(alpha: 0.82)
                                   : const Color(0xFF1E2632),
-                              borderRadius: BorderRadius.circular(20),
+                              borderRadius: BorderRadius.circular(24),
                               border: Border.all(
                                 color: isLight
                                     ? const Color(0xFFA9C3FF)
@@ -1728,710 +1392,1080 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
                               ),
                             ),
                             child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
+                                LayoutBuilder(
+                                  builder: (context, constraints) {
+                                    final isCompact =
+                                        constraints.maxWidth < 390;
+                                    final avatarWidget = GestureDetector(
+                                      onTap: () => _editGroupImage(groupData),
+                                      child: Stack(
+                                        alignment: Alignment.center,
+                                        children: [
+                                          GroupAvatar(
+                                            radius: 34,
+                                            imageUrl: resolvedImageUrl,
+                                          ),
+                                          if (_isImageUpdating)
+                                            const SizedBox(
+                                              width: 16,
+                                              height: 16,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                                color: Colors.white,
+                                              ),
+                                            )
+                                          else
+                                            Positioned(
+                                              bottom: 1,
+                                              child: Container(
+                                                padding:
+                                                    const EdgeInsets.all(5),
+                                                decoration: BoxDecoration(
+                                                  color: isLight
+                                                      ? Colors.white.withValues(
+                                                          alpha: 0.94)
+                                                      : const Color(0xFF1E2632),
+                                                  shape: BoxShape.circle,
+                                                ),
+                                                child: Icon(
+                                                  Icons.camera_alt_rounded,
+                                                  color: isLight
+                                                      ? const Color(0xFF7B6BE0)
+                                                      : const Color(0xFF9EDBFF),
+                                                  size: 16,
+                                                ),
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                    );
+
+                                    if (isCompact) {
+                                      return Column(
+                                        children: [
+                                          avatarWidget,
+                                          const SizedBox(height: 12),
+                                          Row(
+                                            children: [
+                                              Expanded(
+                                                child: _buildInfoChip(
+                                                    'מיקום המפגש', location),
+                                              ),
+                                              const SizedBox(width: 12),
+                                              Expanded(
+                                                child: _buildInfoChip(
+                                                  'תאריך מפגש',
+                                                  _displayDate(date),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ],
+                                      );
+                                    }
+
+                                    return Row(
+                                      children: [
+                                        Expanded(
+                                          child: _buildInfoChip(
+                                              'מיקום המפגש', location),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        avatarWidget,
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: _buildInfoChip(
+                                            'תאריך מפגש',
+                                            _displayDate(date),
+                                          ),
+                                        ),
+                                      ],
+                                    );
+                                  },
+                                ),
+                                const SizedBox(height: 20),
                                 Text(
-                                  'בקשות הצטרפות',
+                                  groupName,
+                                  textAlign: TextAlign.center,
                                   style: TextStyle(
                                     color:
                                         isLight ? Colors.black : Colors.white,
+                                    fontSize: 20,
                                     fontWeight: FontWeight.bold,
                                   ),
                                 ),
                                 const SizedBox(height: 10),
-                                StreamBuilder<
-                                    QuerySnapshot<Map<String, dynamic>>>(
-                                  stream: _groupService
-                                      .pendingMembersStream(widget.groupId),
-                                  builder: (context, snapshot) {
-                                    final docs = snapshot.data?.docs ?? [];
-                                    if (docs.isEmpty) {
-                                      return Text(
-                                        'אין בקשות כרגע',
-                                        style: TextStyle(
-                                          color: isLight
-                                              ? Colors.black54
-                                              : Colors.white54,
+                                Text(
+                                  description,
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    color: isLight
+                                        ? Colors.black54
+                                        : Colors.white70,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                                const SizedBox(height: 16),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      vertical: 14, horizontal: 16),
+                                  decoration: BoxDecoration(
+                                    color: isLight
+                                        ? const Color(0xFFEFF5FF)
+                                        : const Color(0xFF18181E),
+                                    borderRadius: BorderRadius.circular(20),
+                                    border: Border.all(
+                                      color: isLight
+                                          ? const Color(0xFFA9C3FF)
+                                          : Colors.transparent,
+                                    ),
+                                  ),
+                                  child: StreamBuilder<
+                                      QuerySnapshot<Map<String, dynamic>>>(
+                                    stream: _groupService
+                                        .attendanceStream(widget.groupId),
+                                    builder: (context, attendanceSnapshot) {
+                                      final attendanceDocs =
+                                          attendanceSnapshot.data?.docs ?? [];
+                                      final attendees = attendanceDocs.length;
+
+                                      return Directionality(
+                                        textDirection: TextDirection.rtl,
+                                        child: Row(
+                                          children: [
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    '$attendees אישרו הגעה',
+                                                    textAlign: TextAlign.right,
+                                                    style: TextStyle(
+                                                      color: isLight
+                                                          ? Colors.black
+                                                          : Colors.white,
+                                                      fontWeight:
+                                                          FontWeight.bold,
+                                                    ),
+                                                  ),
+                                                  const SizedBox(height: 6),
+                                                  Text(
+                                                    'לחץ אישור הגעה ואז תוכל לצפות ברשימת המאשרים',
+                                                    textAlign: TextAlign.right,
+                                                    style: TextStyle(
+                                                      color: isLight
+                                                          ? Colors.black54
+                                                          : Colors.white54,
+                                                      fontSize: 12,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                            StreamBuilder<bool>(
+                                              stream: _groupService
+                                                  .myAttendanceStream(
+                                                      widget.groupId),
+                                              builder: (context,
+                                                  myAttendanceSnapshot) {
+                                                final isAttending =
+                                                    myAttendanceSnapshot.data ??
+                                                        false;
+
+                                                if (isAttending) {
+                                                  return ElevatedButton(
+                                                    style: ElevatedButton
+                                                        .styleFrom(
+                                                      backgroundColor: isLight
+                                                          ? const Color(
+                                                              0xFFE9F0FF)
+                                                          : Colors.white12,
+                                                    ),
+                                                    onPressed:
+                                                        _openAttendanceList,
+                                                    child: Text(
+                                                      'צפה במאשרים',
+                                                      style: TextStyle(
+                                                        color: isLight
+                                                            ? Colors.black
+                                                            : Colors.white,
+                                                      ),
+                                                    ),
+                                                  );
+                                                }
+
+                                                return ElevatedButton(
+                                                  style:
+                                                      ElevatedButton.styleFrom(
+                                                          backgroundColor:
+                                                              const Color(
+                                                                  0xFF9E7CFF),
+                                                          foregroundColor:
+                                                              Colors.black),
+                                                  onPressed: _isRsvpLoading
+                                                      ? null
+                                                      : _handleRsvp,
+                                                  child: _isRsvpLoading
+                                                      ? const SizedBox(
+                                                          width: 16,
+                                                          height: 16,
+                                                          child:
+                                                              CircularProgressIndicator(
+                                                                  strokeWidth:
+                                                                      2,
+                                                                  color: Colors
+                                                                      .black),
+                                                        )
+                                                      : const Text(
+                                                          'אישור הגעה'),
+                                                );
+                                              },
+                                            ),
+                                          ],
                                         ),
                                       );
-                                    }
-
-                                    return Column(
-                                      children: docs.map((doc) {
-                                        final uid = doc.id;
-                                        final busy =
-                                            _busyRequestUids.contains(uid);
-                                        return Padding(
-                                          padding: const EdgeInsets.symmetric(
-                                              vertical: 6),
-                                          child: Row(
-                                            children: [
-                                              Expanded(
-                                                child: _ProfileTile(
-                                                  uid: uid,
-                                                  publicUserProfileService:
-                                                      _publicUserProfileService,
-                                                ),
+                                    },
+                                  ),
+                                ),
+                                if (hasMainCategory || hasSubCategory) ...[
+                                  const SizedBox(height: 12),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        vertical: 18, horizontal: 16),
+                                    decoration: BoxDecoration(
+                                      gradient: isLight
+                                          ? const LinearGradient(
+                                              colors: [
+                                                Color(0xFFFFFFFF),
+                                                Color(0xFFF1E8FF),
+                                                Color(0xFFEAF8FF),
+                                              ],
+                                              begin: Alignment.topLeft,
+                                              end: Alignment.bottomRight,
+                                            )
+                                          : const LinearGradient(
+                                              colors: [
+                                                Color(0xFF2B1652),
+                                                Color(0xFF4D2A91)
+                                              ],
+                                              begin: Alignment.topRight,
+                                              end: Alignment.bottomLeft,
+                                            ),
+                                      borderRadius: BorderRadius.circular(20),
+                                      border: Border.all(
+                                          color: isLight
+                                              ? const Color(0xFF9EDBFF)
+                                              : const Color(0xFF9E7CFF),
+                                          width: 1.2),
+                                      boxShadow: isLight
+                                          ? [
+                                              BoxShadow(
+                                                color: const Color(0xFF9EDBFF)
+                                                    .withValues(alpha: 0.14),
+                                                blurRadius: 16,
+                                                offset: const Offset(0, 8),
                                               ),
-                                              TextButton(
-                                                onPressed: busy
-                                                    ? null
-                                                    : () => _denyRequest(uid),
-                                                child: const Text('דחייה',
-                                                    style: TextStyle(
-                                                        color:
-                                                            Colors.redAccent)),
-                                              ),
-                                              ElevatedButton(
-                                                style: ElevatedButton.styleFrom(
-                                                    backgroundColor:
-                                                        const Color(
-                                                            0xFF9E7CFF)),
-                                                onPressed: busy
-                                                    ? null
-                                                    : () =>
-                                                        _approveRequest(uid),
-                                                child: busy
-                                                    ? const SizedBox(
-                                                        width: 16,
-                                                        height: 16,
-                                                        child:
-                                                            CircularProgressIndicator(
-                                                                strokeWidth: 2,
-                                                                color: Colors
-                                                                    .black),
-                                                      )
-                                                    : const Text('אישור',
-                                                        style: TextStyle(
-                                                            color:
-                                                                Colors.black)),
+                                            ]
+                                          : const [
+                                              BoxShadow(
+                                                color: Color(0x339E7CFF),
+                                                blurRadius: 18,
+                                                offset: Offset(0, 8),
                                               ),
                                             ],
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.center,
+                                      children: [
+                                        if (hasSubCategory)
+                                          Text(
+                                            _fallbackText(subCategory),
+                                            textAlign: TextAlign.center,
+                                            style: TextStyle(
+                                              color: isLight
+                                                  ? const Color(0xFF2A3352)
+                                                  : Colors.white,
+                                              fontSize: 24,
+                                              fontWeight: FontWeight.w800,
+                                              letterSpacing: 0.3,
+                                              shadows: isLight
+                                                  ? const []
+                                                  : const [
+                                                      Shadow(
+                                                        color:
+                                                            Color(0x669E7CFF),
+                                                        blurRadius: 10,
+                                                        offset: Offset(0, 2),
+                                                      ),
+                                                    ],
+                                            ),
                                           ),
-                                        );
-                                      }).toList(growable: false),
-                                    );
-                                  },
-                                ),
+                                        if (hasSubCategory && hasMainCategory)
+                                          const SizedBox(height: 8),
+                                        if (hasMainCategory)
+                                          Text(
+                                            _fallbackText(mainCategory),
+                                            textAlign: TextAlign.center,
+                                            style: TextStyle(
+                                              color: isLight
+                                                  ? const Color(0xFF6A5BFF)
+                                                  : const Color(0xFFE4DAFF),
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w600,
+                                              letterSpacing: 1.4,
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
                               ],
                             ),
                           ),
                           const SizedBox(height: 16),
-                        ],
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: isLight
-                                ? Colors.white.withValues(alpha: 0.96)
-                                : const Color(0xFF1E2632),
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(
-                              color: isLight
-                                  ? const Color(0xFFB9D4FF)
-                                  : Colors.transparent,
-                            ),
-                            boxShadow: isLight
-                                ? [
-                                    BoxShadow(
-                                      color: const Color(0xFF9EDBFF)
-                                          .withValues(alpha: 0.10),
-                                      blurRadius: 18,
-                                      offset: const Offset(0, 8),
-                                    ),
-                                  ]
-                                : const [],
-                          ),
-                          child: Directionality(
-                            textDirection: TextDirection.rtl,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Text(
-                                      'חברי קבוצה',
-                                      style: TextStyle(
-                                        color: isLight
-                                            ? Colors.black
-                                            : Colors.white,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                    IconButton(
-                                      onPressed: _openInviteFriendsDialog,
-                                      icon: const Icon(Icons.group_add,
-                                          color: Color(0xFF9E7CFF)),
-                                      tooltip: 'הוספת חברים',
-                                    ),
-                                  ],
+                          if (isActualAdmin &&
+                              (approvalRequired || !isPublicGroup)) ...[
+                            Container(
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                color: isLight
+                                    ? Colors.white.withValues(alpha: 0.82)
+                                    : const Color(0xFF1E2632),
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(
+                                  color: isLight
+                                      ? const Color(0xFFA9C3FF)
+                                      : Colors.transparent,
                                 ),
-                                const SizedBox(height: 8),
-                                StreamBuilder<
-                                    QuerySnapshot<Map<String, dynamic>>>(
-                                  stream: FirebaseFirestore.instance
-                                      .collection('groups')
-                                      .doc(widget.groupId)
-                                      .collection('members')
-                                      .snapshots(),
-                                  builder: (context, membersSnapshot) {
-                                    return StreamBuilder<
-                                        QuerySnapshot<Map<String, dynamic>>>(
-                                      stream: FirebaseFirestore.instance
-                                          .collection('chats')
-                                          .doc(widget.groupId)
-                                          .collection('members')
-                                          .snapshots(),
-                                      builder: (context, chatMembersSnapshot) {
-                                        final docs =
-                                            membersSnapshot.data?.docs ??
-                                                const <QueryDocumentSnapshot<
-                                                    Map<String, dynamic>>>[];
-                                        final chatDocs =
-                                            chatMembersSnapshot.data?.docs ??
-                                                const <QueryDocumentSnapshot<
-                                                    Map<String, dynamic>>>[];
-
-                                        final memberUidsSet = <String>{};
-
-                                        for (final doc in docs) {
-                                          final uid = doc.id.trim();
-                                          if (uid.isNotEmpty) {
-                                            memberUidsSet.add(uid);
-                                          }
-                                        }
-                                        for (final doc in chatDocs) {
-                                          final uid = doc.id.trim();
-                                          if (uid.isNotEmpty) {
-                                            memberUidsSet.add(uid);
-                                          }
-                                        }
-
-                                        // Keep already-joined members visible even when legacy/member docs
-                                        // are partially missing.
-                                        final members = (groupData['members']
-                                                    as List<dynamic>? ??
-                                                const <dynamic>[])
-                                            .map(_extractUid)
-                                            .where((uid) => uid.isNotEmpty);
-                                        memberUidsSet.addAll(members);
-
-                                        final membersList =
-                                            (groupData['membersList']
-                                                        as List<dynamic>? ??
-                                                    const <dynamic>[])
-                                                .map(_extractUid)
-                                                .where((uid) => uid.isNotEmpty);
-                                        memberUidsSet.addAll(membersList);
-
-                                        final participants =
-                                            (groupData['participants']
-                                                        as List<dynamic>? ??
-                                                    const <dynamic>[])
-                                                .map(_extractUid)
-                                                .where((uid) => uid.isNotEmpty);
-                                        memberUidsSet.addAll(participants);
-
-                                        final memberUids = memberUidsSet.toList(
-                                            growable: false);
-
-                                        if (adminUid.isNotEmpty &&
-                                            !memberUids.contains(adminUid)) {
-                                          memberUids.insert(0, adminUid);
-                                        }
-
-                                        final sortedUids = <String>[];
-                                        if (myUid != null &&
-                                            myUid.trim().isNotEmpty) {
-                                          final normalizedMyUid = myUid.trim();
-                                          if (memberUids
-                                              .contains(normalizedMyUid)) {
-                                            sortedUids.add(normalizedMyUid);
-                                          }
-                                        }
-                                        if (adminUid.isNotEmpty &&
-                                            !sortedUids.contains(adminUid) &&
-                                            memberUids.contains(adminUid)) {
-                                          sortedUids.add(adminUid);
-                                        }
-                                        for (final uid in memberUids) {
-                                          if (!sortedUids.contains(uid)) {
-                                            sortedUids.add(uid);
-                                          }
-                                        }
-
-                                        if (sortedUids.isEmpty) {
-                                          return const Center(
-                                            child: Text('אין חברים להצגה כרגע',
-                                                style: TextStyle(
-                                                    color: Colors.black54)),
-                                          );
-                                        }
-
-                                        final visibleUids = _showAllMembers
-                                            ? sortedUids
-                                            : sortedUids
-                                                .take(7)
-                                                .toList(growable: false);
-
-                                        return ListView(
-                                          shrinkWrap: true,
-                                          physics:
-                                              const NeverScrollableScrollPhysics(),
-                                          children: [
-                                            ListView.builder(
-                                              shrinkWrap: true,
-                                              physics:
-                                                  const NeverScrollableScrollPhysics(),
-                                              itemCount: visibleUids.length,
-                                              itemBuilder: (context, index) {
-                                                final uid = visibleUids[index];
-                                                final isAdminMember =
-                                                    uid == adminUid;
-                                                final isCurrentUser =
-                                                    myUid != null &&
-                                                        uid == myUid;
-                                                return _ProfileTile(
-                                                  uid: uid,
-                                                  publicUserProfileService:
-                                                      _publicUserProfileService,
-                                                  onTap: isCurrentUser
-                                                      ? null
-                                                      : () =>
-                                                          _openMemberProfile(
-                                                              uid),
-                                                  badgeText: isAdminMember
-                                                      ? 'מנהל'
-                                                      : null,
-                                                );
-                                              },
-                                            ),
-                                            if (sortedUids.length > 7)
-                                              Align(
-                                                alignment: Alignment.center,
-                                                child: TextButton(
-                                                  onPressed: () {
-                                                    setState(() {
-                                                      _showAllMembers =
-                                                          !_showAllMembers;
-                                                    });
-                                                  },
-                                                  child: Text(
-                                                    _showAllMembers
-                                                        ? 'הצג פחות'
-                                                        : 'הצג יותר',
-                                                  ),
-                                                ),
-                                              ),
-                                          ],
-                                        );
-                                      },
-                                    );
-                                  },
-                                ),
-                                const SizedBox(height: 6),
-                                Divider(
-                                    color: isLight
-                                        ? const Color(0xFFA9C3FF)
-                                        : Colors.white12),
-                                const SizedBox(height: 6),
-                                Row(
-                                  children: [
-                                    Text(
-                                      'פוסטים מקושרים לקבוצה',
-                                      style: TextStyle(
-                                          color: isLight
-                                              ? Colors.black
-                                              : Colors.white,
-                                          fontWeight: FontWeight.bold),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'בקשות הצטרפות',
+                                    style: TextStyle(
+                                      color:
+                                          isLight ? Colors.black : Colors.white,
+                                      fontWeight: FontWeight.bold,
                                     ),
-                                    const Spacer(),
-                                    StreamBuilder<
-                                        List<
-                                            QueryDocumentSnapshot<
-                                                Map<String, dynamic>>>>(
-                                      stream: _groupPostsStream(),
-                                      builder: (context, scoreSnapshot) {
-                                        final docs = scoreSnapshot.data ??
-                                            const <QueryDocumentSnapshot<
-                                                Map<String, dynamic>>>[];
-
-                                        final totalScore =
-                                            docs.fold<int>(0, (total, postDoc) {
-                                          final data = postDoc.data();
-                                          final status =
-                                              (data['status'] as String? ??
-                                                      'published')
-                                                  .trim()
-                                                  .toLowerCase();
-                                          if (status != 'published') {
-                                            return total;
-                                          }
-
-                                          final rawScore = data['scoreAwarded'];
-                                          if (rawScore is num) {
-                                            return total + rawScore.toInt();
-                                          }
-                                          return total +
-                                              (int.tryParse(
-                                                      rawScore?.toString() ??
-                                                          '') ??
-                                                  0);
-                                        });
-
-                                        return Container(
-                                          padding: const EdgeInsets.symmetric(
-                                              horizontal: 10, vertical: 6),
-                                          decoration: BoxDecoration(
-                                            color: isLight
-                                                ? const Color(0xFFEDE7FF)
-                                                : const Color(0xFF9E7CFF)
-                                                    .withValues(alpha: 0.18),
-                                            borderRadius:
-                                                BorderRadius.circular(999),
-                                            border: Border.all(
-                                              color: isLight
-                                                  ? const Color(0xFF8F79E8)
-                                                  : const Color(0xFF9E7CFF),
-                                            ),
-                                          ),
-                                          child: Text(
-                                            'ניקוד מצטבר: $totalScore',
-                                            style: TextStyle(
-                                              color: isLight
-                                                  ? const Color(0xFF4B3FA4)
-                                                  : Colors.white,
-                                              fontWeight: FontWeight.w700,
-                                              fontSize: 12,
-                                            ),
-                                          ),
-                                        );
-                                      },
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 10),
-                                StreamBuilder<
-                                    List<
-                                        QueryDocumentSnapshot<
-                                            Map<String, dynamic>>>>(
-                                  stream: _groupPostsStream(),
-                                  builder: (context, postsSnapshot) {
-                                    if (postsSnapshot.connectionState ==
-                                            ConnectionState.waiting &&
-                                        !postsSnapshot.hasData) {
-                                      return const Center(
-                                        child: CircularProgressIndicator(),
-                                      );
-                                    }
-
-                                    if (postsSnapshot.hasError) {
-                                      return Center(
-                                        child: Text(
-                                          'שגיאה בטעינת פוסטים: ${postsSnapshot.error}',
+                                  ),
+                                  const SizedBox(height: 10),
+                                  StreamBuilder<
+                                      QuerySnapshot<Map<String, dynamic>>>(
+                                    stream: _groupService
+                                        .pendingMembersStream(widget.groupId),
+                                    builder: (context, snapshot) {
+                                      final docs = snapshot.data?.docs ?? [];
+                                      if (docs.isEmpty) {
+                                        return Text(
+                                          'אין בקשות כרגע',
                                           style: TextStyle(
                                             color: isLight
                                                 ? Colors.black54
-                                                : Colors.white70,
+                                                : Colors.white54,
                                           ),
-                                          textAlign: TextAlign.center,
-                                        ),
+                                        );
+                                      }
+
+                                      return Column(
+                                        children: docs.map((doc) {
+                                          final uid = doc.id;
+                                          final busy =
+                                              _busyRequestUids.contains(uid);
+                                          return Padding(
+                                            padding: const EdgeInsets.symmetric(
+                                                vertical: 6),
+                                            child: Row(
+                                              children: [
+                                                Expanded(
+                                                  child: _ProfileTile(
+                                                    uid: uid,
+                                                    publicUserProfileService:
+                                                        _publicUserProfileService,
+                                                  ),
+                                                ),
+                                                TextButton(
+                                                  onPressed: busy
+                                                      ? null
+                                                      : () => _denyRequest(uid),
+                                                  child: const Text('דחייה',
+                                                      style: TextStyle(
+                                                          color: Colors
+                                                              .redAccent)),
+                                                ),
+                                                ElevatedButton(
+                                                  style:
+                                                      ElevatedButton.styleFrom(
+                                                          backgroundColor:
+                                                              const Color(
+                                                                  0xFF9E7CFF)),
+                                                  onPressed: busy
+                                                      ? null
+                                                      : () =>
+                                                          _approveRequest(uid),
+                                                  child: busy
+                                                      ? const SizedBox(
+                                                          width: 16,
+                                                          height: 16,
+                                                          child:
+                                                              CircularProgressIndicator(
+                                                                  strokeWidth:
+                                                                      2,
+                                                                  color: Colors
+                                                                      .black),
+                                                        )
+                                                      : const Text('אישור',
+                                                          style: TextStyle(
+                                                              color: Colors
+                                                                  .black)),
+                                                ),
+                                              ],
+                                            ),
+                                          );
+                                        }).toList(growable: false),
                                       );
-                                    }
-
-                                    final allDocs = postsSnapshot.data ??
-                                        const <QueryDocumentSnapshot<
-                                            Map<String, dynamic>>>[];
-                                    final docs = allDocs.where((doc) {
-                                      final data = doc.data();
-                                      final status =
-                                          (data['status'] as String? ??
-                                                  'published')
-                                              .trim()
-                                              .toLowerCase();
-                                      final isDeleted =
-                                          (data['isDeleted'] as bool?) ?? false;
-                                      return status == 'published' &&
-                                          !isDeleted;
-                                    }).toList(growable: false)
-                                      ..sort((a, b) {
-                                        final rawA = a.data()['createdAt'];
-                                        final rawB = b.data()['createdAt'];
-                                        final dateA = rawA is Timestamp
-                                            ? rawA.toDate()
-                                            : DateTime
-                                                .fromMillisecondsSinceEpoch(0);
-                                        final dateB = rawB is Timestamp
-                                            ? rawB.toDate()
-                                            : DateTime
-                                                .fromMillisecondsSinceEpoch(0);
-                                        return dateB.compareTo(dateA);
-                                      });
-
-                                    if (docs.isEmpty) {
-                                      return Container(
-                                        decoration: BoxDecoration(
+                                    },
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                          ],
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: isLight
+                                  ? Colors.white.withValues(alpha: 0.96)
+                                  : const Color(0xFF1E2632),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(
+                                color: isLight
+                                    ? const Color(0xFFB9D4FF)
+                                    : Colors.transparent,
+                              ),
+                              boxShadow: isLight
+                                  ? [
+                                      BoxShadow(
+                                        color: const Color(0xFF9EDBFF)
+                                            .withValues(alpha: 0.10),
+                                        blurRadius: 18,
+                                        offset: const Offset(0, 8),
+                                      ),
+                                    ]
+                                  : const [],
+                            ),
+                            child: Directionality(
+                              textDirection: TextDirection.rtl,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  Row(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Text(
+                                        'חברי קבוצה',
+                                        style: TextStyle(
                                           color: isLight
-                                              ? const Color(0xFFF4F8FF)
-                                              : const Color(0xFF171F2D),
-                                          borderRadius:
-                                              BorderRadius.circular(12),
-                                          border: Border.all(
-                                            color: isLight
-                                                ? const Color(0xFFA9C3FF)
-                                                : Colors.white12,
-                                          ),
+                                              ? Colors.black
+                                              : Colors.white,
+                                          fontWeight: FontWeight.bold,
                                         ),
-                                        child: SingleChildScrollView(
-                                          padding: const EdgeInsets.all(12),
-                                          child: Column(
-                                            mainAxisSize: MainAxisSize.min,
-                                            mainAxisAlignment:
-                                                MainAxisAlignment.center,
+                                      ),
+                                      IconButton(
+                                        onPressed: _openInviteFriendsDialog,
+                                        icon: const Icon(Icons.group_add,
+                                            color: Color(0xFF9E7CFF)),
+                                        tooltip: 'הוספת חברים',
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 8),
+                                  StreamBuilder<
+                                      QuerySnapshot<Map<String, dynamic>>>(
+                                    stream: FirebaseFirestore.instance
+                                        .collection('groups')
+                                        .doc(widget.groupId)
+                                        .collection('members')
+                                        .snapshots(),
+                                    builder: (context, membersSnapshot) {
+                                      return StreamBuilder<
+                                          QuerySnapshot<Map<String, dynamic>>>(
+                                        stream: FirebaseFirestore.instance
+                                            .collection('chats')
+                                            .doc(widget.groupId)
+                                            .collection('members')
+                                            .snapshots(),
+                                        builder:
+                                            (context, chatMembersSnapshot) {
+                                          final docs =
+                                              membersSnapshot.data?.docs ??
+                                                  const <QueryDocumentSnapshot<
+                                                      Map<String, dynamic>>>[];
+                                          final chatDocs =
+                                              chatMembersSnapshot.data?.docs ??
+                                                  const <QueryDocumentSnapshot<
+                                                      Map<String, dynamic>>>[];
+
+                                          final memberUidsSet = <String>{};
+
+                                          for (final doc in docs) {
+                                            final uid = doc.id.trim();
+                                            if (uid.isNotEmpty) {
+                                              memberUidsSet.add(uid);
+                                            }
+                                          }
+                                          for (final doc in chatDocs) {
+                                            final uid = doc.id.trim();
+                                            if (uid.isNotEmpty) {
+                                              memberUidsSet.add(uid);
+                                            }
+                                          }
+
+                                          // Keep already-joined members visible even when legacy/member docs
+                                          // are partially missing.
+                                          final members = (groupData['members']
+                                                      as List<dynamic>? ??
+                                                  const <dynamic>[])
+                                              .map(_extractUid)
+                                              .where((uid) => uid.isNotEmpty);
+                                          memberUidsSet.addAll(members);
+
+                                          final membersList =
+                                              (groupData['membersList']
+                                                          as List<dynamic>? ??
+                                                      const <dynamic>[])
+                                                  .map(_extractUid)
+                                                  .where(
+                                                      (uid) => uid.isNotEmpty);
+                                          memberUidsSet.addAll(membersList);
+
+                                          final participants =
+                                              (groupData['participants']
+                                                          as List<dynamic>? ??
+                                                      const <dynamic>[])
+                                                  .map(_extractUid)
+                                                  .where(
+                                                      (uid) => uid.isNotEmpty);
+                                          memberUidsSet.addAll(participants);
+
+                                          final memberUids = memberUidsSet
+                                              .toList(growable: false);
+
+                                          if (adminUid.isNotEmpty &&
+                                              !memberUids.contains(adminUid)) {
+                                            memberUids.insert(0, adminUid);
+                                          }
+
+                                          final sortedUids = <String>[];
+                                          if (myUid != null &&
+                                              myUid.trim().isNotEmpty) {
+                                            final normalizedMyUid =
+                                                myUid.trim();
+                                            if (memberUids
+                                                .contains(normalizedMyUid)) {
+                                              sortedUids.add(normalizedMyUid);
+                                            }
+                                          }
+                                          if (adminUid.isNotEmpty &&
+                                              !sortedUids.contains(adminUid) &&
+                                              memberUids.contains(adminUid)) {
+                                            sortedUids.add(adminUid);
+                                          }
+                                          for (final uid in memberUids) {
+                                            if (!sortedUids.contains(uid)) {
+                                              sortedUids.add(uid);
+                                            }
+                                          }
+
+                                          if (sortedUids.isEmpty) {
+                                            return const Center(
+                                              child: Text(
+                                                  'אין חברים להצגה כרגע',
+                                                  style: TextStyle(
+                                                      color: Colors.black54)),
+                                            );
+                                          }
+
+                                          final visibleUids = _showAllMembers
+                                              ? sortedUids
+                                              : sortedUids
+                                                  .take(7)
+                                                  .toList(growable: false);
+
+                                          return ListView(
+                                            shrinkWrap: true,
+                                            physics:
+                                                const NeverScrollableScrollPhysics(),
                                             children: [
-                                              Text(
-                                                'אין עדיין פוסטים מקושרים לקבוצה',
-                                                style: TextStyle(
-                                                  color: isLight
-                                                      ? Colors.black54
-                                                      : Colors.white70,
-                                                ),
-                                                textAlign: TextAlign.center,
-                                              ),
-                                              const SizedBox(height: 10),
-                                              ElevatedButton.icon(
-                                                style: ElevatedButton.styleFrom(
-                                                  backgroundColor:
-                                                      const Color(0xFF9E7CFF),
-                                                  foregroundColor: Colors.black,
-                                                ),
-                                                onPressed: () {
-                                                  Navigator.push(
-                                                    context,
-                                                    MaterialPageRoute(
-                                                      builder: (_) =>
-                                                          const CreatePostScreen(),
-                                                    ),
+                                              ListView.builder(
+                                                shrinkWrap: true,
+                                                physics:
+                                                    const NeverScrollableScrollPhysics(),
+                                                itemCount: visibleUids.length,
+                                                itemBuilder: (context, index) {
+                                                  final uid =
+                                                      visibleUids[index];
+                                                  final isAdminMember =
+                                                      uid == adminUid;
+                                                  final isCurrentUser =
+                                                      myUid != null &&
+                                                          uid == myUid;
+                                                  return _ProfileTile(
+                                                    uid: uid,
+                                                    publicUserProfileService:
+                                                        _publicUserProfileService,
+                                                    onTap: isCurrentUser
+                                                        ? null
+                                                        : () =>
+                                                            _openMemberProfile(
+                                                                uid),
+                                                    badgeText: isAdminMember
+                                                        ? 'מנהל'
+                                                        : null,
                                                   );
                                                 },
-                                                icon: const Icon(
-                                                    Icons.add_rounded),
-                                                label: const Text(
-                                                    'הוסף את הפוסט הראשון'),
                                               ),
-                                            ],
-                                          ),
-                                        ),
-                                      );
-                                    }
-
-                                    return GridView.builder(
-                                      shrinkWrap: true,
-                                      physics:
-                                          const NeverScrollableScrollPhysics(),
-                                      itemCount: docs.length,
-                                      gridDelegate:
-                                          const SliverGridDelegateWithFixedCrossAxisCount(
-                                        crossAxisCount: 3,
-                                        mainAxisSpacing: 10,
-                                        crossAxisSpacing: 10,
-                                        childAspectRatio: 3 / 4,
-                                      ),
-                                      itemBuilder: (context, index) {
-                                        final doc = docs[index];
-                                        final data = doc.data();
-                                        final title =
-                                            ((data['title'] as String?) ?? '')
-                                                .trim();
-                                        final mediaItems =
-                                            postMediaItemsFromData(data);
-                                        final primaryMediaUrl =
-                                            postPrimaryMediaUrl(data);
-                                        final mediaUrls = (data['mediaUrls']
-                                                    as List<dynamic>? ??
-                                                const <dynamic>[])
-                                            .map((value) =>
-                                                value.toString().trim())
-                                            .where((value) => value.isNotEmpty)
-                                            .toList(growable: false);
-                                        final directPreviewCandidates =
-                                            <String>[
-                                          (data['thumbnailUrl'] as String? ??
-                                                  '')
-                                              .trim(),
-                                          (data['videoThumbnailUrl']
-                                                      as String? ??
-                                                  '')
-                                              .trim(),
-                                          (data['imageUrl'] as String? ?? '')
-                                              .trim(),
-                                          (data['mediaUrl'] as String? ?? '')
-                                              .trim(),
-                                        ];
-                                        final itemPreviewCandidates = mediaItems
-                                            .map((item) => item.url.trim())
-                                            .toList(growable: false);
-                                        final previewSource = <String>[
-                                          ...directPreviewCandidates,
-                                          ...itemPreviewCandidates,
-                                          ...mediaUrls,
-                                          primaryMediaUrl,
-                                        ].firstWhere(
-                                          (url) => url.isNotEmpty,
-                                          orElse: () => '',
-                                        );
-                                        final isVideoPost = mediaItems.any(
-                                              (item) => item.isVideo,
-                                            ) ||
-                                            (primaryMediaUrl.isNotEmpty &&
-                                                isVideoMediaUrl(
-                                                    primaryMediaUrl));
-
-                                        return GestureDetector(
-                                          onTap: () =>
-                                              _openLinkedPost(docs, index),
-                                          child: Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.stretch,
-                                            children: [
-                                              Expanded(
-                                                child: ClipRRect(
-                                                  borderRadius:
-                                                      BorderRadius.circular(12),
-                                                  child: Container(
-                                                    color: isLight
-                                                        ? const Color(
-                                                            0xFFEAF1FF)
-                                                        : const Color(
-                                                            0xFF0F1522),
-                                                    child: Stack(
-                                                      fit: StackFit.expand,
-                                                      children: [
-                                                        if (previewSource
-                                                            .isEmpty)
-                                                          Icon(
-                                                            Icons
-                                                                .image_not_supported_rounded,
-                                                            color: isLight
-                                                                ? Colors.black38
-                                                                : Colors
-                                                                    .white38,
-                                                          )
-                                                        else if (isVideoMediaUrl(
-                                                            previewSource))
-                                                          FutureBuilder<
-                                                              Uint8List?>(
-                                                            future:
-                                                                buildVideoPreviewBytesFromSource(
-                                                                    previewSource),
-                                                            builder: (context,
-                                                                bytesSnapshot) {
-                                                              final bytes =
-                                                                  bytesSnapshot
-                                                                      .data;
-                                                              return Stack(
-                                                                fit: StackFit
-                                                                    .expand,
-                                                                children: [
-                                                                  if (bytes !=
-                                                                      null)
-                                                                    Image
-                                                                        .memory(
-                                                                      bytes,
-                                                                      fit: BoxFit
-                                                                          .cover,
-                                                                    )
-                                                                  else
-                                                                    Container(
-                                                                      color: isLight
-                                                                          ? const Color(
-                                                                              0xFFEAF1FF)
-                                                                          : const Color(
-                                                                              0xFF0F1522),
-                                                                    ),
-                                                                  const Center(
-                                                                    child: Icon(
-                                                                      Icons
-                                                                          .play_circle_fill_rounded,
-                                                                      color: Colors
-                                                                          .white,
-                                                                      size: 30,
-                                                                    ),
-                                                                  ),
-                                                                ],
-                                                              );
-                                                            },
-                                                          )
-                                                        else
-                                                          Image.network(
-                                                            previewSource,
-                                                            fit: BoxFit.cover,
-                                                          ),
-                                                        if (isVideoPost)
-                                                          Align(
-                                                            alignment: Alignment
-                                                                .bottomRight,
-                                                            child: Container(
-                                                              margin:
-                                                                  const EdgeInsets
-                                                                      .all(6),
-                                                              padding:
-                                                                  const EdgeInsets
-                                                                      .all(4),
-                                                              decoration:
-                                                                  BoxDecoration(
-                                                                color: Colors
-                                                                    .black45,
-                                                                borderRadius:
-                                                                    BorderRadius
-                                                                        .circular(
-                                                                            999),
-                                                              ),
-                                                              child: const Icon(
-                                                                Icons
-                                                                    .videocam_rounded,
-                                                                size: 13,
-                                                                color: Colors
-                                                                    .white,
-                                                              ),
-                                                            ),
-                                                          ),
-                                                      ],
+                                              if (sortedUids.length > 7)
+                                                Align(
+                                                  alignment: Alignment.center,
+                                                  child: TextButton(
+                                                    onPressed: () {
+                                                      setState(() {
+                                                        _showAllMembers =
+                                                            !_showAllMembers;
+                                                      });
+                                                    },
+                                                    child: Text(
+                                                      _showAllMembers
+                                                          ? 'הצג פחות'
+                                                          : 'הצג יותר',
                                                     ),
                                                   ),
                                                 ),
-                                              ),
-                                              const SizedBox(height: 4),
-                                              Text(
-                                                title.isNotEmpty
-                                                    ? title
-                                                    : 'פוסט ללא כותרת',
-                                                style: TextStyle(
-                                                  color: isLight
-                                                      ? Colors.black
-                                                      : Colors.white,
-                                                  fontSize: 11,
-                                                  fontWeight: FontWeight.w600,
-                                                ),
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                                textAlign: TextAlign.right,
-                                              ),
                                             ],
+                                          );
+                                        },
+                                      );
+                                    },
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Divider(
+                                      color: isLight
+                                          ? const Color(0xFFA9C3FF)
+                                          : Colors.white12),
+                                  const SizedBox(height: 6),
+                                  Row(
+                                    children: [
+                                      Text(
+                                        'פוסטים מקושרים לקבוצה',
+                                        style: TextStyle(
+                                            color: isLight
+                                                ? Colors.black
+                                                : Colors.white,
+                                            fontWeight: FontWeight.bold),
+                                      ),
+                                      const Spacer(),
+                                      StreamBuilder<
+                                          List<
+                                              QueryDocumentSnapshot<
+                                                  Map<String, dynamic>>>>(
+                                        stream: _groupPostsStream(),
+                                        builder: (context, scoreSnapshot) {
+                                          final docs = scoreSnapshot.data ??
+                                              const <QueryDocumentSnapshot<
+                                                  Map<String, dynamic>>>[];
+
+                                          final totalScore = docs.fold<int>(0,
+                                              (total, postDoc) {
+                                            final data = postDoc.data();
+                                            final status =
+                                                (data['status'] as String? ??
+                                                        'published')
+                                                    .trim()
+                                                    .toLowerCase();
+                                            if (status != 'published') {
+                                              return total;
+                                            }
+
+                                            final rawScore =
+                                                data['scoreAwarded'];
+                                            if (rawScore is num) {
+                                              return total + rawScore.toInt();
+                                            }
+                                            return total +
+                                                (int.tryParse(
+                                                        rawScore?.toString() ??
+                                                            '') ??
+                                                    0);
+                                          });
+
+                                          return Container(
+                                            padding: const EdgeInsets.symmetric(
+                                                horizontal: 10, vertical: 6),
+                                            decoration: BoxDecoration(
+                                              color: isLight
+                                                  ? const Color(0xFFEDE7FF)
+                                                  : const Color(0xFF9E7CFF)
+                                                      .withValues(alpha: 0.18),
+                                              borderRadius:
+                                                  BorderRadius.circular(999),
+                                              border: Border.all(
+                                                color: isLight
+                                                    ? const Color(0xFF8F79E8)
+                                                    : const Color(0xFF9E7CFF),
+                                              ),
+                                            ),
+                                            child: Text(
+                                              'ניקוד מצטבר: $totalScore',
+                                              style: TextStyle(
+                                                color: isLight
+                                                    ? const Color(0xFF4B3FA4)
+                                                    : Colors.white,
+                                                fontWeight: FontWeight.w700,
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                          );
+                                        },
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 10),
+                                  StreamBuilder<
+                                      List<
+                                          QueryDocumentSnapshot<
+                                              Map<String, dynamic>>>>(
+                                    stream: _groupPostsStream(),
+                                    builder: (context, postsSnapshot) {
+                                      if (postsSnapshot.connectionState ==
+                                              ConnectionState.waiting &&
+                                          !postsSnapshot.hasData) {
+                                        return const Center(
+                                          child: CircularProgressIndicator(),
+                                        );
+                                      }
+
+                                      if (postsSnapshot.hasError) {
+                                        return Center(
+                                          child: Text(
+                                            'שגיאה בטעינת פוסטים: ${postsSnapshot.error}',
+                                            style: TextStyle(
+                                              color: isLight
+                                                  ? Colors.black54
+                                                  : Colors.white70,
+                                            ),
+                                            textAlign: TextAlign.center,
                                           ),
                                         );
-                                      },
-                                    );
-                                  },
-                                ),
-                              ],
+                                      }
+
+                                      final allDocs = postsSnapshot.data ??
+                                          const <QueryDocumentSnapshot<
+                                              Map<String, dynamic>>>[];
+                                      final docs = allDocs.where((doc) {
+                                        final data = doc.data();
+                                        final status =
+                                            (data['status'] as String? ??
+                                                    'published')
+                                                .trim()
+                                                .toLowerCase();
+                                        final isDeleted =
+                                            (data['isDeleted'] as bool?) ??
+                                                false;
+                                        return status == 'published' &&
+                                            !isDeleted;
+                                      }).toList(growable: false)
+                                        ..sort((a, b) {
+                                          final rawA = a.data()['createdAt'];
+                                          final rawB = b.data()['createdAt'];
+                                          final dateA = rawA is Timestamp
+                                              ? rawA.toDate()
+                                              : DateTime
+                                                  .fromMillisecondsSinceEpoch(
+                                                      0);
+                                          final dateB = rawB is Timestamp
+                                              ? rawB.toDate()
+                                              : DateTime
+                                                  .fromMillisecondsSinceEpoch(
+                                                      0);
+                                          return dateB.compareTo(dateA);
+                                        });
+
+                                      if (docs.isEmpty) {
+                                        return Container(
+                                          decoration: BoxDecoration(
+                                            color: isLight
+                                                ? const Color(0xFFF4F8FF)
+                                                : const Color(0xFF171F2D),
+                                            borderRadius:
+                                                BorderRadius.circular(12),
+                                            border: Border.all(
+                                              color: isLight
+                                                  ? const Color(0xFFA9C3FF)
+                                                  : Colors.white12,
+                                            ),
+                                          ),
+                                          child: SingleChildScrollView(
+                                            padding: const EdgeInsets.all(12),
+                                            child: Column(
+                                              mainAxisSize: MainAxisSize.min,
+                                              mainAxisAlignment:
+                                                  MainAxisAlignment.center,
+                                              children: [
+                                                Text(
+                                                  'אין עדיין פוסטים מקושרים לקבוצה',
+                                                  style: TextStyle(
+                                                    color: isLight
+                                                        ? Colors.black54
+                                                        : Colors.white70,
+                                                  ),
+                                                  textAlign: TextAlign.center,
+                                                ),
+                                                const SizedBox(height: 10),
+                                                ElevatedButton.icon(
+                                                  style:
+                                                      ElevatedButton.styleFrom(
+                                                    backgroundColor:
+                                                        const Color(0xFF9E7CFF),
+                                                    foregroundColor:
+                                                        Colors.black,
+                                                  ),
+                                                  onPressed: () {
+                                                    Navigator.push(
+                                                      context,
+                                                      MaterialPageRoute(
+                                                        builder: (_) =>
+                                                            const CreatePostScreen(),
+                                                      ),
+                                                    );
+                                                  },
+                                                  icon: const Icon(
+                                                      Icons.add_rounded),
+                                                  label: const Text(
+                                                      'הוסף את הפוסט הראשון'),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        );
+                                      }
+
+                                      return GridView.builder(
+                                        shrinkWrap: true,
+                                        physics:
+                                            const NeverScrollableScrollPhysics(),
+                                        itemCount: docs.length,
+                                        gridDelegate:
+                                            const SliverGridDelegateWithFixedCrossAxisCount(
+                                          crossAxisCount: 3,
+                                          mainAxisSpacing: 10,
+                                          crossAxisSpacing: 10,
+                                          childAspectRatio: 3 / 4,
+                                        ),
+                                        itemBuilder: (context, index) {
+                                          final doc = docs[index];
+                                          final data = doc.data();
+                                          final title =
+                                              ((data['title'] as String?) ?? '')
+                                                  .trim();
+                                          final mediaItems =
+                                              postMediaItemsFromData(data);
+                                          final primaryMediaUrl =
+                                              postPrimaryMediaUrl(data);
+                                          final mediaUrls = (data['mediaUrls']
+                                                      as List<dynamic>? ??
+                                                  const <dynamic>[])
+                                              .map((value) =>
+                                                  value.toString().trim())
+                                              .where(
+                                                  (value) => value.isNotEmpty)
+                                              .toList(growable: false);
+                                          final directPreviewCandidates =
+                                              <String>[
+                                            (data['thumbnailUrl'] as String? ??
+                                                    '')
+                                                .trim(),
+                                            (data['videoThumbnailUrl']
+                                                        as String? ??
+                                                    '')
+                                                .trim(),
+                                            (data['imageUrl'] as String? ?? '')
+                                                .trim(),
+                                            (data['mediaUrl'] as String? ?? '')
+                                                .trim(),
+                                          ];
+                                          final itemPreviewCandidates =
+                                              mediaItems
+                                                  .map(
+                                                      (item) => item.url.trim())
+                                                  .toList(growable: false);
+                                          final previewSource = <String>[
+                                            ...directPreviewCandidates,
+                                            ...itemPreviewCandidates,
+                                            ...mediaUrls,
+                                            primaryMediaUrl,
+                                          ].firstWhere(
+                                            (url) => url.isNotEmpty,
+                                            orElse: () => '',
+                                          );
+                                          final isVideoPost = mediaItems.any(
+                                                (item) => item.isVideo,
+                                              ) ||
+                                              (primaryMediaUrl.isNotEmpty &&
+                                                  isVideoMediaUrl(
+                                                      primaryMediaUrl));
+
+                                          return GestureDetector(
+                                            onTap: () =>
+                                                _openLinkedPost(docs, index),
+                                            child: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.stretch,
+                                              children: [
+                                                Expanded(
+                                                  child: ClipRRect(
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                            12),
+                                                    child: Container(
+                                                      color: isLight
+                                                          ? const Color(
+                                                              0xFFEAF1FF)
+                                                          : const Color(
+                                                              0xFF0F1522),
+                                                      child: Stack(
+                                                        fit: StackFit.expand,
+                                                        children: [
+                                                          if (previewSource
+                                                              .isEmpty)
+                                                            Icon(
+                                                              Icons
+                                                                  .image_not_supported_rounded,
+                                                              color: isLight
+                                                                  ? Colors
+                                                                      .black38
+                                                                  : Colors
+                                                                      .white38,
+                                                            )
+                                                          else if (isVideoMediaUrl(
+                                                              previewSource))
+                                                            FutureBuilder<
+                                                                Uint8List?>(
+                                                              future: buildVideoPreviewBytesFromSource(
+                                                                  previewSource),
+                                                              builder: (context,
+                                                                  bytesSnapshot) {
+                                                                final bytes =
+                                                                    bytesSnapshot
+                                                                        .data;
+                                                                return Stack(
+                                                                  fit: StackFit
+                                                                      .expand,
+                                                                  children: [
+                                                                    if (bytes !=
+                                                                        null)
+                                                                      Image
+                                                                          .memory(
+                                                                        bytes,
+                                                                        fit: BoxFit
+                                                                            .cover,
+                                                                      )
+                                                                    else
+                                                                      Container(
+                                                                        color: isLight
+                                                                            ? const Color(0xFFEAF1FF)
+                                                                            : const Color(0xFF0F1522),
+                                                                      ),
+                                                                    const Center(
+                                                                      child:
+                                                                          Icon(
+                                                                        Icons
+                                                                            .play_circle_fill_rounded,
+                                                                        color: Colors
+                                                                            .white,
+                                                                        size:
+                                                                            30,
+                                                                      ),
+                                                                    ),
+                                                                  ],
+                                                                );
+                                                              },
+                                                            )
+                                                          else
+                                                            Image.network(
+                                                              previewSource,
+                                                              fit: BoxFit.cover,
+                                                            ),
+                                                          if (isVideoPost)
+                                                            Align(
+                                                              alignment: Alignment
+                                                                  .bottomRight,
+                                                              child: Container(
+                                                                margin:
+                                                                    const EdgeInsets
+                                                                        .all(6),
+                                                                padding:
+                                                                    const EdgeInsets
+                                                                        .all(4),
+                                                                decoration:
+                                                                    BoxDecoration(
+                                                                  color: Colors
+                                                                      .black45,
+                                                                  borderRadius:
+                                                                      BorderRadius
+                                                                          .circular(
+                                                                              999),
+                                                                ),
+                                                                child:
+                                                                    const Icon(
+                                                                  Icons
+                                                                      .videocam_rounded,
+                                                                  size: 13,
+                                                                  color: Colors
+                                                                      .white,
+                                                                ),
+                                                              ),
+                                                            ),
+                                                        ],
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 4),
+                                                Text(
+                                                  title.isNotEmpty
+                                                      ? title
+                                                      : 'פוסט ללא כותרת',
+                                                  style: TextStyle(
+                                                    color: isLight
+                                                        ? Colors.black
+                                                        : Colors.white,
+                                                    fontSize: 11,
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
+                                                  maxLines: 1,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                  textAlign: TextAlign.right,
+                                                ),
+                                              ],
+                                            ),
+                                          );
+                                        },
+                                      );
+                                    },
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
                   ),
                 ),
                 bottomNavigationBar: Container(

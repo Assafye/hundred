@@ -387,7 +387,8 @@ class PostService {
 
     final userRef = _db.collection('users').doc(normalizedUid);
     final publicRef = _db.collection('users_public').doc(normalizedUid);
-    final existingSnapshots = await Future.wait([userRef.get(), publicRef.get()]);
+    final existingSnapshots =
+        await Future.wait([userRef.get(), publicRef.get()]);
 
     final batch = _db.batch();
     var hasWrites = false;
@@ -1520,7 +1521,9 @@ class PostService {
             onError: (Object error, StackTrace stackTrace) {
               if (isRecoverableStreamError(error)) {
                 if (kDebugMode) {
-                  final code = error is FirebaseException ? error.code : error.runtimeType;
+                  final code = error is FirebaseException
+                      ? error.code
+                      : error.runtimeType;
                   debugPrint(
                       '[FEED_QUERY] streamProfile($uid) recoverable error code=$code, treating author profile as unknown: $error');
                 }
@@ -1529,7 +1532,8 @@ class PostService {
                 return;
               }
               if (kDebugMode) {
-                debugPrint('[FEED_QUERY] streamProfile($uid) unrecoverable error: $error');
+                debugPrint(
+                    '[FEED_QUERY] streamProfile($uid) unrecoverable error: $error');
               }
               if (!controller.isClosed) {
                 controller.addError(error, stackTrace);
@@ -1558,7 +1562,8 @@ class PostService {
           onError: (Object error, StackTrace stackTrace) {
             if (isRecoverableStreamError(error)) {
               if (kDebugMode) {
-                final code = error is FirebaseException ? error.code : error.runtimeType;
+                final code =
+                    error is FirebaseException ? error.code : error.runtimeType;
                 debugPrint(
                     '[FEED_QUERY] watchPublishedPosts recoverable error code=$code, falling back to lastGoodFeed (${lastGoodFeed.length} posts): $error');
               }
@@ -1570,7 +1575,8 @@ class PostService {
               return;
             }
             if (kDebugMode) {
-              debugPrint('[FEED_QUERY] watchPublishedPosts unrecoverable error: $error');
+              debugPrint(
+                  '[FEED_QUERY] watchPublishedPosts unrecoverable error: $error');
             }
             if (!controller.isClosed) {
               controller.addError(error, stackTrace);
@@ -1760,6 +1766,20 @@ class PostService {
             senderUid: uid,
           );
         }),
+      );
+    } else if (!didAddLike &&
+        normalizedAuthorId.isNotEmpty &&
+        normalizedAuthorId != uid) {
+      unawaited(
+        _secureQueue.enqueue(
+          type: SecureActionTypes.reconcilePostLikeNotification,
+          payload: <String, dynamic>{
+            'postId': normalizedPostId,
+            'postAuthorId': normalizedAuthorId,
+            'postImageUrl': postImageUrl,
+          },
+          dedupeKey: 'reconcile_like_notification:$normalizedPostId',
+        ),
       );
     }
   }
@@ -2041,6 +2061,19 @@ class PostService {
           );
         }),
       );
+    } else if (!didAddSave &&
+        normalizedAuthorId.isNotEmpty &&
+        normalizedAuthorId != uid) {
+      unawaited(
+        _secureQueue.enqueue(
+          type: SecureActionTypes.deletePostSaveNotification,
+          payload: <String, dynamic>{
+            'postId': normalizedPostId,
+            'postAuthorId': normalizedAuthorId,
+          },
+          dedupeKey: 'delete_save_notification:$uid:$normalizedPostId',
+        ),
+      );
     }
   }
 
@@ -2275,7 +2308,7 @@ class PostService {
           return _notificationService.sendCommentReplyNotification(
             recipientUid: parentCommentAuthorId,
             postId: normalizedPostId,
-            commentId: normalizedParentId,
+            commentId: newCommentRef.id,
             replyText: normalizedText,
             postOwnerUid: normalizedAuthorId,
             postImageUrl: postImageUrl,
@@ -2382,10 +2415,11 @@ class PostService {
 
         final parentCommentAuthorId = normalizedParentId.isNotEmpty
             ? ((await postRef
-                    .collection('comments')
-                    .doc(normalizedParentId)
-                    .get())
-                .data()?['authorId'] as String? ?? '')
+                        .collection('comments')
+                        .doc(normalizedParentId)
+                        .get())
+                    .data()?['authorId'] as String? ??
+                '')
             : '';
 
         final rewardUserIds = _commentRewardUserIds(
@@ -2656,8 +2690,26 @@ class PostService {
     required Map<String, QueryDocumentSnapshot<Map<String, dynamic>>> byId,
   }) async {
     final deletedScoreDeltasByAuthor = <String, int>{};
+    final deletedCommentNotificationManifest = <Map<String, dynamic>>[];
     var taggedScoreDelta = 0;
     var taggedUidsForBonus = const <String>{};
+
+    for (final id in toDelete) {
+      final doc = byId[id];
+      if (doc == null) continue;
+      final commentData = doc.data();
+      final parentId = (commentData['parentId'] as String? ?? '').trim();
+      final parentAuthorId = parentId.isNotEmpty
+          ? (byId[parentId]?.data()['authorId'] as String? ?? '').trim()
+          : '';
+      deletedCommentNotificationManifest.add(<String, dynamic>{
+        'id': id,
+        'authorId': (commentData['authorId'] as String? ?? '').trim(),
+        'parentId': parentId,
+        'parentAuthorId': parentAuthorId,
+        'postAuthorId': resolvedPostAuthorId,
+      });
+    }
 
     await _db.runTransaction((transaction) async {
       for (final id in toDelete) {
@@ -2760,6 +2812,19 @@ class PostService {
       await _safeIncrementScoreForExistingUsers(
         userIds: taggedUidsForBonus,
         delta: taggedScoreDelta,
+      );
+    }
+
+    if (deletedCommentNotificationManifest.isNotEmpty) {
+      await _secureQueue.enqueue(
+        type: SecureActionTypes.deletePostCommentNotifications,
+        payload: <String, dynamic>{
+          'postId': postRef.id,
+          'postAuthorId': resolvedPostAuthorId,
+          'comments': deletedCommentNotificationManifest,
+        },
+        dedupeKey:
+            'delete_comment_notifications:${postRef.id}:${toDelete.join(',')}',
       );
     }
   }

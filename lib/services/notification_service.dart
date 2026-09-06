@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+import 'secure_action_queue_service.dart';
 import 'weekly_challenge_service.dart';
 
 class NotificationTypes {
@@ -58,6 +59,7 @@ class NotificationService {
 
   final FirebaseFirestore _db;
   final FirebaseAuth _auth;
+  final SecureActionQueueService _secureQueue = SecureActionQueueService();
   static bool _notificationWritesSuspendedSessionWide = false;
 
   static bool get notificationsSuspendedSessionWide =>
@@ -146,7 +148,8 @@ class NotificationService {
     ),
   ];
 
-  static final Map<String, bool> defaultSettings = Map<String, bool>.unmodifiable(
+  static final Map<String, bool> defaultSettings =
+      Map<String, bool>.unmodifiable(
     <String, bool>{
       for (final option in settingOptions) option.key: true,
     },
@@ -164,11 +167,11 @@ class NotificationService {
     NotificationTypes.weeklyChallengeUpdated:
         NotificationSettingKeys.weeklyChallengeUpdates,
     NotificationTypes.dailyChallengeUpdated:
-      NotificationSettingKeys.dailyChallengeUpdates,
+        NotificationSettingKeys.dailyChallengeUpdates,
     NotificationTypes.spontaneousReminder:
-      NotificationSettingKeys.spontaneousReminders,
+        NotificationSettingKeys.spontaneousReminders,
     NotificationTypes.spontaneousTimeWarning:
-      NotificationSettingKeys.spontaneousTimeWarnings,
+        NotificationSettingKeys.spontaneousTimeWarnings,
     NotificationTypes.weeklyStars: NotificationSettingKeys.weeklyStars,
     NotificationTypes.newFollower: NotificationSettingKeys.newFollowers,
     NotificationTypes.newFriend: NotificationSettingKeys.newFriends,
@@ -208,8 +211,11 @@ class NotificationService {
 
     try {
       final userDoc = await _db.collection('users').doc(recipientUid).get();
-      final notificationDedupe = userDoc.data()?['notificationDedupe'] as Map<String, dynamic>? ?? <String, dynamic>{};
-      final typeMap = notificationDedupe[type] as Map<String, dynamic>? ?? <String, dynamic>{};
+      final notificationDedupe =
+          userDoc.data()?['notificationDedupe'] as Map<String, dynamic>? ??
+              <String, dynamic>{};
+      final typeMap = notificationDedupe[type] as Map<String, dynamic>? ??
+          <String, dynamic>{};
       if (typeMap[bucket] is Timestamp) {
         return true;
       }
@@ -292,7 +298,10 @@ class NotificationService {
       payload['notificationSettings.${entry.key}'] = entry.value;
     }
 
-    await _db.collection('users').doc(uid).set(payload, SetOptions(merge: true));
+    await _db
+        .collection('users')
+        .doc(uid)
+        .set(payload, SetOptions(merge: true));
   }
 
   Future<void> createNotification({
@@ -317,6 +326,8 @@ class NotificationService {
 
     final normalizedRecipient = recipientUid.trim();
     if (normalizedRecipient.isEmpty) return;
+
+    final actor = actorUid.trim().isNotEmpty ? actorUid.trim() : _currentUid;
 
     final normalizedType = type.trim();
     final settingKey = _typeToSettingKey[normalizedType];
@@ -346,7 +357,7 @@ class NotificationService {
       'type': normalizedType,
       'title': title.trim(),
       'body': body.trim(),
-      'actorUid': actorUid.trim(),
+      'actorUid': actor,
       'actorName': actorName.trim(),
       'actorAvatarUrl': actorAvatarUrl.trim(),
       'postId': postId.trim(),
@@ -359,6 +370,16 @@ class NotificationService {
       'createdAt': FieldValue.serverTimestamp(),
       ...extra,
     };
+
+    if (normalizedRecipient != _currentUid) {
+      await _secureQueue.enqueue(
+        type: SecureActionTypes.createNotification,
+        payload: payload,
+        dedupeKey:
+            'notification:$normalizedRecipient:$normalizedType:${postId.trim()}:${commentId.trim()}:${chatId.trim()}:${groupId.trim()}',
+      );
+      return;
+    }
 
     try {
       await _db
@@ -415,8 +436,10 @@ class NotificationService {
 
     final title = '${actor.name} עשה לך לייק על הפוסט';
     final body = 'יש לך עכשיו $likeCount לייקים על הפוסט';
-    final notificationsRef =
-        _db.collection('users').doc(normalizedRecipient).collection('notifications');
+    final notificationsRef = _db
+        .collection('users')
+        .doc(normalizedRecipient)
+        .collection('notifications');
     final canonicalDocId = 'post_like_$normalizedPostId';
     final canonicalDocRef = notificationsRef.doc(canonicalDocId);
 
@@ -436,7 +459,8 @@ class NotificationService {
         final existingSnapshot = await transaction.get(canonicalDocRef);
         if (existingSnapshot.exists) {
           existingData = existingSnapshot.data() ?? <String, dynamic>{};
-          final old = (existingData['recentLikeActorUids'] as List<dynamic>? ?? const [])
+          final old = (existingData['recentLikeActorUids'] as List<dynamic>? ??
+                  const [])
               .map((item) => item.toString().trim())
               .where((item) => item.isNotEmpty)
               .where((item) => item != actor.uid)
@@ -576,7 +600,8 @@ class NotificationService {
     var chatAvatarUrl = '';
     if (normalizedChatId.isNotEmpty) {
       try {
-        final chatSnap = await _db.collection('chats').doc(normalizedChatId).get();
+        final chatSnap =
+            await _db.collection('chats').doc(normalizedChatId).get();
         final chatData = chatSnap.data() ?? const <String, dynamic>{};
         final participants =
             (chatData['participants'] as List<dynamic>? ?? const <dynamic>[])
@@ -687,7 +712,7 @@ class NotificationService {
       recipientUid: recipientUid,
       type: NotificationTypes.popJoin,
       title: '${actor.name} הצטרף לפופ שלך',
-        body: groupName.trim().isEmpty
+      body: groupName.trim().isEmpty
           ? '${actor.name} הצטרף לפופ שלך'
           : '${actor.name} הצטרף לפופ "$groupName"',
       actorUid: actor.uid,
@@ -861,8 +886,10 @@ class NotificationService {
       return;
     }
 
-    final notificationsRef =
-        _db.collection('users').doc(normalizedRecipient).collection('notifications');
+    final notificationsRef = _db
+        .collection('users')
+        .doc(normalizedRecipient)
+        .collection('notifications');
     final canonicalDocId = 'weekly_stars_$normalizedPostId';
     final canonicalDocRef = notificationsRef.doc(canonicalDocId);
 
@@ -963,7 +990,8 @@ class NotificationService {
     if (uid.isEmpty || normalizedNotificationId.isEmpty) return;
 
     final userRef = _db.collection('users').doc(uid);
-    final notificationRef = userRef.collection('notifications').doc(normalizedNotificationId);
+    final notificationRef =
+        userRef.collection('notifications').doc(normalizedNotificationId);
 
     await _db.runTransaction((transaction) async {
       final notificationSnap = await transaction.get(notificationRef);
@@ -1013,9 +1041,8 @@ class NotificationService {
       return false;
     }
     final data = userDoc.data() ?? <String, dynamic>{};
-    final settings =
-        (data['notificationSettings'] as Map<String, dynamic>?) ??
-            const <String, dynamic>{};
+    final settings = (data['notificationSettings'] as Map<String, dynamic>?) ??
+        const <String, dynamic>{};
 
     final dynamic value = settings[settingKey];
     if (value is bool) {
@@ -1034,7 +1061,8 @@ class NotificationService {
       final publicSnap = await _db.collection('users_public').doc(uid).get();
       final publicData = publicSnap.data() ?? <String, dynamic>{};
       final publicName = _displayNameFromData(publicData);
-      final publicAvatar = (publicData['profilePictureUrl'] as String? ?? '').trim();
+      final publicAvatar =
+          (publicData['profilePictureUrl'] as String? ?? '').trim();
       if (publicName.isNotEmpty || publicAvatar.isNotEmpty) {
         return _ActorSummary(
           uid: uid,
@@ -1068,10 +1096,8 @@ class NotificationService {
 
     final firstName = (data['firstName'] as String? ?? '').trim();
     final lastName = (data['lastName'] as String? ?? '').trim();
-    final joined = [firstName, lastName]
-        .where((part) => part.isNotEmpty)
-        .join(' ')
-        .trim();
+    final joined =
+        [firstName, lastName].where((part) => part.isNotEmpty).join(' ').trim();
     if (joined.isNotEmpty) return joined;
 
     final username = (data['username'] as String? ?? '').trim();

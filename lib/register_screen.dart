@@ -47,6 +47,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
   static const int _maxProfileImages = 6;
   static const String _passwordRequirementsMessage =
       'הסיסמה חייבת לכלול לפחות 7 תווים, אות גדולה באנגלית, אות קטנה באנגלית, מספר אחד וסימן מיוחד אחד ';
+  static final RegExp _usernameAllowedPattern = RegExp(r'^[A-Za-z0-9._]+$');
+  static const String _usernameAllowedMessage =
+      'מותר רק אותיות באנגלית, מספרים, ., _';
 
   final _detailsFormKey = GlobalKey<FormState>();
   final _profileFormKey = GlobalKey<FormState>();
@@ -269,7 +272,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   bool _tapHitsEditable(PointerDownEvent event) {
     final hitTestResult = HitTestResult();
-    GestureBinding.instance.hitTest(hitTestResult, event.position);
+    GestureBinding.instance.hitTestInView(
+      hitTestResult,
+      event.position,
+      event.viewId,
+    );
     for (final entry in hitTestResult.path) {
       if (entry.target is RenderEditable) {
         return true;
@@ -629,7 +636,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     return result == true;
   }
 
-  InputDecoration _inputDecoration(String label) {
+  InputDecoration _inputDecoration(String label, {int errorMaxLines = 5}) {
     return InputDecoration(
       floatingLabelBehavior: FloatingLabelBehavior.never,
       label: Align(
@@ -658,7 +665,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             BorderSide(color: _accent.withValues(alpha: 0.66), width: 1.0),
       ),
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
-      errorMaxLines: 5,
+      errorMaxLines: errorMaxLines,
       errorStyle: const TextStyle(color: Colors.redAccent),
     );
   }
@@ -674,6 +681,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     String? prefixText,
     int minLines = 1,
     int maxLines = 1,
+    int errorMaxLines = 5,
     ValueChanged<String>? onChanged,
   }) {
     return Padding(
@@ -691,7 +699,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
         onChanged: onChanged,
         style:
             const TextStyle(color: _textPrimary, fontWeight: FontWeight.w500),
-        decoration: _inputDecoration(label).copyWith(
+        decoration: _inputDecoration(
+          label,
+          errorMaxLines: errorMaxLines,
+        ).copyWith(
           suffixIcon: suffixIcon,
           prefixText: prefixText,
           prefixStyle: const TextStyle(
@@ -964,6 +975,16 @@ class _RegisterScreenState extends State<RegisterScreen> {
     final clean = value.trim();
 
     if (clean.length < 3) {
+      if (!mounted) return;
+      setState(() {
+        _isCheckingUsername = false;
+        _isUsernameTaken = false;
+        _usernameAvailabilityError = null;
+      });
+      return;
+    }
+
+    if (!_usernameAllowedPattern.hasMatch(clean)) {
       if (!mounted) return;
       setState(() {
         _isCheckingUsername = false;
@@ -1922,7 +1943,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         }
       }
 
-      final stages = const <String>['username', 'images', 'birth_date', 'bio'];
+      const stages = <String>['username', 'images', 'birth_date', 'bio'];
       final data = <String, dynamic>{
         if (_handleController.text.trim().isNotEmpty) ...{
           'username': '@${_handleController.text.trim()}',
@@ -2749,6 +2770,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             label: 'סיסמה',
             obscureText: _hidePassword,
             validator: _passwordValidator,
+            errorMaxLines: 10,
             suffixIcon: IconButton(
               onPressed: () => setState(() => _hidePassword = !_hidePassword),
               icon: Icon(
@@ -2799,14 +2821,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
               child: TextFormField(
                 controller: _handleController,
                 onTapOutside: (_) {},
-                keyboardType: TextInputType.name,
+                keyboardType: TextInputType.visiblePassword,
                 textDirection: TextDirection.rtl,
                 textAlign: TextAlign.right,
                 onChanged: _onHandleChanged,
-                inputFormatters: [
-                  FilteringTextInputFormatter.deny(RegExp(r'@')),
-                  FilteringTextInputFormatter.deny(RegExp(r'\s')),
-                ],
                 style: const TextStyle(
                   color: _textPrimary,
                   fontWeight: FontWeight.w600,
@@ -2836,7 +2854,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   if (v == null || v.trim().isEmpty) return 'שדה חובה';
                   final clean = v.trim();
                   if (clean.contains(' ')) {
-                    return 'היוזר לא יכול להכיל רווחים';
+                    return _usernameAllowedMessage;
+                  }
+                  if (!_usernameAllowedPattern.hasMatch(clean)) {
+                    return _usernameAllowedMessage;
                   }
                   if (clean.length < 3) {
                     return 'לפחות 3 תווים';
