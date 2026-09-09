@@ -768,7 +768,9 @@ class _NotificationBanner extends StatelessWidget {
         ? 'משתמש'
         : (event.data['actorName'] as String).trim();
     final senderAvatarUrl = (event.data['actorAvatarUrl'] as String? ?? '').trim();
-    final isGroupChat = (event.data['isGroupChat'] as bool?) ?? false;
+    final isGroupChatRaw = event.data['isGroupChat'];
+    final isGroupChat = isGroupChatRaw == true ||
+        isGroupChatRaw?.toString().trim().toLowerCase() == 'true';
     final chatNameRaw = (event.data['chatName'] as String? ?? '').trim();
     final chatName = chatNameRaw.isNotEmpty
         ? chatNameRaw
@@ -897,6 +899,7 @@ class _NotificationBanner extends StatelessWidget {
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(
+                    mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       Text(

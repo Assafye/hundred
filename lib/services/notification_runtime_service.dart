@@ -165,7 +165,24 @@ class NotificationRuntimeService with WidgetsBindingObserver {
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _notificationsSub;
   String _activeUid = '';
   final Set<String> _knownDocIds = <String>{};
+  // Shared across the FCM onMessage stream and the Firestore notifications
+  // listener so the same notificationId doesn't produce two in-app banners.
+  final Set<String> _shownInAppNotificationIds = <String>{};
   AppLifecycleState _lifecycleState = AppLifecycleState.resumed;
+
+  bool _markShownOnce(String notificationId) {
+    if (notificationId.isEmpty) {
+      return true;
+    }
+    if (_shownInAppNotificationIds.contains(notificationId)) {
+      return false;
+    }
+    _shownInAppNotificationIds.add(notificationId);
+    if (_shownInAppNotificationIds.length > 100) {
+      _shownInAppNotificationIds.remove(_shownInAppNotificationIds.first);
+    }
+    return true;
+  }
 
   void _onInAppListenerAttached() {
     if (_pendingInAppEvents.isNotEmpty) {
@@ -193,13 +210,19 @@ class NotificationRuntimeService with WidgetsBindingObserver {
 
     const androidSettings =
         AndroidInitializationSettings('@mipmap/ic_launcher');
+    // Alert/sound stay off while the app is foregrounded: this plugin
+    // registers as the iOS UNUserNotificationCenterDelegate, and a
+    // defaultPresentAlert of true here fights with
+    // FirebaseMessaging.setForegroundNotificationPresentationOptions(alert: false)
+    // below, letting the native OS banner/dim show up alongside our own
+    // in-app banner.
     const darwinSettings = DarwinInitializationSettings(
       requestAlertPermission: false,
       requestBadgePermission: false,
       requestSoundPermission: false,
-      defaultPresentAlert: true,
+      defaultPresentAlert: false,
       defaultPresentBadge: true,
-      defaultPresentSound: true,
+      defaultPresentSound: false,
     );
 
     const initSettings = InitializationSettings(
@@ -252,6 +275,11 @@ class NotificationRuntimeService with WidgetsBindingObserver {
       final title = (notification?.title ?? '').trim();
       final body = (notification?.body ?? '').trim();
       final payload = Map<String, dynamic>.from(message.data);
+      debugPrint(
+        'NotificationRuntimeService: onMessage received '
+        'notificationId=${payload['notificationId']} type=${payload['type']} '
+        'at=${DateTime.now().toIso8601String()}',
+      );
       if (title.isEmpty && body.isEmpty) {
         return;
       }
@@ -259,10 +287,20 @@ class NotificationRuntimeService with WidgetsBindingObserver {
         return;
       }
 
+      final notificationId = (payload['notificationId'] as String? ?? '').trim();
+      if (!_markShownOnce(notificationId)) {
+        debugPrint(
+          'NotificationRuntimeService: skipping duplicate onMessage event for $notificationId',
+        );
+        return;
+      }
+
       if (_lifecycleState == AppLifecycleState.resumed) {
         _emitInAppEvent(
           InAppNotificationEvent(
-            id: 'remote_${DateTime.now().microsecondsSinceEpoch}',
+            id: notificationId.isNotEmpty
+                ? notificationId
+                : 'remote_${DateTime.now().microsecondsSinceEpoch}',
             title: title,
             body: body,
             data: payload,
@@ -271,7 +309,9 @@ class NotificationRuntimeService with WidgetsBindingObserver {
       } else {
         unawaited(
           _showLocalNotification(
-            id: 'remote_${DateTime.now().microsecondsSinceEpoch}',
+            id: notificationId.isNotEmpty
+                ? notificationId
+                : 'remote_${DateTime.now().microsecondsSinceEpoch}',
             title: title,
             body: body,
             data: payload,
@@ -400,6 +440,19 @@ class NotificationRuntimeService with WidgetsBindingObserver {
         final title = (data['title'] as String? ?? '').trim();
         final body = (data['body'] as String? ?? '').trim();
         if (title.isEmpty && body.isEmpty) {
+          continue;
+        }
+
+        debugPrint(
+          'NotificationRuntimeService: Firestore doc added '
+          'notificationId=$docId type=${data['type']} '
+          'at=${DateTime.now().toIso8601String()}',
+        );
+
+        if (!_markShownOnce(docId)) {
+          debugPrint(
+            'NotificationRuntimeService: skipping duplicate Firestore event for $docId',
+          );
           continue;
         }
 
@@ -767,7 +820,9 @@ class NotificationRuntimeService with WidgetsBindingObserver {
             : '$normalizedActor הוסיף את $addedUserName לקבוצה "$normalizedGroup"';
         return _ExternalNotificationContent(title: addedTitle, body: '');
       case NotificationTypes.newMessage:
-        final isGroupChat = (data['isGroupChat'] as bool?) ?? false;
+        final isGroupChatRaw = data['isGroupChat'];
+        final isGroupChat = isGroupChatRaw == true ||
+            isGroupChatRaw?.toString().trim().toLowerCase() == 'true';
         final messageText = _parseMessagePreviewText(data, body);
         if (!isGroupChat) {
           return _ExternalNotificationContent(
