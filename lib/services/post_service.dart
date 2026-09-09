@@ -1635,7 +1635,6 @@ class PostService {
 
     final postRef = _db.collection('posts').doc(normalizedPostId);
     bool didAddLike = false;
-    int likesCountAfterToggle = 0;
     String postImageUrl = '';
     try {
       await _db.runTransaction((transaction) async {
@@ -1676,7 +1675,6 @@ class PostService {
           'likesCount': likes.length,
           'updatedAt': FieldValue.serverTimestamp(),
         });
-        likesCountAfterToggle = likes.length;
 
         if (!hasLiked) {
           transaction.set(
@@ -1765,16 +1763,20 @@ class PostService {
     if (didAddLike &&
         normalizedAuthorId.isNotEmpty &&
         normalizedAuthorId != uid) {
+      // Direct client writes into another user's notifications subcollection
+      // are rejected by Firestore rules (isSelf only) — route through the
+      // secure action queue like the unlike/reconcile path below.
       unawaited(
-        _runNotificationBestEffort(() {
-          return _notificationService.sendPostLikeNotification(
-            recipientUid: normalizedAuthorId,
-            postId: normalizedPostId,
-            likeCount: likesCountAfterToggle,
-            postImageUrl: postImageUrl,
-            senderUid: uid,
-          );
-        }),
+        _secureQueue.enqueue(
+          type: SecureActionTypes.reconcilePostLikeNotification,
+          payload: <String, dynamic>{
+            'postId': normalizedPostId,
+            'postAuthorId': normalizedAuthorId,
+            'postImageUrl': postImageUrl,
+            'actorUid': uid,
+          },
+          dedupeKey: 'reconcile_like_notification:$normalizedPostId',
+        ),
       );
     } else if (!didAddLike &&
         normalizedAuthorId.isNotEmpty &&

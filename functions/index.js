@@ -2,7 +2,7 @@ const { initializeApp } = require('firebase-admin/app');
 const { FieldValue, getFirestore } = require('firebase-admin/firestore');
 const { getMessaging } = require('firebase-admin/messaging');
 const { HttpsError, onCall } = require('firebase-functions/v2/https');
-const { onDocumentCreated } = require('firebase-functions/v2/firestore');
+const { onDocumentCreated, onDocumentWritten } = require('firebase-functions/v2/firestore');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const {
   processPendingSecureActions: runPendingSecureActions,
@@ -247,11 +247,13 @@ exports.processFollowSecureAction = onDocumentCreated(
   },
 );
 
-exports.sendPushForNotification = onDocumentCreated(
+exports.sendPushForNotification = onDocumentWritten(
   { document: 'users/{uid}/notifications/{notificationId}', region: REGION },
   async (event) => {
-    const snapshot = event.data;
-    if (!snapshot) return;
+    // Fires on create AND update (e.g. a like notification is upserted per post,
+    // not recreated), so every new like/comment/etc. also replaces the prior push.
+    const snapshot = event.data?.after;
+    if (!snapshot || !snapshot.exists) return;
 
     const uid = String(event.params.uid ?? '').trim();
     if (!uid) return;
@@ -282,12 +284,16 @@ exports.sendPushForNotification = onDocumentCreated(
         priority: 'high',
         notification: {
           channelId: 'hundred_notifications',
+          tag: snapshot.id,
           priority: 'high',
           defaultSound: true,
           ...(notificationImageUrl ? { imageUrl: notificationImageUrl } : {}),
         },
       },
       apns: {
+        headers: {
+          'apns-collapse-id': snapshot.id.slice(0, 64),
+        },
         payload: {
           aps: {
             sound: 'default',

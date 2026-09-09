@@ -3784,30 +3784,55 @@ class _ChatsScreenState extends State<ChatsScreen> {
           ),
           if (hasUnread) ...[
             const SizedBox(height: 7),
-            Container(
-              constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
-              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-              decoration: BoxDecoration(
-                color: const Color(0xFF8C62FF),
-                borderRadius: BorderRadius.circular(999),
-                boxShadow: [
-                  BoxShadow(
-                    color: const Color(0xFF8C62FF).withValues(alpha: 0.28),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
+            Builder(
+              builder: (context) {
+                final displayText =
+                    unreadCount > 99 ? '99+' : unreadCount.toString();
+                final isWide = displayText.length > 2;
+                const diameter = 24.0;
+                const gradientStart = Color(0xFF9E7CFF);
+                const gradientEnd = Color(0xFF53C1F9);
+                return Container(
+                  width: isWide ? null : diameter,
+                  height: diameter,
+                  constraints: const BoxConstraints(minWidth: diameter),
+                  padding: isWide
+                      ? const EdgeInsets.symmetric(horizontal: 8)
+                      : EdgeInsets.zero,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [gradientStart, gradientEnd],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    shape: isWide ? BoxShape.rectangle : BoxShape.circle,
+                    borderRadius: isWide ? BorderRadius.circular(999) : null,
+                    boxShadow: [
+                      BoxShadow(
+                        color: gradientStart.withValues(alpha: 0.45),
+                        blurRadius: 12,
+                        spreadRadius: 0.5,
+                        offset: const Offset(0, 3),
+                      ),
+                      BoxShadow(
+                        color: gradientEnd.withValues(alpha: 0.35),
+                        blurRadius: 8,
+                        offset: const Offset(0, 0),
+                      ),
+                    ],
                   ),
-                ],
-              ),
-              child: Center(
-                child: Text(
-                  unreadCount > 99 ? '99+' : unreadCount.toString(),
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w900,
+                  child: Center(
+                    child: Text(
+                      displayText,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
                   ),
-                ),
-              ),
+                );
+              },
             ),
           ],
         ],

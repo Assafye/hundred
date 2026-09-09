@@ -7,12 +7,44 @@ import UserNotifications
 
 @UIApplicationMain
 @objc class AppDelegate: FlutterAppDelegate, MessagingDelegate {
+  private static var hasApnsToken = false
+  private static var pendingApnsResults: [UUID: FlutterResult] = [:]
+  private static let apnsChannelName = "com.hundred.hundred/apns_status"
+
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
     FirebaseApp.configure()
     Messaging.messaging().delegate = self
+
+    if let controller = window?.rootViewController as? FlutterViewController {
+      let apnsChannel = FlutterMethodChannel(
+        name: AppDelegate.apnsChannelName,
+        binaryMessenger: controller.binaryMessenger
+      )
+      apnsChannel.setMethodCallHandler { call, result in
+        switch call.method {
+        case "isApnsTokenReady":
+          result(AppDelegate.hasApnsToken)
+        case "waitForApnsToken":
+          if AppDelegate.hasApnsToken {
+            result(true)
+            return
+          }
+          let timeoutMs = (call.arguments as? [String: Any])?["timeoutMs"] as? Int ?? 2500
+          let waiterId = UUID()
+          AppDelegate.pendingApnsResults[waiterId] = result
+          DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(timeoutMs)) {
+            if let pending = AppDelegate.pendingApnsResults.removeValue(forKey: waiterId) {
+              pending(false)
+            }
+          }
+        default:
+          result(FlutterMethodNotImplemented)
+        }
+      }
+    }
 
     if #available(iOS 10.0, *) {
       UNUserNotificationCenter.current().delegate = self as? UNUserNotificationCenterDelegate
@@ -41,6 +73,12 @@ import UserNotifications
     // receive the APNs token explicitly for iOS phone verification.
     Auth.auth().setAPNSToken(deviceToken, type: .unknown)
     Messaging.messaging().apnsToken = deviceToken
+    AppDelegate.hasApnsToken = true
+    let waiters = AppDelegate.pendingApnsResults
+    AppDelegate.pendingApnsResults.removeAll()
+    for waiter in waiters.values {
+      waiter(true)
+    }
     super.application(
       application,
       didRegisterForRemoteNotificationsWithDeviceToken: deviceToken

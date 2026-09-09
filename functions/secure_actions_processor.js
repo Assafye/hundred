@@ -846,12 +846,13 @@ async function processReconcilePostLikeNotification(actorUid, payload) {
   const recipientUid = String(payload.recipientUid ?? payload.postAuthorId ?? '').trim();
   if (!postId || !recipientUid) return;
 
+  const notifyingActorUid = String(payload.actorUid ?? '').trim();
   const postSnap = await db.collection('posts').doc(postId).get();
   const postData = postSnap.data() || {};
   await upsertPostLikeNotification({
     recipientUid,
     postId,
-    actorUid: '',
+    actorUid: notifyingActorUid,
     postImageUrl: String(
       payload.postImageUrl ?? postData.imageUrl ?? postData.mediaUrl ?? ''
     ).trim(),

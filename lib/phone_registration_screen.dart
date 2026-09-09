@@ -2,14 +2,17 @@ import 'dart:async';
 import 'dart:ui';
 
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'
-    show FilteringTextInputFormatter, LengthLimitingTextInputFormatter;
+    show FilteringTextInputFormatter, LengthLimitingTextInputFormatter, PlatformException;
 
 import 'login_screen.dart';
 import 'register_screen.dart';
+import 'services/apns_token_status_service.dart';
 import 'services/auth_service.dart';
 import 'services/keyboard_dismiss_controller.dart';
+import 'services/phone_auth_error_messages.dart';
 import 'services/share_flow_log_service.dart';
 import 'widgets/swipe_back_wrapper.dart';
 
@@ -54,6 +57,8 @@ class _PhoneRegistrationScreenState extends State<PhoneRegistrationScreen>
   bool _hideConfirmPassword = true;
   String? _lastAutoSubmittedCode;
   String? _error;
+  bool _internalErrorRetryUsed = false;
+  bool _apnsPreparing = false;
 
   @override
   void initState() {
@@ -62,6 +67,24 @@ class _PhoneRegistrationScreenState extends State<PhoneRegistrationScreen>
       vsync: this,
       duration: const Duration(seconds: 10),
     )..repeat(reverse: true);
+    unawaited(_primeApnsReadiness());
+  }
+
+  /// Soft-locks the send button for a moment on screen entry only if the
+  /// APNs token genuinely isn't ready yet (fast users on a fresh install) —
+  /// no-op/instant for the common case where it's already registered.
+  Future<void> _primeApnsReadiness() async {
+    final alreadyReady = await ApnsTokenStatusService.isReady();
+    if (alreadyReady || !mounted) {
+      return;
+    }
+    setState(() => _apnsPreparing = true);
+    await ApnsTokenStatusService.waitForToken(
+      timeout: const Duration(seconds: 2),
+    );
+    if (mounted) {
+      setState(() => _apnsPreparing = false);
+    }
   }
 
   @override
@@ -151,19 +174,48 @@ class _PhoneRegistrationScreenState extends State<PhoneRegistrationScreen>
     return 'שליחה מחדש בעוד 00:$seconds';
   }
 
-  Future<void> _sendCode() async {
-    if (_countryCodeController.text.trim().isEmpty ||
-        _phoneController.text.trim().isEmpty) {
-      setState(() => _error = 'יש להזין מספר טלפון.');
-      return;
+  Future<void> _reportPhoneVerifyError({
+    required Object error,
+    StackTrace? stackTrace,
+    required String reason,
+    required bool apnsTokenReady,
+  }) async {
+    await ShareFlowLogService.log(
+      'PHONE_VERIFY_ERROR_REPORTED | reason=$reason | apnsReady=$apnsTokenReady | error=$error',
+    );
+    try {
+      await FirebaseCrashlytics.instance.recordError(
+        error,
+        stackTrace,
+        reason: reason,
+        fatal: false,
+        information: <String>[
+          'apnsTokenReady=$apnsTokenReady',
+        ],
+      );
+    } catch (_) {
+      // Never let telemetry reporting break the registration flow.
+    }
+  }
+
+  Future<void> _sendCode({String? retryPhone}) async {
+    final isRetry = retryPhone != null;
+    if (!isRetry) {
+      if (_countryCodeController.text.trim().isEmpty ||
+          _phoneController.text.trim().isEmpty) {
+        setState(() => _error = 'יש להזין מספר טלפון.');
+        return;
+      }
+      _internalErrorRetryUsed = false;
     }
     setState(() {
       _busy = true;
       _error = null;
     });
 
-    final phone = _authService.normalizePhoneNumber(_enteredPhoneNumber());
-    if (!RegExp(r'^\+[1-9]\d{7,14}$').hasMatch(phone)) {
+    final phone = retryPhone ??
+        _authService.normalizePhoneNumber(_enteredPhoneNumber());
+    if (!isRetry && !RegExp(r'^\+[1-9]\d{7,14}$').hasMatch(phone)) {
       setState(() {
         _busy = false;
         _error = 'יש להזין מספר טלפון תקין, לדוגמה 052-1234567.';
@@ -171,22 +223,47 @@ class _PhoneRegistrationScreenState extends State<PhoneRegistrationScreen>
       return;
     }
 
-    try {
-      final isTaken = await _authService.isRegisteredPhone(phone);
-      if (isTaken) {
-        if (!mounted) return;
-        setState(() {
-          _busy = false;
-          _error = 'מספר הטלפון הזה כבר רשום במערכת. יש לעבור למסך ההתחברות.';
-        });
-        return;
+    if (!isRetry) {
+      try {
+        final isTaken = await _authService.isRegisteredPhone(phone);
+        if (isTaken) {
+          if (!mounted) return;
+          setState(() {
+            _busy = false;
+            _error = 'מספר הטלפון הזה כבר רשום במערכת. יש לעבור למסך ההתחברות.';
+          });
+          return;
+        }
+      } catch (e) {
+        debugPrint('[PhoneRegistrationScreen] isRegisteredPhone check error: $e');
       }
-    } catch (e) {
-      debugPrint('[PhoneRegistrationScreen] isRegisteredPhone check error: $e');
     }
 
+    final alreadyReady = await ApnsTokenStatusService.isReady();
+    bool apnsTokenReady;
+    if (alreadyReady) {
+      // Common case (~99% of users): skip any wait entirely so the button
+      // feels instant.
+      apnsTokenReady = true;
+    } else {
+      if (!isRetry && mounted) {
+        setState(() => _apnsPreparing = true);
+      }
+      apnsTokenReady = await ApnsTokenStatusService.waitForToken(
+        timeout: const Duration(seconds: 2),
+      );
+      if (!isRetry && mounted) {
+        setState(() => _apnsPreparing = false);
+      }
+    }
+    await ShareFlowLogService.log(
+      'PHONE_VERIFY_APNS_STATUS | ready=$apnsTokenReady | retry=$isRetry',
+    );
+
     try {
-      await ShareFlowLogService.log('PHONE_VERIFY_START | phone=$phone');
+      await ShareFlowLogService.log(
+        'PHONE_VERIFY_START | phone=$phone | retry=$isRetry',
+      );
       await FirebaseAuth.instance.verifyPhoneNumber(
         phoneNumber: phone,
         forceResendingToken: _resendToken,
@@ -199,10 +276,34 @@ class _PhoneRegistrationScreenState extends State<PhoneRegistrationScreen>
           ShareFlowLogService.log(
             'PHONE_VERIFY_FAILED | code=${error.code} | message=${error.message}',
           );
+          unawaited(_reportPhoneVerifyError(
+            error: error,
+            stackTrace: error.stackTrace,
+            reason: 'verificationFailed:${error.code}',
+            apnsTokenReady: apnsTokenReady,
+          ));
           if (!mounted) return;
+          // Transient failures (e.g. the iOS silent-push device check not
+          // ready yet) can succeed a moment later — retry once automatically
+          // before surfacing an error to the user.
+          const transientCodes = {
+            'internal-error',
+            'network-request-failed',
+            'unknown',
+          };
+          if (!_internalErrorRetryUsed &&
+              transientCodes.contains(error.code)) {
+            _internalErrorRetryUsed = true;
+            ShareFlowLogService.log('PHONE_VERIFY_AUTO_RETRY');
+            Future.delayed(const Duration(milliseconds: 1500), () {
+              if (!mounted) return;
+              _sendCode(retryPhone: phone);
+            });
+            return;
+          }
           setState(() {
             _busy = false;
-            _error = error.message ?? 'לא הצלחנו לשלוח קוד אימות.';
+            _error = friendlyPhoneAuthErrorMessage(error);
           });
         },
         codeSent: (verificationId, resendToken) {
@@ -226,14 +327,53 @@ class _PhoneRegistrationScreenState extends State<PhoneRegistrationScreen>
           _verificationId = verificationId;
         },
       );
-    } on FirebaseAuthException catch (error) {
+    } on FirebaseAuthException catch (error, stackTrace) {
       await ShareFlowLogService.log(
         'PHONE_VERIFY_EXCEPTION | code=${error.code} | message=${error.message}',
+      );
+      await _reportPhoneVerifyError(
+        error: error,
+        stackTrace: stackTrace,
+        reason: 'verifyPhoneNumber:FirebaseAuthException:${error.code}',
+        apnsTokenReady: apnsTokenReady,
       );
       if (mounted) {
         setState(() {
           _busy = false;
-          _error = error.message ?? 'לא הצלחנו לשלוח קוד אימות.';
+          _error = friendlyPhoneAuthErrorMessage(error);
+        });
+      }
+    } on PlatformException catch (error, stackTrace) {
+      // verifyPhoneNumber can throw a raw PlatformException (e.g. a native
+      // internal-error) instead of routing through verificationFailed —
+      // this guarantees it's still caught and reported.
+      await ShareFlowLogService.log(
+        'PHONE_VERIFY_PLATFORM_EXCEPTION | code=${error.code} | message=${error.message}',
+      );
+      await _reportPhoneVerifyError(
+        error: error,
+        stackTrace: stackTrace,
+        reason: 'verifyPhoneNumber:PlatformException:${error.code}',
+        apnsTokenReady: apnsTokenReady,
+      );
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _error = friendlyPhoneAuthErrorMessage(error);
+        });
+      }
+    } catch (error, stackTrace) {
+      await ShareFlowLogService.log('PHONE_VERIFY_UNKNOWN_EXCEPTION | error=$error');
+      await _reportPhoneVerifyError(
+        error: error,
+        stackTrace: stackTrace,
+        reason: 'verifyPhoneNumber:unknown',
+        apnsTokenReady: apnsTokenReady,
+      );
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _error = 'לא הצלחנו לשלוח קוד אימות.';
         });
       }
     }
@@ -295,7 +435,7 @@ class _PhoneRegistrationScreenState extends State<PhoneRegistrationScreen>
       if (!mounted) return;
       setState(() {
         _busy = false;
-        _error = error.message ?? 'קוד האימות אינו תקין.';
+        _error = friendlyPhoneAuthErrorMessage(error, fallback: 'קוד האימות אינו תקין.');
       });
     }
   }
@@ -352,7 +492,7 @@ class _PhoneRegistrationScreenState extends State<PhoneRegistrationScreen>
       if (mounted) {
         setState(() {
           _busy = false;
-          _error = error.message ?? 'לא הצלחנו ליצור את החשבון.';
+          _error = friendlyPhoneAuthErrorMessage(error, fallback: 'לא הצלחנו ליצור את החשבון.');
         });
       }
     } catch (error) {
@@ -664,7 +804,13 @@ class _PhoneRegistrationScreenState extends State<PhoneRegistrationScreen>
       return Column(children: [
         _phoneField(),
         const SizedBox(height: 26),
-        _button('שליחת קוד', _sendCode, compact: true),
+        _button(
+          'שליחת קוד',
+          _sendCode,
+          compact: true,
+          disabledExtra: _apnsPreparing,
+          busyLabel: 'מכינים את האבטחה במכשיר...',
+        ),
         const SizedBox(height: 20),
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -786,11 +932,14 @@ class _PhoneRegistrationScreenState extends State<PhoneRegistrationScreen>
     String label,
     VoidCallback onPressed, {
     bool compact = false,
+    bool disabledExtra = false,
+    String? busyLabel,
   }) {
+    final isDisabled = _busy || disabledExtra;
     return SizedBox(
       width: compact ? 180 : double.infinity,
       child: ElevatedButton(
-        onPressed: _busy ? null : onPressed,
+        onPressed: isDisabled ? null : onPressed,
         style: ElevatedButton.styleFrom(
           backgroundColor: _primary,
           foregroundColor: Colors.white,
@@ -803,11 +952,33 @@ class _PhoneRegistrationScreenState extends State<PhoneRegistrationScreen>
             borderRadius: BorderRadius.circular(compact ? 24 : 18),
           ),
         ),
-        child: _busy
-            ? const SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2))
+        child: _busy || (disabledExtra && busyLabel != null)
+            ? Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    ),
+                  ),
+                  if (!_busy && busyLabel != null) ...[
+                    const SizedBox(width: 10),
+                    Flexible(
+                      child: Text(
+                        busyLabel,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12.5,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              )
             : Text(label, style: const TextStyle(fontWeight: FontWeight.bold)),
       ),
     );
@@ -996,6 +1167,24 @@ class _PhoneRegistrationScreenState extends State<PhoneRegistrationScreen>
                                           ),
                                           label: const Text(
                                             'מעבר למסך ההתחברות',
+                                            style: TextStyle(
+                                              color: _accent,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ),
+                                      ] else if (_step == 0) ...[
+                                        const SizedBox(height: 10),
+                                        TextButton.icon(
+                                          onPressed:
+                                              _busy ? null : () => _sendCode(),
+                                          icon: const Icon(
+                                            Icons.refresh_rounded,
+                                            color: _accent,
+                                            size: 18,
+                                          ),
+                                          label: const Text(
+                                            'שלח קוד שוב',
                                             style: TextStyle(
                                               color: _accent,
                                               fontWeight: FontWeight.bold,

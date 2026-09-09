@@ -2,11 +2,14 @@ import 'dart:async';
 import 'dart:ui';
 
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'
-    show FilteringTextInputFormatter, LengthLimitingTextInputFormatter;
+    show FilteringTextInputFormatter, LengthLimitingTextInputFormatter, PlatformException;
 
+import '../services/apns_token_status_service.dart';
 import '../services/auth_service.dart';
+import '../services/phone_auth_error_messages.dart';
 
 enum _RecoveryMethod { phone, email }
 
@@ -75,6 +78,7 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
   String? _verificationId;
   int? _resendToken;
   String? _lastAutoSubmittedCode;
+  bool _internalErrorRetryUsed = false;
 
   // Email flow.
   late final TextEditingController _emailController =
@@ -83,6 +87,29 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
 
   bool _busy = false;
   String? _error;
+  bool _apnsPreparing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_primeApnsReadiness());
+  }
+
+  /// Soft-locks the phone send button briefly on entry only if the APNs
+  /// token genuinely isn't ready yet — instant/no-op for the common case.
+  Future<void> _primeApnsReadiness() async {
+    final alreadyReady = await ApnsTokenStatusService.isReady();
+    if (alreadyReady || !mounted) {
+      return;
+    }
+    setState(() => _apnsPreparing = true);
+    await ApnsTokenStatusService.waitForToken(
+      timeout: const Duration(seconds: 2),
+    );
+    if (mounted) {
+      setState(() => _apnsPreparing = false);
+    }
+  }
 
   @override
   void dispose() {
@@ -128,22 +155,27 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
     });
   }
 
-  String _friendlyAuthError(FirebaseAuthException error, String fallback) {
-    switch (error.code) {
-      case 'invalid-email':
-        return 'כתובת המייל אינה תקינה.';
-      case 'invalid-phone-number':
-        return 'מספר הטלפון אינו תקין.';
-      case 'invalid-verification-code':
-        return 'קוד האימות שגוי.';
-      case 'too-many-requests':
-        return 'יותר מדי ניסיונות. נסה שוב בעוד כמה דקות.';
-      case 'network-request-failed':
-        return 'אין חיבור לאינטרנט. בדוק את החיבור ונסה שוב.';
-      default:
-        return fallback;
+  Future<void> _reportPhoneVerifyError({
+    required Object error,
+    StackTrace? stackTrace,
+    required String reason,
+    required bool apnsTokenReady,
+  }) async {
+    try {
+      await FirebaseCrashlytics.instance.recordError(
+        error,
+        stackTrace,
+        reason: reason,
+        fatal: false,
+        information: <String>['apnsTokenReady=$apnsTokenReady'],
+      );
+    } catch (_) {
+      // Never let telemetry reporting break the recovery flow.
     }
   }
+
+  String _friendlyAuthError(FirebaseAuthException error, String fallback) =>
+      friendlyPhoneAuthErrorMessage(error, fallback: fallback);
 
   String _enteredPhoneNumber() {
     final countryDigits =
@@ -159,13 +191,18 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
         : '+$countryDigits$localDigits';
   }
 
-  Future<void> _sendPhoneCode() async {
-    if (_phoneController.text.trim().isEmpty) {
-      setState(() => _error = 'יש להזין מספר טלפון.');
-      return;
+  Future<void> _sendPhoneCode({String? retryPhone}) async {
+    final isRetry = retryPhone != null;
+    if (!isRetry) {
+      if (_phoneController.text.trim().isEmpty) {
+        setState(() => _error = 'יש להזין מספר טלפון.');
+        return;
+      }
+      _internalErrorRetryUsed = false;
     }
-    final phone = widget.authService.normalizePhoneNumber(_enteredPhoneNumber());
-    if (!RegExp(r'^\+[1-9]\d{7,14}$').hasMatch(phone)) {
+    final phone = retryPhone ??
+        widget.authService.normalizePhoneNumber(_enteredPhoneNumber());
+    if (!isRetry && !RegExp(r'^\+[1-9]\d{7,14}$').hasMatch(phone)) {
       setState(() => _error = 'יש להזין מספר טלפון תקין.');
       return;
     }
@@ -175,22 +212,40 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
       _error = null;
     });
 
-    try {
-      if (!await widget.authService.isRegisteredPhone(phone)) {
+    if (!isRetry) {
+      try {
+        if (!await widget.authService.isRegisteredPhone(phone)) {
+          if (!mounted) return;
+          setState(() {
+            _busy = false;
+            _error = 'לא נמצא חשבון עם מספר הטלפון הזה.';
+          });
+          return;
+        }
+      } catch (_) {
         if (!mounted) return;
         setState(() {
           _busy = false;
-          _error = 'לא נמצא חשבון עם מספר הטלפון הזה.';
+          _error = 'לא ניתן לבדוק את החשבון כרגע. נסה שוב.';
         });
         return;
       }
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _busy = false;
-        _error = 'לא ניתן לבדוק את החשבון כרגע. נסה שוב.';
-      });
-      return;
+    }
+
+    final alreadyReady = await ApnsTokenStatusService.isReady();
+    bool apnsTokenReady;
+    if (alreadyReady) {
+      apnsTokenReady = true;
+    } else {
+      if (!isRetry && mounted) {
+        setState(() => _apnsPreparing = true);
+      }
+      apnsTokenReady = await ApnsTokenStatusService.waitForToken(
+        timeout: const Duration(seconds: 2),
+      );
+      if (!isRetry && mounted) {
+        setState(() => _apnsPreparing = false);
+      }
     }
 
     try {
@@ -202,7 +257,29 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
           await _signInWithPhoneCredential(credential);
         },
         verificationFailed: (error) {
+          unawaited(_reportPhoneVerifyError(
+            error: error,
+            stackTrace: error.stackTrace,
+            reason: 'verificationFailed:${error.code}',
+            apnsTokenReady: apnsTokenReady,
+          ));
           if (!mounted) return;
+          // Transient failures (e.g. iOS silent-push device check not ready
+          // yet) can succeed a moment later — retry once automatically.
+          const transientCodes = {
+            'internal-error',
+            'network-request-failed',
+            'unknown',
+          };
+          if (!_internalErrorRetryUsed &&
+              transientCodes.contains(error.code)) {
+            _internalErrorRetryUsed = true;
+            Future.delayed(const Duration(milliseconds: 1500), () {
+              if (!mounted) return;
+              _sendPhoneCode(retryPhone: phone);
+            });
+            return;
+          }
           setState(() {
             _busy = false;
             _error = _friendlyAuthError(error, 'לא הצלחנו לשלוח קוד אימות.');
@@ -226,11 +303,43 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
           _verificationId = verificationId;
         },
       );
-    } on FirebaseAuthException catch (error) {
+    } on FirebaseAuthException catch (error, stackTrace) {
+      await _reportPhoneVerifyError(
+        error: error,
+        stackTrace: stackTrace,
+        reason: 'verifyPhoneNumber:FirebaseAuthException:${error.code}',
+        apnsTokenReady: apnsTokenReady,
+      );
       if (!mounted) return;
       setState(() {
         _busy = false;
         _error = _friendlyAuthError(error, 'לא הצלחנו לשלוח קוד אימות.');
+      });
+    } on PlatformException catch (error, stackTrace) {
+      // verifyPhoneNumber can throw a raw PlatformException instead of
+      // routing through verificationFailed — make sure it's still caught.
+      await _reportPhoneVerifyError(
+        error: error,
+        stackTrace: stackTrace,
+        reason: 'verifyPhoneNumber:PlatformException:${error.code}',
+        apnsTokenReady: apnsTokenReady,
+      );
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _error = friendlyPhoneAuthErrorMessage(error, fallback: 'לא הצלחנו לשלוח קוד אימות.');
+      });
+    } catch (error, stackTrace) {
+      await _reportPhoneVerifyError(
+        error: error,
+        stackTrace: stackTrace,
+        reason: 'verifyPhoneNumber:unknown',
+        apnsTokenReady: apnsTokenReady,
+      );
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _error = 'לא הצלחנו לשלוח קוד אימות.';
       });
     }
   }
@@ -384,12 +493,18 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
     );
   }
 
-  Widget _primaryButton(String label, VoidCallback? onPressed) {
+  Widget _primaryButton(
+    String label,
+    VoidCallback? onPressed, {
+    bool disabledExtra = false,
+    String? busyLabel,
+  }) {
+    final isDisabled = _busy || disabledExtra || onPressed == null;
     return SizedBox(
       width: 200,
       height: 44,
       child: ElevatedButton(
-        onPressed: _busy ? null : onPressed,
+        onPressed: isDisabled ? null : onPressed,
         style: ElevatedButton.styleFrom(
           backgroundColor: _primary,
           foregroundColor: Colors.white,
@@ -398,14 +513,29 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
           ),
           elevation: 0,
         ),
-        child: _busy
-            ? const SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2.4,
-                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                ),
+        child: _busy || (disabledExtra && busyLabel != null)
+            ? Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.4,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    ),
+                  ),
+                  if (!_busy && busyLabel != null) ...[
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        busyLabel,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
+                      ),
+                    ),
+                  ],
+                ],
               )
             : Text(
                 label,
@@ -496,7 +626,14 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
           ),
         ),
         const SizedBox(height: 44),
-        Center(child: _primaryButton('קבלת קוד אימות', _sendPhoneCode)),
+        Center(
+          child: _primaryButton(
+            'קבלת קוד אימות',
+            _sendPhoneCode,
+            disabledExtra: _apnsPreparing,
+            busyLabel: 'מכינים את האבטחה במכשיר...',
+          ),
+        ),
       ],
     );
   }
@@ -836,6 +973,24 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
+                if (_method == _RecoveryMethod.phone && _phoneStep == 0) ...[
+                  const SizedBox(height: 8),
+                  TextButton.icon(
+                    onPressed: _busy ? null : () => _sendPhoneCode(),
+                    icon: const Icon(
+                      Icons.refresh_rounded,
+                      color: _accent,
+                      size: 18,
+                    ),
+                    label: const Text(
+                      'שלח קוד שוב',
+                      style: TextStyle(
+                        color: _accent,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ],
           ),
