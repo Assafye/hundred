@@ -45,6 +45,18 @@ class SettingsHistoryScreen extends StatefulWidget {
   State<SettingsHistoryScreen> createState() => _SettingsHistoryScreenState();
 }
 
+class _LikeHistoryItem {
+  const _LikeHistoryItem({
+    required this.postId,
+    required this.data,
+    required this.likedAt,
+  });
+
+  final String postId;
+  final Map<String, dynamic> data;
+  final dynamic likedAt;
+}
+
 class _SettingsHistoryScreenState extends State<SettingsHistoryScreen>
     with SingleTickerProviderStateMixin {
   static const Color _bgTop = Color(0xFF10162A);
@@ -123,6 +135,17 @@ class _SettingsHistoryScreenState extends State<SettingsHistoryScreen>
     return _db
         .collection('meet_now_posts')
         .where('authorUid', isEqualTo: _uid)
+        .snapshots();
+  }
+
+  Stream<QuerySnapshot<Map<String, dynamic>>> _likedPostsStream() {
+    if (_uid.isEmpty) {
+      return const Stream<QuerySnapshot<Map<String, dynamic>>>.empty();
+    }
+
+    return _db
+        .collection('posts')
+        .where('likes', arrayContains: _uid)
         .snapshots();
   }
 
@@ -808,6 +831,89 @@ class _SettingsHistoryScreenState extends State<SettingsHistoryScreen>
     return posts;
   }
 
+  List<_LikeHistoryItem> _likedPostItems({
+    required List<QueryDocumentSnapshot<Map<String, dynamic>>> likeActivities,
+    required List<QueryDocumentSnapshot<Map<String, dynamic>>> likedPosts,
+  }) {
+    final activityByPostId = <String, Map<String, dynamic>>{};
+    for (final activity in likeActivities) {
+      final data = activity.data();
+      final postId = (data['postId'] as String? ?? '').trim();
+      if (postId.isEmpty || activityByPostId.containsKey(postId)) {
+        continue;
+      }
+      activityByPostId[postId] = data;
+    }
+
+    final items = <_LikeHistoryItem>[];
+    for (final post in likedPosts) {
+      final postData = post.data();
+      final status = (postData['status'] as String? ?? '').trim().toLowerCase();
+      final isDeleted = (postData['isDeleted'] as bool?) ?? false;
+      if (isDeleted || status == 'deleted') {
+        continue;
+      }
+
+      final activityData =
+          activityByPostId[post.id] ?? const <String, dynamic>{};
+      items.add(
+        _LikeHistoryItem(
+          postId: post.id,
+          data: <String, dynamic>{
+            ...activityData,
+            ...postData,
+            'id': post.id,
+            'postId': (postData['postId'] as String? ?? post.id).trim(),
+          },
+          likedAt: activityData['createdAt'] ??
+              postData['updatedAt'] ??
+              postData['createdAt'],
+        ),
+      );
+    }
+
+    int compareTime(dynamic a, dynamic b) {
+      DateTime? dateFrom(dynamic raw) {
+        if (raw is Timestamp) return raw.toDate();
+        if (raw is DateTime) return raw;
+        return null;
+      }
+
+      final aTime = dateFrom(a) ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final bTime = dateFrom(b) ?? DateTime.fromMillisecondsSinceEpoch(0);
+      return bTime.compareTo(aTime);
+    }
+
+    items.sort((a, b) => compareTime(a.likedAt, b.likedAt));
+    return items;
+  }
+
+  Future<void> _openLikedPost(
+    _LikeHistoryItem item,
+    List<_LikeHistoryItem> items,
+  ) async {
+    final posts = items
+        .map((entry) => <String, dynamic>{
+              ...entry.data,
+              'id': entry.postId,
+              'postId': entry.postId,
+            })
+        .toList(growable: false);
+    if (!mounted || posts.isEmpty) return;
+
+    final initialIndex =
+        items.indexWhere((entry) => entry.postId == item.postId);
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => PostDetailView(
+          posts: posts,
+          initialIndex: initialIndex.clamp(0, posts.length - 1),
+          enableEditAction: false,
+        ),
+      ),
+    );
+  }
+
   Future<bool> _isActivePostForActivity(
       QueryDocumentSnapshot<Map<String, dynamic>> activity) async {
     final data = activity.data();
@@ -1056,21 +1162,20 @@ class _SettingsHistoryScreenState extends State<SettingsHistoryScreen>
   }
 
   Widget _buildLikeTile(
-    QueryDocumentSnapshot<Map<String, dynamic>> activity,
-    List<QueryDocumentSnapshot<Map<String, dynamic>>> allActivities,
+    _LikeHistoryItem item,
+    List<_LikeHistoryItem> allItems,
   ) {
     final isLight = Theme.of(context).brightness == Brightness.light;
     return InkWell(
-      onTap: () => _openActivityPost(activity, allActivities),
+      onTap: () => _openLikedPost(item, allItems),
       borderRadius: BorderRadius.circular(16),
-      child: FutureBuilder<Map<String, dynamic>>(
-        future: _resolvedActivityPreviewData(activity),
-        builder: (context, snapshot) {
-          final data = snapshot.data ?? activity.data();
+      child: Builder(
+        builder: (context) {
+          final data = item.data;
           final title = (data['title'] as String? ?? 'פופ ללא כותרת').trim();
           final imageUrl = _historyPreviewUrl(data);
           final mediaItems = postMediaItemsFromData(data);
-          final time = _relativeTimeFrom(activity.data()['createdAt']);
+          final time = _relativeTimeFrom(item.likedAt);
 
           return Container(
             decoration: BoxDecoration(
@@ -1987,10 +2092,12 @@ class _SettingsHistoryScreenState extends State<SettingsHistoryScreen>
 
                       final visibleActivities = filteredSnapshot.data ??
                           const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-                      final likes = _uniqueActivitiesByPost(visibleActivities
-                          .where((doc) =>
-                              (doc.data()['type'] as String? ?? '') == 'like')
-                          .toList(growable: false));
+                      final likeActivities = _uniqueActivitiesByPost(
+                          visibleActivities
+                              .where((doc) =>
+                                  (doc.data()['type'] as String? ?? '') ==
+                                  'like')
+                              .toList(growable: false));
                       final comments = visibleActivities
                           .where((doc) =>
                               (doc.data()['type'] as String? ?? '') ==
@@ -1999,25 +2106,45 @@ class _SettingsHistoryScreenState extends State<SettingsHistoryScreen>
                       return TabBarView(
                         controller: _tabController,
                         children: [
-                          likes.isEmpty
-                              ? _buildEmptyState('אין לייקים להצגה עדיין')
-                              : Padding(
-                                  padding: const EdgeInsets.all(14),
-                                  child: GridView.builder(
-                                    itemCount: likes.length,
-                                    gridDelegate:
-                                        const SliverGridDelegateWithFixedCrossAxisCount(
-                                      crossAxisCount: 3,
-                                      crossAxisSpacing: 10,
-                                      mainAxisSpacing: 10,
-                                      childAspectRatio: 0.78,
-                                    ),
-                                    itemBuilder: (context, index) {
-                                      return _buildLikeTile(
-                                          likes[index], likes);
-                                    },
+                          StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                            stream: _likedPostsStream(),
+                            builder: (context, likedPostsSnapshot) {
+                              if (likedPostsSnapshot.connectionState ==
+                                      ConnectionState.waiting &&
+                                  !likedPostsSnapshot.hasData) {
+                                return const Center(
+                                    child: CircularProgressIndicator());
+                              }
+
+                              final likes = _likedPostItems(
+                                likeActivities: likeActivities,
+                                likedPosts: likedPostsSnapshot.data?.docs ??
+                                    const <QueryDocumentSnapshot<
+                                        Map<String, dynamic>>>[],
+                              );
+                              if (likes.isEmpty) {
+                                return _buildEmptyState(
+                                    'אין לייקים להצגה עדיין');
+                              }
+
+                              return Padding(
+                                padding: const EdgeInsets.all(14),
+                                child: GridView.builder(
+                                  itemCount: likes.length,
+                                  gridDelegate:
+                                      const SliverGridDelegateWithFixedCrossAxisCount(
+                                    crossAxisCount: 3,
+                                    crossAxisSpacing: 10,
+                                    mainAxisSpacing: 10,
+                                    childAspectRatio: 0.78,
                                   ),
+                                  itemBuilder: (context, index) {
+                                    return _buildLikeTile(likes[index], likes);
+                                  },
                                 ),
+                              );
+                            },
+                          ),
                           comments.isEmpty
                               ? _buildEmptyState('אין תגובות להצגה עדיין')
                               : ListView.separated(

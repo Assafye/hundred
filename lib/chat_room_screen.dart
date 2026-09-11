@@ -84,7 +84,7 @@ class _PendingChatMedia {
 }
 
 class _ChatRoomScreenState extends State<ChatRoomScreen>
-  with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin {
   final TextEditingController _controller = TextEditingController();
   final FocusNode _inputFocusNode = FocusNode();
   final ScrollController _scrollController = ScrollController();
@@ -1489,11 +1489,13 @@ class _ChatRoomScreenState extends State<ChatRoomScreen>
     final isLight = _isLightMode(context);
     final displayName =
         (messageData['joinedDisplayName'] as String? ?? '').trim();
-    final avatarUrl = ((messageData['senderAvatarUrl'] as String?) ?? '').trim();
+    final avatarUrl =
+        ((messageData['senderAvatarUrl'] as String?) ?? '').trim();
     final text = ChatService.buildGroupJoinAnnouncementText(displayName);
     final avatar = CircleAvatar(
       radius: 14,
-      backgroundColor: isLight ? const Color(0xFFDCE8FF) : const Color(0xFF2A3445),
+      backgroundColor:
+          isLight ? const Color(0xFFDCE8FF) : const Color(0xFF2A3445),
       backgroundImage: avatarUrl.isNotEmpty ? NetworkImage(avatarUrl) : null,
       child: avatarUrl.isEmpty
           ? Icon(
@@ -1650,12 +1652,14 @@ class _ChatRoomScreenState extends State<ChatRoomScreen>
                   Padding(
                     padding: const EdgeInsets.only(bottom: 4),
                     child: Align(
-                      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+                      alignment:
+                          isMe ? Alignment.centerRight : Alignment.centerLeft,
                       child: GestureDetector(
                         behavior: HitTestBehavior.opaque,
                         onTap: normalizedSenderId.isEmpty || isDeletedSender
                             ? null
-                            : () => _openUserProfileFromChat(normalizedSenderId),
+                            : () =>
+                                _openUserProfileFromChat(normalizedSenderId),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           textDirection: TextDirection.ltr,
@@ -1667,7 +1671,9 @@ class _ChatRoomScreenState extends State<ChatRoomScreen>
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                       style: TextStyle(
-                                        color: isLight ? Colors.black : Colors.white70,
+                                        color: isLight
+                                            ? Colors.black
+                                            : Colors.white70,
                                         fontSize: 12,
                                         fontWeight: FontWeight.w400,
                                       ),
@@ -1685,7 +1691,9 @@ class _ChatRoomScreenState extends State<ChatRoomScreen>
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                       style: TextStyle(
-                                        color: isLight ? Colors.black : Colors.white70,
+                                        color: isLight
+                                            ? Colors.black
+                                            : Colors.white70,
                                         fontSize: 12,
                                         fontWeight: FontWeight.w400,
                                       ),
@@ -1698,7 +1706,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen>
                   ),
                 if (isPostMessage)
                   Align(
-                    alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+                    alignment:
+                        isMe ? Alignment.centerRight : Alignment.centerLeft,
                     child: _buildSharedPostPreview(
                       postPayload: postPayload,
                       isMe: isMe,
@@ -1706,7 +1715,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen>
                   ),
                 if (showUnifiedPostFlow && hasPostCaption)
                   Align(
-                    alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+                    alignment:
+                        isMe ? Alignment.centerRight : Alignment.centerLeft,
                     child: SizedBox(
                       width: sharedPostWidth,
                       child: Container(
@@ -1759,7 +1769,9 @@ class _ChatRoomScreenState extends State<ChatRoomScreen>
                         sentAt,
                         textDirection: bubbleTextDirection,
                         style: TextStyle(
-                          color: isLight ? const Color(0xFF5D6B85) : Colors.white70,
+                          color: isLight
+                              ? const Color(0xFF5D6B85)
+                              : Colors.white70,
                           fontSize: 11,
                           fontWeight: FontWeight.w400,
                         ),
@@ -1770,7 +1782,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen>
                 if (!showUnifiedPostFlow)
                   Container(
                     padding: showBubbleShell
-                        ? const EdgeInsets.symmetric(vertical: 7, horizontal: 12)
+                        ? const EdgeInsets.symmetric(
+                            vertical: 7, horizontal: 12)
                         : (isPostMessage
                             ? const EdgeInsets.only(top: 4)
                             : EdgeInsets.zero),
@@ -2958,7 +2971,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen>
                                   UserProfileScreen(
                             uid: otherUid,
                             currentBottomIndex: 3,
-                                    openedFromDirectChat: widget.isDirectChat == true,
+                            openedFromDirectChat: widget.isDirectChat == true,
                           ),
                           transitionsBuilder:
                               (context, animation, secondaryAnimation, child) {
@@ -3095,267 +3108,279 @@ class _ChatRoomScreenState extends State<ChatRoomScreen>
                       child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                         stream: _chatService.streamChatMessages(widget.chatId),
                         builder: (context, snapshot) {
-                        if (snapshot.connectionState ==
-                                ConnectionState.waiting &&
-                            !snapshot.hasData) {
-                          return const Center(
-                              child: CircularProgressIndicator());
-                        }
+                          if (snapshot.connectionState ==
+                                  ConnectionState.waiting &&
+                              !snapshot.hasData) {
+                            return const Center(
+                                child: CircularProgressIndicator());
+                          }
 
-                        if (snapshot.hasError) {
-                          return Center(
-                            child: Text(
-                              'שגיאה בטעינת הודעות',
-                              style: TextStyle(
-                                color: isLight
-                                    ? const Color(0xFF5C6B88)
-                                    : Colors.white70,
+                          if (snapshot.hasError) {
+                            return Center(
+                              child: Text(
+                                'שגיאה בטעינת הודעות',
+                                style: TextStyle(
+                                  color: isLight
+                                      ? const Color(0xFF5C6B88)
+                                      : Colors.white70,
+                                ),
                               ),
-                            ),
-                          );
-                        }
-
-                        final descendingDocs = snapshot.data?.docs ??
-                            const <QueryDocumentSnapshot<
-                                Map<String, dynamic>>>[];
-                        final docs = descendingDocs;
-                        final myUid = FirebaseAuth.instance.currentUser?.uid;
-                        _handleVisibleMessages(descendingDocs);
-
-                        return StreamBuilder<
-                            QuerySnapshot<Map<String, dynamic>>>(
-                          stream: _chatService
-                              .streamChatReadReceipts(widget.chatId),
-                          builder: (context, readSnapshot) {
-                            final receiptDocs = readSnapshot.data?.docs ??
-                                const <QueryDocumentSnapshot<
-                                    Map<String, dynamic>>>[];
-                            _resolveInitialAnchorIfNeeded(
-                              docs: docs,
-                              receiptDocs: receiptDocs,
-                              myUid: myUid ?? '',
                             );
-                            final readReceiptsByMessageId =
-                                _buildReadReceiptMessageMap(
-                              messages: docs,
-                              receipts: receiptDocs,
-                              currentUid: myUid ?? '',
-                            );
+                          }
 
-                            return NotificationListener<UserScrollNotification>(
-                              onNotification: _handleUserScrollNotification,
-                              child: ListView.builder(
-                                controller: _scrollController,
-                                reverse: true,
-                                padding:
-                                    const EdgeInsets.only(top: 12, bottom: 12),
-                                itemCount: docs.length,
-                                itemBuilder: (context, index) {
-                                  final data = docs[index].data();
-                                  final senderId =
-                                      (data['senderId'] as String?) ?? '';
-                                  final messageDate = _messageDate(data);
+                          final descendingDocs = snapshot.data?.docs ??
+                              const <QueryDocumentSnapshot<
+                                  Map<String, dynamic>>>[];
+                          final docs = descendingDocs;
+                          final myUid = FirebaseAuth.instance.currentUser?.uid;
+                          _handleVisibleMessages(descendingDocs);
 
-                                  final nextData = index < docs.length - 1
-                                      ? docs[index + 1].data()
-                                      : null;
-                                  final nextSenderId =
-                                      (nextData?['senderId'] as String?) ?? '';
-                                  final nextDate = nextData == null
-                                      ? null
-                                      : _messageDate(nextData);
+                          return StreamBuilder<
+                              QuerySnapshot<Map<String, dynamic>>>(
+                            stream: _chatService
+                                .streamChatReadReceipts(widget.chatId),
+                            builder: (context, readSnapshot) {
+                              final receiptDocs = readSnapshot.data?.docs ??
+                                  const <QueryDocumentSnapshot<
+                                      Map<String, dynamic>>>[];
+                              _resolveInitialAnchorIfNeeded(
+                                docs: docs,
+                                receiptDocs: receiptDocs,
+                                myUid: myUid ?? '',
+                              );
+                              final readReceiptsByMessageId =
+                                  _buildReadReceiptMessageMap(
+                                messages: docs,
+                                receipts: receiptDocs,
+                                currentUid: myUid ?? '',
+                              );
 
-                                  final showDaySeparator = nextData == null ||
-                                      !_isSameDay(nextDate, messageDate);
-                                  // With reverse=true and descending snapshots,
-                                  // the first visible message in a sender/day run
-                                  // is compared against the older neighbor (nextData).
-                                  final showSenderMeta =
-                                      index == docs.length - 1 ||
-                                          nextSenderId != senderId ||
-                                          !_isSameDay(nextDate, messageDate);
-                                  final effectiveShowSenderMeta =
-                                      isDirectChat ? false : showSenderMeta;
-                                  final isLastInGroup =
-                                      index == docs.length - 1 ||
-                                          nextSenderId != senderId ||
-                                          !_isSameDay(nextDate, messageDate);
+                              return NotificationListener<
+                                  UserScrollNotification>(
+                                onNotification: _handleUserScrollNotification,
+                                child: ListView.builder(
+                                  controller: _scrollController,
+                                  reverse: true,
+                                  padding: const EdgeInsets.only(
+                                      top: 12, bottom: 12),
+                                  itemCount: docs.length,
+                                  itemBuilder: (context, index) {
+                                    final data = docs[index].data();
+                                    final senderId =
+                                        (data['senderId'] as String?) ?? '';
+                                    final messageDate = _messageDate(data);
 
-                                  final senderName = _resolveSenderName(data);
-                                  final senderAvatarUrl =
-                                      _resolveSenderAvatarUrl(data);
-                                  final text = (data['text'] as String?) ?? '';
-                                  final sentAt =
-                                      _formatMessageClock(messageDate);
-                                  final isMe =
-                                      myUid != null && myUid == senderId;
-                                  final replyTarget = _buildReplyTarget(
-                                    messageId: docs[index].id,
-                                    messageData: data,
-                                    senderName: senderName,
-                                  );
+                                    final nextData = index < docs.length - 1
+                                        ? docs[index + 1].data()
+                                        : null;
+                                    final nextSenderId =
+                                        (nextData?['senderId'] as String?) ??
+                                            '';
+                                    final nextDate = nextData == null
+                                        ? null
+                                        : _messageDate(nextData);
+                                    final nextBreaksSenderGroup =
+                                        nextData == null ||
+                                            ChatService.isGroupJoinAnnouncement(
+                                                nextData) ||
+                                            nextSenderId != senderId ||
+                                            !_isSameDay(nextDate, messageDate);
 
-                                  return Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      if (showDaySeparator)
-                                        _buildDaySeparator(
-                                          _formatDayHeader(messageDate),
-                                        ),
-                                      Dismissible(
-                                        key: ValueKey<String>(
-                                            'reply_${docs[index].id}'),
-                                        direction: Directionality.of(context) ==
-                                                TextDirection.rtl
-                                            ? DismissDirection.endToStart
-                                            : DismissDirection.startToEnd,
-                                        resizeDuration: null,
-                                        confirmDismiss: (_) async {
-                                          if (!mounted) {
+                                    final showDaySeparator = nextData == null ||
+                                        !_isSameDay(nextDate, messageDate);
+                                    // With reverse=true and descending snapshots,
+                                    // the first visible message in a sender/day run
+                                    // is compared against the older neighbor (nextData).
+                                    final showSenderMeta =
+                                        nextBreaksSenderGroup;
+                                    final effectiveShowSenderMeta =
+                                        isDirectChat ? false : showSenderMeta;
+                                    final isLastInGroup = nextBreaksSenderGroup;
+
+                                    final senderName = _resolveSenderName(data);
+                                    final senderAvatarUrl =
+                                        _resolveSenderAvatarUrl(data);
+                                    final text =
+                                        (data['text'] as String?) ?? '';
+                                    final sentAt =
+                                        _formatMessageClock(messageDate);
+                                    final isMe =
+                                        myUid != null && myUid == senderId;
+                                    final replyTarget = _buildReplyTarget(
+                                      messageId: docs[index].id,
+                                      messageData: data,
+                                      senderName: senderName,
+                                    );
+
+                                    return Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        if (showDaySeparator)
+                                          _buildDaySeparator(
+                                            _formatDayHeader(messageDate),
+                                          ),
+                                        Dismissible(
+                                          key: ValueKey<String>(
+                                              'reply_${docs[index].id}'),
+                                          direction:
+                                              Directionality.of(context) ==
+                                                      TextDirection.rtl
+                                                  ? DismissDirection.endToStart
+                                                  : DismissDirection.startToEnd,
+                                          resizeDuration: null,
+                                          confirmDismiss: (_) async {
+                                            if (!mounted) {
+                                              return false;
+                                            }
+                                            setState(() {
+                                              _replyTarget = replyTarget;
+                                            });
+                                            _inputFocusNode.requestFocus();
                                             return false;
-                                          }
-                                          setState(() {
-                                            _replyTarget = replyTarget;
-                                          });
-                                          _inputFocusNode.requestFocus();
-                                          return false;
-                                        },
-                                        background: Padding(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 20,
-                                          ),
-                                          child: Align(
-                                            alignment: Alignment.centerLeft,
-                                            child: Container(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                horizontal: 12,
-                                                vertical: 10,
-                                              ),
-                                              decoration: BoxDecoration(
-                                                color: isLight
-                                                    ? const Color(0xFFEAF4FF)
-                                                    : const Color(0xFF172437),
-                                                borderRadius:
-                                                    BorderRadius.circular(14),
-                                                border: Border.all(
-                                                  color: isLight
-                                                      ? const Color(0xFFA9C3FF)
-                                                      : const Color(0xFF53C1F9)
-                                                          .withValues(
-                                                              alpha: 0.24),
+                                          },
+                                          background: Padding(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 20,
+                                            ),
+                                            child: Align(
+                                              alignment: Alignment.centerLeft,
+                                              child: Container(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                  horizontal: 12,
+                                                  vertical: 10,
                                                 ),
-                                              ),
-                                              child: Row(
-                                                mainAxisSize: MainAxisSize.min,
-                                                children: [
-                                                  Icon(
-                                                    Icons.reply_rounded,
-                                                    size: 18,
+                                                decoration: BoxDecoration(
+                                                  color: isLight
+                                                      ? const Color(0xFFEAF4FF)
+                                                      : const Color(0xFF172437),
+                                                  borderRadius:
+                                                      BorderRadius.circular(14),
+                                                  border: Border.all(
                                                     color: isLight
                                                         ? const Color(
-                                                            0xFF6B4BB6)
+                                                            0xFFA9C3FF)
                                                         : const Color(
-                                                            0xFF9EDBFF),
+                                                                0xFF53C1F9)
+                                                            .withValues(
+                                                                alpha: 0.24),
                                                   ),
-                                                  const SizedBox(width: 6),
-                                                  Text(
-                                                    'הגב',
-                                                    style: TextStyle(
+                                                ),
+                                                child: Row(
+                                                  mainAxisSize:
+                                                      MainAxisSize.min,
+                                                  children: [
+                                                    Icon(
+                                                      Icons.reply_rounded,
+                                                      size: 18,
                                                       color: isLight
                                                           ? const Color(
-                                                              0xFF34425D)
-                                                          : Colors.white70,
-                                                      fontWeight:
-                                                          FontWeight.w700,
+                                                              0xFF6B4BB6)
+                                                          : const Color(
+                                                              0xFF9EDBFF),
                                                     ),
-                                                  ),
-                                                ],
+                                                    const SizedBox(width: 6),
+                                                    Text(
+                                                      'הגב',
+                                                      style: TextStyle(
+                                                        color: isLight
+                                                            ? const Color(
+                                                                0xFF34425D)
+                                                            : Colors.white70,
+                                                        fontWeight:
+                                                            FontWeight.w700,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
                                               ),
                                             ),
                                           ),
-                                        ),
-                                        secondaryBackground: Padding(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 20,
-                                          ),
-                                          child: Align(
-                                            alignment: Alignment.centerLeft,
-                                            child: Container(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                horizontal: 12,
-                                                vertical: 10,
-                                              ),
-                                              decoration: BoxDecoration(
-                                                color: isLight
-                                                    ? const Color(0xFFEAF4FF)
-                                                    : const Color(0xFF172437),
-                                                borderRadius:
-                                                    BorderRadius.circular(14),
-                                                border: Border.all(
-                                                  color: isLight
-                                                      ? const Color(0xFFA9C3FF)
-                                                      : const Color(0xFF53C1F9)
-                                                          .withValues(
-                                                              alpha: 0.24),
+                                          secondaryBackground: Padding(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 20,
+                                            ),
+                                            child: Align(
+                                              alignment: Alignment.centerLeft,
+                                              child: Container(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                  horizontal: 12,
+                                                  vertical: 10,
                                                 ),
-                                              ),
-                                              child: Row(
-                                                mainAxisSize: MainAxisSize.min,
-                                                children: [
-                                                  Icon(
-                                                    Icons.reply_rounded,
-                                                    size: 18,
+                                                decoration: BoxDecoration(
+                                                  color: isLight
+                                                      ? const Color(0xFFEAF4FF)
+                                                      : const Color(0xFF172437),
+                                                  borderRadius:
+                                                      BorderRadius.circular(14),
+                                                  border: Border.all(
                                                     color: isLight
                                                         ? const Color(
-                                                            0xFF6B4BB6)
+                                                            0xFFA9C3FF)
                                                         : const Color(
-                                                            0xFF9EDBFF),
+                                                                0xFF53C1F9)
+                                                            .withValues(
+                                                                alpha: 0.24),
                                                   ),
-                                                  const SizedBox(width: 6),
-                                                  Text(
-                                                    'הגב',
-                                                    style: TextStyle(
+                                                ),
+                                                child: Row(
+                                                  mainAxisSize:
+                                                      MainAxisSize.min,
+                                                  children: [
+                                                    Icon(
+                                                      Icons.reply_rounded,
+                                                      size: 18,
                                                       color: isLight
                                                           ? const Color(
-                                                              0xFF34425D)
-                                                          : Colors.white70,
-                                                      fontWeight:
-                                                          FontWeight.w700,
+                                                              0xFF6B4BB6)
+                                                          : const Color(
+                                                              0xFF9EDBFF),
                                                     ),
-                                                  ),
-                                                ],
+                                                    const SizedBox(width: 6),
+                                                    Text(
+                                                      'הגב',
+                                                      style: TextStyle(
+                                                        color: isLight
+                                                            ? const Color(
+                                                                0xFF34425D)
+                                                            : Colors.white70,
+                                                        fontWeight:
+                                                            FontWeight.w700,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
                                               ),
                                             ),
                                           ),
+                                          child: _buildMessageBubble(
+                                            messageId: docs[index].id,
+                                            text: text,
+                                            isMe: isMe,
+                                            senderId: senderId,
+                                            senderName: senderName,
+                                            senderAvatarUrl: senderAvatarUrl,
+                                            sentAt: sentAt,
+                                            seenUserIds:
+                                                readReceiptsByMessageId[
+                                                        docs[index].id] ??
+                                                    const <String>[],
+                                            showSenderMeta:
+                                                effectiveShowSenderMeta,
+                                            isFirstInGroup:
+                                                effectiveShowSenderMeta,
+                                            isLastInGroup: isLastInGroup,
+                                            messageData: data,
+                                          ),
                                         ),
-                                        child: _buildMessageBubble(
-                                          messageId: docs[index].id,
-                                          text: text,
-                                          isMe: isMe,
-                                          senderId: senderId,
-                                          senderName: senderName,
-                                          senderAvatarUrl: senderAvatarUrl,
-                                          sentAt: sentAt,
-                                          seenUserIds: readReceiptsByMessageId[
-                                                  docs[index].id] ??
-                                              const <String>[],
-                                          showSenderMeta:
-                                              effectiveShowSenderMeta,
-                                          isFirstInGroup:
-                                              effectiveShowSenderMeta,
-                                          isLastInGroup: isLastInGroup,
-                                          messageData: data,
-                                        ),
-                                      ),
-                                    ],
-                                  );
-                                },
-                              ),
-                            );
-                          },
-                        );
+                                      ],
+                                    );
+                                  },
+                                ),
+                              );
+                            },
+                          );
                         },
                       ),
                     ),
@@ -3383,157 +3408,158 @@ class _ChatRoomScreenState extends State<ChatRoomScreen>
                           ),
                         ),
                         child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (_replyTarget != null)
-                            Container(
-                              width: double.infinity,
-                              margin: const EdgeInsets.only(bottom: 6),
-                              padding: const EdgeInsets.fromLTRB(10, 8, 6, 8),
-                              decoration: BoxDecoration(
-                                color: isLight
-                                    ? const Color(0xFFF4FAFF)
-                                    : const Color(0xFF182538),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (_replyTarget != null)
+                              Container(
+                                width: double.infinity,
+                                margin: const EdgeInsets.only(bottom: 6),
+                                padding: const EdgeInsets.fromLTRB(10, 8, 6, 8),
+                                decoration: BoxDecoration(
                                   color: isLight
-                                      ? const Color(0xFFA9C3FF)
-                                      : const Color(0xFF53C1F9)
-                                          .withValues(alpha: 0.22),
+                                      ? const Color(0xFFF4FAFF)
+                                      : const Color(0xFF182538),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: isLight
+                                        ? const Color(0xFFA9C3FF)
+                                        : const Color(0xFF53C1F9)
+                                            .withValues(alpha: 0.22),
+                                  ),
+                                ),
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    IconButton(
+                                      onPressed: () {
+                                        setState(() {
+                                          _replyTarget = null;
+                                        });
+                                      },
+                                      visualDensity: VisualDensity.compact,
+                                      padding: EdgeInsets.zero,
+                                      icon: Icon(
+                                        Icons.close_rounded,
+                                        size: 18,
+                                        color: isLight
+                                            ? const Color(0xFF6B4BB6)
+                                            : const Color(0xFF9EDBFF),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.end,
+                                        children: [
+                                          Text(
+                                            'הגב ל: ${_replyTarget!.senderName}',
+                                            textDirection: TextDirection.rtl,
+                                            textAlign: TextAlign.right,
+                                            style: TextStyle(
+                                              color: isLight
+                                                  ? const Color(0xFF6B4BB6)
+                                                  : const Color(0xFF9EDBFF),
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w800,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            _replyTarget!.textPreview,
+                                            textDirection: TextDirection.rtl,
+                                            textAlign: TextAlign.right,
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              color: isLight
+                                                  ? const Color(0xFF34425D)
+                                                  : Colors.white70,
+                                              fontSize: 12,
+                                              height: 1.25,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
-                              child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  IconButton(
-                                    onPressed: () {
-                                      setState(() {
-                                        _replyTarget = null;
-                                      });
-                                    },
-                                    visualDensity: VisualDensity.compact,
-                                    padding: EdgeInsets.zero,
-                                    icon: Icon(
-                                      Icons.close_rounded,
-                                      size: 18,
-                                      color: isLight
-                                          ? const Color(0xFF6B4BB6)
-                                          : const Color(0xFF9EDBFF),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.end,
-                                      children: [
-                                        Text(
-                                          'הגב ל: ${_replyTarget!.senderName}',
-                                          textDirection: TextDirection.rtl,
-                                          textAlign: TextAlign.right,
-                                          style: TextStyle(
+                            Row(
+                              textDirection: TextDirection.ltr,
+                              children: [
+                                IconButton(
+                                  icon: _isSendingText
+                                      ? SizedBox(
+                                          width: 22,
+                                          height: 22,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2.2,
                                             color: isLight
-                                                ? const Color(0xFF6B4BB6)
-                                                : const Color(0xFF9EDBFF),
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w800,
+                                                ? const Color(0xFF4DBEEA)
+                                                : const Color(0xFF9E7CFF),
                                           ),
+                                        )
+                                      : Icon(
+                                          Icons.send,
+                                          color: isLight
+                                              ? const Color(0xFF4DBEEA)
+                                              : const Color(0xFF9E7CFF),
                                         ),
-                                        const SizedBox(height: 2),
-                                        Text(
-                                          _replyTarget!.textPreview,
-                                          textDirection: TextDirection.rtl,
-                                          textAlign: TextAlign.right,
-                                          maxLines: 2,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: TextStyle(
-                                            color: isLight
-                                                ? const Color(0xFF34425D)
-                                                : Colors.white70,
-                                            fontSize: 12,
-                                            height: 1.25,
-                                          ),
-                                        ),
-                                      ],
+                                  onPressed:
+                                      _isSendingText ? null : _sendMessage,
+                                ),
+                                Expanded(
+                                  child: TextField(
+                                    groupId: _composerTapRegionGroupId,
+                                    controller: _controller,
+                                    focusNode: _inputFocusNode,
+                                    onTapOutside: (_) {},
+                                    style: TextStyle(
+                                      color:
+                                          isLight ? Colors.black : Colors.white,
                                     ),
+                                    decoration: InputDecoration(
+                                      hintText: 'הקלד הודעה...',
+                                      hintStyle: TextStyle(
+                                        color: isLight
+                                            ? Colors.black54
+                                            : Colors.white54,
+                                      ),
+                                      border: InputBorder.none,
+                                    ),
+                                    onSubmitted: (_) => _sendMessage(),
                                   ),
-                                ],
-                              ),
+                                ),
+                                IconButton(
+                                  key: _attachmentButtonKey,
+                                  icon: _isSendingMedia
+                                      ? SizedBox(
+                                          width: 22,
+                                          height: 22,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2.2,
+                                            color: isLight
+                                                ? const Color(0xFF4DBEEA)
+                                                : const Color(0xFF9E7CFF),
+                                          ),
+                                        )
+                                      : Icon(
+                                          Icons.add_photo_alternate_rounded,
+                                          color: isLight
+                                              ? const Color(0xFF4DBEEA)
+                                              : const Color(0xFF9E7CFF),
+                                        ),
+                                  onPressed: _isSendingMedia
+                                      ? null
+                                      : _openAttachmentActions,
+                                ),
+                              ],
                             ),
-                          Row(
-                            textDirection: TextDirection.ltr,
-                            children: [
-                              IconButton(
-                                icon: _isSendingText
-                                    ? SizedBox(
-                                        width: 22,
-                                        height: 22,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2.2,
-                                          color: isLight
-                                              ? const Color(0xFF4DBEEA)
-                                              : const Color(0xFF9E7CFF),
-                                        ),
-                                      )
-                                    : Icon(
-                                        Icons.send,
-                                        color: isLight
-                                            ? const Color(0xFF4DBEEA)
-                                            : const Color(0xFF9E7CFF),
-                                      ),
-                                onPressed: _isSendingText ? null : _sendMessage,
-                              ),
-                              Expanded(
-                                child: TextField(
-                                  groupId: _composerTapRegionGroupId,
-                                  controller: _controller,
-                                  focusNode: _inputFocusNode,
-                                  onTapOutside: (_) {},
-                                  style: TextStyle(
-                                    color:
-                                        isLight ? Colors.black : Colors.white,
-                                  ),
-                                  decoration: InputDecoration(
-                                    hintText: 'הקלד הודעה...',
-                                    hintStyle: TextStyle(
-                                      color: isLight
-                                          ? Colors.black54
-                                          : Colors.white54,
-                                    ),
-                                    border: InputBorder.none,
-                                  ),
-                                  onSubmitted: (_) => _sendMessage(),
-                                ),
-                              ),
-                              IconButton(
-                                key: _attachmentButtonKey,
-                                icon: _isSendingMedia
-                                    ? SizedBox(
-                                        width: 22,
-                                        height: 22,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2.2,
-                                          color: isLight
-                                              ? const Color(0xFF4DBEEA)
-                                              : const Color(0xFF9E7CFF),
-                                        ),
-                                      )
-                                    : Icon(
-                                        Icons.add_photo_alternate_rounded,
-                                        color: isLight
-                                            ? const Color(0xFF4DBEEA)
-                                            : const Color(0xFF9E7CFF),
-                                      ),
-                                onPressed: _isSendingMedia
-                                    ? null
-                                    : _openAttachmentActions,
-                              ),
-                            ],
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
-                  ),
                   ),
                 ],
               ),

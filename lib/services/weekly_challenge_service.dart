@@ -102,12 +102,27 @@ class WeeklyChallengeService {
       return 'אחר';
     }
 
-    final weekStart = DateTime.utc(2024, 1, 1).add(Duration(days: weekIndex * 7));
+    final weekStart =
+        DateTime.utc(2024, 1, 1).add(Duration(days: weekIndex * 7));
     final daysIntoWeek = nowUtc.difference(weekStart).inDays.clamp(0, 6);
-    final seeded = Random(
-      (weekIndex + 1) * 3571 + (daysIntoWeek + 1) * 101 + mainCategory.hashCode,
-    );
-    return subCategories[seeded.nextInt(subCategories.length)];
+    final shuffled = subCategories.toList(growable: false);
+    final seeded =
+        Random((weekIndex + 1) * 3571 + _stableTextSeed(mainCategory));
+    for (int i = shuffled.length - 1; i > 0; i--) {
+      final j = seeded.nextInt(i + 1);
+      final temp = shuffled[i];
+      shuffled[i] = shuffled[j];
+      shuffled[j] = temp;
+    }
+    return shuffled[daysIntoWeek % shuffled.length];
+  }
+
+  static int _stableTextSeed(String value) {
+    var hash = 0;
+    for (final codeUnit in value.codeUnits) {
+      hash = 0x1fffffff & ((hash * 31) + codeUnit);
+    }
+    return hash;
   }
 
   static List<String> _eligibleMainCategories() {

@@ -580,7 +580,7 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
                                           ),
                                           const SizedBox(height: 8),
                                           const Text(
-                                            'איזה כיף, חיכינו לך בחזרה',
+                                            'איזה כיף שחזרת!',
                                             textAlign: TextAlign.center,
                                             style: TextStyle(
                                               color: _textSecondary,

@@ -46,7 +46,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   static const Color _fieldFill = Color(0xFF141D2E);
   static const int _maxProfileImages = 6;
   static const String _passwordRequirementsMessage =
-      'הסיסמה חייבת לכלול לפחות 7 תווים, אות גדולה באנגלית, אות קטנה באנגלית, מספר אחד וסימן מיוחד אחד ';
+      'הסיסמה חייבת לכלול לפחות 8 תווים,\nאות גדולה באנגלית, אות קטנה באנגלית ומספר אחד';
   static final RegExp _usernameAllowedPattern = RegExp(r'^[A-Za-z0-9._]+$');
   static const String _usernameAllowedMessage =
       'מותר רק אותיות באנגלית, מספרים, ., _';
@@ -778,13 +778,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
   String? _passwordValidator(String? value) {
     final text = (value ?? '').trim();
     if (text.isEmpty) return _passwordRequirementsMessage;
-    if (text.length < 7) return _passwordRequirementsMessage;
+    if (text.length < 8) return _passwordRequirementsMessage;
     if (!RegExp(r'[A-Z]').hasMatch(text)) return _passwordRequirementsMessage;
     if (!RegExp(r'[a-z]').hasMatch(text)) return _passwordRequirementsMessage;
     if (!RegExp(r'[0-9]').hasMatch(text)) return _passwordRequirementsMessage;
-    if (!RegExp(r'[^A-Za-z0-9]').hasMatch(text)) {
-      return _passwordRequirementsMessage;
-    }
     return null;
   }
 

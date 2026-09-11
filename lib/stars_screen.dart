@@ -126,17 +126,20 @@ List<MeetNowPostEntry> filterBlockedMeetNowEntries(
       .toList(growable: false);
 }
 
-class _StarsScreenState extends State<StarsScreen> {
-  late final WeeklyChallenge _challenge;
+class _StarsScreenState extends State<StarsScreen> with WidgetsBindingObserver {
+  late WeeklyChallenge _challenge;
+  late String _challengeDayKey;
   late final BlockUserService _blockUserService = BlockUserService();
   late final StreamSubscription<Set<String>> _blockedUsersSub;
   Future<List<_StarsSectionData>> _hotSectionsFuture =
       Future<List<_StarsSectionData>>.value(const <_StarsSectionData>[]);
+  Set<String> _blockedUserIds = const <String>{};
   final Set<String> _expandedSectionKeys = <String>{};
   bool _openedInitialPost = false;
   SpontaneousChallengeTask? _activeSpontaneousTask;
   Duration _activeSpontaneousRemaining = Duration.zero;
   Timer? _spontaneousCountdownTimer;
+  Timer? _challengeRefreshTimer;
   final Map<String, Future<String?>> _resolvedMediaUrlByRawUrl =
       <String, Future<String?>>{};
 
@@ -181,7 +184,13 @@ class _StarsScreenState extends State<StarsScreen> {
   @override
   void initState() {
     super.initState();
-    _challenge = WeeklyChallengeService.currentChallenge();
+    final nowUtc = DateTime.now().toUtc();
+    _challenge = WeeklyChallengeService.currentChallenge(now: nowUtc);
+    _challengeDayKey = _dayKeyFor(nowUtc);
+    WidgetsBinding.instance.addObserver(this);
+    _challengeRefreshTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      _refreshChallengeIfNeeded();
+    });
     _hotSectionsFuture = _buildHotSections();
     _blockedUsersSub =
         _blockUserService.streamBlockedConnections().listen((ids) {
@@ -189,7 +198,8 @@ class _StarsScreenState extends State<StarsScreen> {
         return;
       }
       setState(() {
-        _hotSectionsFuture = _buildHotSections(blockedUserIds: ids);
+        _blockedUserIds = ids;
+        _hotSectionsFuture = _buildHotSections(blockedUserIds: _blockedUserIds);
       });
     });
     _loadActiveSpontaneousTask().then((_) {
@@ -212,8 +222,43 @@ class _StarsScreenState extends State<StarsScreen> {
   @override
   void dispose() {
     _spontaneousCountdownTimer?.cancel();
+    _challengeRefreshTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     _blockedUsersSub.cancel();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _refreshChallengeIfNeeded();
+    }
+  }
+
+  String _dayKeyFor(DateTime utcDate) {
+    final year = utcDate.year.toString().padLeft(4, '0');
+    final month = utcDate.month.toString().padLeft(2, '0');
+    final day = utcDate.day.toString().padLeft(2, '0');
+    return '$year-$month-$day';
+  }
+
+  void _refreshChallengeIfNeeded() {
+    if (!mounted) return;
+
+    final nowUtc = DateTime.now().toUtc();
+    final nextDayKey = _dayKeyFor(nowUtc);
+    final nextChallenge = WeeklyChallengeService.currentChallenge(now: nowUtc);
+    if (_challengeDayKey == nextDayKey &&
+        _challenge.mainCategory == nextChallenge.mainCategory &&
+        _challenge.subCategory == nextChallenge.subCategory) {
+      return;
+    }
+
+    setState(() {
+      _challenge = nextChallenge;
+      _challengeDayKey = nextDayKey;
+      _hotSectionsFuture = _buildHotSections(blockedUserIds: _blockedUserIds);
+    });
   }
 
   Future<void> _loadActiveSpontaneousTask() async {
@@ -492,11 +537,12 @@ class _StarsScreenState extends State<StarsScreen> {
     Set<String> blockedUserIds = const <String>{},
   }) async {
     final now = DateTime.now().toUtc();
+    final challenge = _challenge;
 
     final weeklyCategoryDocsFuture = FirebaseFirestore.instance
         .collection('posts')
         .where('status', isEqualTo: 'published')
-        .where('category', isEqualTo: _challenge.mainCategory)
+        .where('category', isEqualTo: challenge.mainCategory)
         .orderBy('createdAt', descending: true)
         .limit(800)
         .get();
@@ -529,7 +575,7 @@ class _StarsScreenState extends State<StarsScreen> {
     final weeklySubCategoryPosts = _topPosts(
       visibleWeeklyCategoryPosts.where((post) {
         final subCategory = (post['subCategory'] as String? ?? '').trim();
-        return subCategory == _challenge.subCategory &&
+        return subCategory == challenge.subCategory &&
             _isInLastWeek(_createdAt(post).toUtc(), now);
       }),
     );
@@ -550,14 +596,14 @@ class _StarsScreenState extends State<StarsScreen> {
       _StarsSectionData(
         key: 'subcategory',
         title: 'תת הקטגוריה של היום',
-        subtitle: '${_challenge.mainCategory} • ${_challenge.subCategory}',
+        subtitle: '${challenge.mainCategory} • ${challenge.subCategory}',
         emptyMessage: 'עדיין אין פוסטים מדורגים בתת הקטגוריה של היום',
         posts: weeklySubCategoryPosts,
       ),
       _StarsSectionData(
         key: 'weekly-category',
         title: 'קטגוריית כוכבי השבוע',
-        subtitle: _challenge.mainCategory,
+        subtitle: challenge.mainCategory,
         emptyMessage: 'עדיין אין מספיק פוסטים מדורגים בקטגוריית השבוע',
         posts: weeklyCategoryTopPosts,
       ),
@@ -2055,8 +2101,7 @@ class _ActiveSpontaneousTaskDialogState
 }
 
 class _SpontaneousChallengeDialogState
-    extends State<_SpontaneousChallengeDialog>
-    with TickerProviderStateMixin {
+    extends State<_SpontaneousChallengeDialog> with TickerProviderStateMixin {
   static const Duration _runDuration = Duration(seconds: 5);
 
   late final AnimationController _controller;

@@ -167,6 +167,38 @@ async function syncTaggedScoreFromPostDelta(postBefore, postAfter) {
   }
 }
 
+function likeActivityPayload({ postId, actorUid, postData }) {
+  return {
+    type: 'like',
+    postId,
+    uid: actorUid,
+    title: String(postData.title ?? '').trim(),
+    description: String(postData.caption ?? postData.description ?? '').trim(),
+    imageUrl: String(postData.imageUrl ?? postData.mediaUrl ?? '').trim(),
+    createdAt: FieldValue.serverTimestamp(),
+  };
+}
+
+async function deleteLikeActivityDocsForPost({ actorUid, postId }) {
+  const normalizedUid = String(actorUid ?? '').trim();
+  const normalizedPostId = String(postId ?? '').trim();
+  if (!normalizedUid || !normalizedPostId || DRY_RUN) return;
+
+  const snapshot = await db
+    .collection('users')
+    .doc(normalizedUid)
+    .collection('activity')
+    .where('type', '==', 'like')
+    .where('postId', '==', normalizedPostId)
+    .get();
+
+  if (snapshot.empty) return;
+
+  const batch = db.batch();
+  snapshot.docs.forEach((doc) => batch.delete(doc.ref));
+  await batch.commit();
+}
+
 async function isNotificationEnabled(recipientUid, type) {
   const settingKey = NOTIFICATION_SETTING_BY_TYPE[String(type ?? '').trim()];
   if (!settingKey) return true;
@@ -789,6 +821,11 @@ async function processTogglePostLike(actorUid, payload) {
   if (!postId) return;
 
   const postRef = db.collection('posts').doc(postId);
+  const likeActivityRef = db
+    .collection('users')
+    .doc(actorUid)
+    .collection('activity')
+    .doc(postId);
   let postAfter = null;
   let postBefore = null;
   let didAddLike = false;
@@ -821,9 +858,23 @@ async function processTogglePostLike(actorUid, payload) {
       likesCount: likes.size,
       updatedAt: FieldValue.serverTimestamp(),
     }, { merge: true });
+
+    if (didAddLike) {
+      tx.set(
+        likeActivityRef,
+        likeActivityPayload({ postId, actorUid, postData: postBefore }),
+        { merge: true }
+      );
+    } else {
+      tx.delete(likeActivityRef);
+    }
   });
 
   if (!postAfter || !postBefore) return;
+
+  if (!didAddLike) {
+    await deleteLikeActivityDocsForPost({ actorUid, postId });
+  }
 
   await syncTaggedScoreFromPostDelta(postBefore, postAfter);
 

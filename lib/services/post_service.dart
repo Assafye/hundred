@@ -620,6 +620,36 @@ class PostService {
     };
   }
 
+  Future<void> _deleteLikeActivityDocsForPost({
+    required String uid,
+    required String postId,
+  }) async {
+    final normalizedUid = uid.trim();
+    final normalizedPostId = postId.trim();
+    if (normalizedUid.isEmpty || normalizedPostId.isEmpty) {
+      return;
+    }
+
+    try {
+      final snapshot = await _db
+          .collection('users')
+          .doc(normalizedUid)
+          .collection('activity')
+          .where('type', isEqualTo: 'like')
+          .where('postId', isEqualTo: normalizedPostId)
+          .get();
+      final batch = _db.batch();
+      for (final doc in snapshot.docs) {
+        batch.delete(doc.reference);
+      }
+      await batch.commit();
+    } catch (error) {
+      if (kDebugMode) {
+        debugPrint('Like activity cleanup skipped: $error');
+      }
+    }
+  }
+
   Future<String> _resolvePublisherName(String authorId) async {
     final normalizedAuthorId = authorId.trim();
     if (normalizedAuthorId.isEmpty) {
@@ -1634,6 +1664,11 @@ class PostService {
     }
 
     final postRef = _db.collection('posts').doc(normalizedPostId);
+    final likeActivityRef = _db
+        .collection('users')
+        .doc(uid)
+        .collection('activity')
+        .doc(normalizedPostId);
     bool didAddLike = false;
     String postImageUrl = '';
     try {
@@ -1678,7 +1713,7 @@ class PostService {
 
         if (!hasLiked) {
           transaction.set(
-            _db.collection('users').doc(uid).collection('activity').doc(),
+            likeActivityRef,
             _activityPayload(
               type: 'like',
               postId: normalizedPostId,
@@ -1693,7 +1728,10 @@ class PostService {
                       '')
                   .trim(),
             ),
+            SetOptions(merge: true),
           );
+        } else {
+          transaction.delete(likeActivityRef);
         }
 
         final nextPostData = Map<String, dynamic>.from(postData)
@@ -1758,6 +1796,12 @@ class PostService {
         return;
       }
       rethrow;
+    }
+
+    if (!didAddLike) {
+      unawaited(
+        _deleteLikeActivityDocsForPost(uid: uid, postId: normalizedPostId),
+      );
     }
 
     if (didAddLike &&
