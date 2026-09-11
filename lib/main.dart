@@ -79,7 +79,7 @@ Future<void> main() async {
     if (!kIsWeb) {
       await ShareFlowLogService.log(
         'APP_CHECK_PROVIDER_SELECTION | kDebugMode=$kDebugMode | '
-        'applePprovider=${kDebugMode ? 'AppleDebugProvider' : 'AppleAppAttestWithDeviceCheckFallbackProvider'}',
+        'appleProvider=${kDebugMode ? 'AppleDebugProvider' : 'AppleDeviceCheckProvider'}',
       );
       await FirebaseAppCheck.instance.activate(
         providerAndroid: kDebugMode
@@ -87,7 +87,7 @@ Future<void> main() async {
             : const AndroidPlayIntegrityProvider(),
         providerApple: kDebugMode
             ? const AppleDebugProvider()
-            : const AppleAppAttestWithDeviceCheckFallbackProvider(),
+          : const AppleDeviceCheckProvider(),
       );
     }
     await ShareFlowLogService.log('APP_CHECK_ACTIVATED');
