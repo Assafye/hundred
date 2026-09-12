@@ -13,6 +13,102 @@ service cloud.firestore {
       return /databases/$(database)/documents/users/$(uid);
     }
 
+    function isValidAgeTag(tag) {
+      return tag is int && tag >= 1 && tag <= 8;
+    }
+
+    function hasVerifiedAgeTag(uid) {
+      return exists(userDoc(uid)) &&
+        ('ageTag' in get(userDoc(uid)).data) &&
+        ('ageTagVerifiedAt' in get(userDoc(uid)).data) &&
+        get(userDoc(uid)).data.ageTagVerifiedAt is timestamp &&
+        isValidAgeTag(get(userDoc(uid)).data.ageTag);
+    }
+
+    function canAgeTagView(viewerTag, targetTag) {
+      return isValidAgeTag(viewerTag) &&
+        isValidAgeTag(targetTag) &&
+        (
+          (viewerTag == 1 && targetTag in [1, 2, 3]) ||
+          (viewerTag == 2 && targetTag in [1, 2, 3, 4]) ||
+          (viewerTag == 3 && targetTag in [1, 2, 3, 4, 5]) ||
+          (viewerTag == 4 && targetTag in [2, 3, 4, 5, 6]) ||
+          (viewerTag == 5 && targetTag in [3, 4, 5, 6, 7]) ||
+          (viewerTag == 6 && targetTag in [4, 5, 6, 7, 8]) ||
+          (viewerTag == 7 && targetTag in [5, 6, 7, 8]) ||
+          (viewerTag == 8 && targetTag in [6, 7, 8])
+        );
+    }
+
+    function canUserViewAgeTag(uid, creatorTag) {
+      return hasVerifiedAgeTag(uid) &&
+        canAgeTagView(get(userDoc(uid)).data.ageTag, creatorTag);
+    }
+
+    function areUsersAgeCompatible(uidA, uidB) {
+      return hasVerifiedAgeTag(uidA) &&
+        hasVerifiedAgeTag(uidB) &&
+        canAgeTagView(
+          get(userDoc(uidA)).data.ageTag,
+          get(userDoc(uidB)).data.ageTag
+        ) &&
+        canAgeTagView(
+          get(userDoc(uidB)).data.ageTag,
+          get(userDoc(uidA)).data.ageTag
+        );
+    }
+
+    function isServerAgeDataUnchanged() {
+      return !request.resource.data.diff(resource.data).changedKeys().hasAny([
+          'ageTag',
+          'ageTagVerifiedAt'
+        ]) || (
+          !('ageTag' in resource.data) &&
+          !('ageTag' in request.resource.data) &&
+          !('ageTagVerifiedAt' in request.resource.data)
+        );
+    }
+
+    function isBirthDateUnchangedOrInitiallySet() {
+      return (
+          !('birthDate' in resource.data) &&
+          !('birthDate' in request.resource.data)
+        ) || (
+          !('birthDate' in resource.data) &&
+          request.resource.data.birthDate is string &&
+          request.resource.data.birthDate != ''
+        ) || (
+          ('birthDate' in resource.data) &&
+          ('birthDate' in request.resource.data) &&
+          request.resource.data.birthDate == resource.data.birthDate
+        );
+    }
+
+    function isAccountDeletionTombstone() {
+      return request.resource.data.isDeleted == true &&
+        request.resource.data.displayName == 'משתמש מחוק' &&
+        request.resource.data.username == '' &&
+        request.resource.data.bio == '' &&
+        request.resource.data.phone == '' &&
+        request.resource.data.email == '' &&
+        request.resource.data.birthDate == '' &&
+        request.resource.data.allowGroupInvite == false &&
+        request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'isDeleted',
+          'displayName',
+          'username',
+          'bio',
+          'profilePictureUrl',
+          'profileImageUrls',
+          'phone',
+          'email',
+          'birthDate',
+          'allowGroupInvite',
+          'updatedAt',
+          'deletedAt'
+        ]);
+    }
+
     function isFriendWith(uid) {
       return isSignedIn() && (
         request.auth.uid == uid ||
@@ -31,6 +127,16 @@ service cloud.firestore {
 
     function groupDoc(groupId) {
       return /databases/$(database)/documents/groups/$(groupId);
+    }
+
+    function canUidJoinGroupByAge(uid, groupId) {
+      return exists(groupDoc(groupId)) &&
+        ('creatorTag' in get(groupDoc(groupId)).data) &&
+        canUserViewAgeTag(uid, get(groupDoc(groupId)).data.creatorTag);
+    }
+
+    function canJoinGroupByAge(groupId) {
+      return isSignedIn() && canUidJoinGroupByAge(request.auth.uid, groupId);
     }
 
     function publicUserDoc(uid) {
@@ -114,7 +220,14 @@ service cloud.firestore {
       return isSignedIn() &&
         exists(groupDoc(groupId)) &&
         (
-          get(groupDoc(groupId)).data.isPublic == true ||
+          (
+            get(groupDoc(groupId)).data.isPublic == true &&
+            ('creatorTag' in get(groupDoc(groupId)).data) &&
+            canUserViewAgeTag(
+              request.auth.uid,
+              get(groupDoc(groupId)).data.creatorTag
+            )
+          ) ||
           isGroupAdmin(groupId) ||
           isApprovedMember(groupId) ||
           isPendingMember(groupId) ||
@@ -143,6 +256,7 @@ service cloud.firestore {
     function isSelfJoinMembershipCreate(groupId, uid) {
       return isSignedIn() &&
         request.auth.uid == uid &&
+        canJoinGroupByAge(groupId) &&
         request.resource.data.keys().hasOnly([
           'uid',
           'status',
@@ -183,6 +297,7 @@ service cloud.firestore {
     function isSelfAutoJoinGroupMetadataUpdate(groupId) {
       return isSignedIn() &&
         groupAllowsAutoJoin(groupId) &&
+        canJoinGroupByAge(groupId) &&
         request.auth.uid in request.resource.data.members &&
         request.auth.uid in request.resource.data.membersList &&
         request.resource.data.diff(resource.data).changedKeys().hasOnly([
@@ -195,6 +310,7 @@ service cloud.firestore {
     function isSelfPendingJoinCounterUpdate(groupId) {
       return isSignedIn() &&
         groupRequiresApproval(groupId) &&
+        canJoinGroupByAge(groupId) &&
         request.resource.data.diff(resource.data).changedKeys().hasOnly([
           'pendingCount'
         ]);
@@ -259,6 +375,7 @@ service cloud.firestore {
     function isSelfAutoJoinChatParticipantsUpdate(chatId) {
       return isSignedIn() &&
         groupAllowsAutoJoin(chatId) &&
+        canJoinGroupByAge(chatId) &&
         request.auth.uid in request.resource.data.participants &&
         request.resource.data.diff(resource.data).changedKeys().hasOnly([
           'participants',
@@ -334,6 +451,19 @@ service cloud.firestore {
           (
             !('blockedBy' in request.resource.data) ||
             request.resource.data.blockedBy is map
+          )
+        );
+    }
+
+    function directChatAgeCompatible(chatData) {
+      return !isDirectChatData(chatData) ||
+        (
+          ('participants' in chatData) &&
+          chatData.participants is list &&
+          chatData.participants.size() == 2 &&
+          areUsersAgeCompatible(
+            chatData.participants[0],
+            chatData.participants[1]
           )
         );
     }
@@ -546,10 +676,13 @@ service cloud.firestore {
         ) &&
         request.resource.data.diff(resource.data).changedKeys().hasOnly([
           'linkedGroupId',
+          'creatorTag',
           'updatedAt'
         ]) &&
         request.resource.data.linkedGroupId is string &&
-        request.resource.data.linkedGroupId != '';
+        request.resource.data.linkedGroupId != '' &&
+        request.resource.data.creatorTag ==
+          get(userDoc(resource.data.authorUid)).data.ageTag;
     }
 
     function hasNoExactLocationFields(data) {
@@ -567,14 +700,32 @@ service cloud.firestore {
         request.resource.data.originAuthorUid is string &&
         request.resource.data.adminUid == request.resource.data.originAuthorUid &&
         exists(/databases/$(database)/documents/meet_now_posts/$(request.resource.data.originMeetPostId)) &&
-        get(/databases/$(database)/documents/meet_now_posts/$(request.resource.data.originMeetPostId)).data.authorUid == request.resource.data.adminUid;
+        get(/databases/$(database)/documents/meet_now_posts/$(request.resource.data.originMeetPostId)).data.authorUid == request.resource.data.adminUid &&
+        request.resource.data.creatorTag ==
+          get(/databases/$(database)/documents/meet_now_posts/$(request.resource.data.originMeetPostId)).data.creatorTag &&
+        canUserViewAgeTag(request.auth.uid, request.resource.data.creatorTag);
     }
 
     match /groups/{groupId} {
-      allow read, list: if request.auth != null;
-      allow create: if (isSignedIn() && request.resource.data.adminUid == request.auth.uid) ||
+      allow read, list: if isSignedIn() && (
+        isGroupAdmin(groupId) ||
+        isApprovedMember(groupId) ||
+        isPendingMember(groupId) ||
+        isInvitedToGroup(groupId) ||
+        (
+          resource.data.isPublic == true &&
+          ('creatorTag' in resource.data) &&
+          canUserViewAgeTag(request.auth.uid, resource.data.creatorTag)
+        )
+      );
+      allow create: if (isSignedIn() &&
+          request.resource.data.adminUid == request.auth.uid &&
+          request.resource.data.creatorTag ==
+            get(userDoc(request.auth.uid)).data.ageTag) ||
         isPopGroupCreateForAuthorAdmin();
-      allow update: if isGroupAdmin(groupId) || (
+      allow update: if ('creatorTag' in resource.data) &&
+        request.resource.data.creatorTag == resource.data.creatorTag &&
+        (isGroupAdmin(groupId) || (
         isApprovedMember(groupId) &&
         request.resource.data.diff(resource.data).changedKeys().hasOnly([
           'groupImageUrl',
@@ -587,15 +738,16 @@ service cloud.firestore {
         ])
       ) || isSelfAutoJoinGroupMetadataUpdate(groupId) ||
         isSelfPendingJoinCounterUpdate(groupId) ||
-        isSelfLeaveGroupMetadataUpdate(groupId);
+        isSelfLeaveGroupMetadataUpdate(groupId));
       allow delete: if isGroupAdmin(groupId);
 
       match /members/{uid} {
         allow read: if canReadGroup(groupId);
         allow create: if isAdminSelfMembershipCreate(groupId, uid) ||
           isSelfJoinMembershipCreate(groupId, uid) ||
-          isGroupAdmin(groupId) || (
+          (isGroupAdmin(groupId) && canUidJoinGroupByAge(uid, groupId)) || (
           isApprovedMember(groupId) &&
+          canUidJoinGroupByAge(uid, groupId) &&
           request.resource.data.keys().hasOnly([
             'uid',
             'status',
@@ -615,7 +767,8 @@ service cloud.firestore {
             )
           )
         );
-        allow update: if isGroupAdmin(groupId);
+        allow update: if isGroupAdmin(groupId) &&
+          canUidJoinGroupByAge(uid, groupId);
         allow delete: if isGroupAdmin(groupId) || isSelfLeaveMemberDoc(groupId);
       }
 
@@ -653,12 +806,18 @@ service cloud.firestore {
     }
 
     match /meet_now_posts/{postId} {
-      allow read: if isSignedIn();
+      allow read: if isSignedIn() &&
+        ('creatorTag' in resource.data) &&
+        canUserViewAgeTag(request.auth.uid, resource.data.creatorTag);
       allow create: if isSignedIn() &&
         request.resource.data.authorUid == request.auth.uid &&
+        request.resource.data.creatorTag ==
+          get(userDoc(request.auth.uid)).data.ageTag &&
         hasNoExactLocationFields(request.resource.data);
       allow update: if hasNoExactLocationFields(request.resource.data) &&
-        ((isSignedIn() && resource.data.authorUid == request.auth.uid) ||
+        ((isSignedIn() &&
+            resource.data.authorUid == request.auth.uid &&
+            request.resource.data.creatorTag == resource.data.creatorTag) ||
           isMeetNowLinkingUpdate());
       allow delete: if isSignedIn() && resource.data.authorUid == request.auth.uid;
     }
@@ -684,8 +843,13 @@ service cloud.firestore {
     match /users/{document} {
       allow read, list: if request.auth != null;
       allow create: if isSelf(document) &&
+        !('ageTag' in request.resource.data) &&
+        !('ageTagVerifiedAt' in request.resource.data) &&
         hasNoExactLocationFields(request.resource.data);
       allow update: if isSelf(document) &&
+        isServerAgeDataUnchanged() &&
+        (isBirthDateUnchangedOrInitiallySet() ||
+          isAccountDeletionTombstone()) &&
         hasNoExactLocationFields(request.resource.data);
       allow delete: if isSelf(document);
 
@@ -778,7 +942,11 @@ service cloud.firestore {
     match /chats/{chatId} {
       allow read: if isSignedIn() &&
         (
-          resource.data.isPublic == true ||
+          (
+            resource.data.isPublic == true &&
+            ('creatorTag' in resource.data) &&
+            canUserViewAgeTag(request.auth.uid, resource.data.creatorTag)
+          ) ||
           request.auth.uid in resource.data.participants ||
           canReadGroup(chatId)
         );
@@ -786,7 +954,20 @@ service cloud.firestore {
       allow create: if isSignedIn() &&
         request.resource.data.id == chatId &&
         request.auth.uid in request.resource.data.participants &&
-        canCreateChatWithBlockPolicy(chatId);
+        canCreateChatWithBlockPolicy(chatId) &&
+        directChatAgeCompatible(request.resource.data) &&
+        (
+          isDirectChatData(request.resource.data) ||
+          (
+            existsAfter(groupDoc(chatId)) &&
+            request.resource.data.creatorTag ==
+              getAfter(groupDoc(chatId)).data.creatorTag &&
+            canUserViewAgeTag(
+              request.auth.uid,
+              request.resource.data.creatorTag
+            )
+          )
+        );
 
       allow update: if (
         isSignedIn() &&
@@ -795,6 +976,7 @@ service cloud.firestore {
           isDirectChatDoc(chatId) ||
           isDirectChatData(request.resource.data)
         ) &&
+        directChatAgeCompatible(request.resource.data) &&
         request.resource.data.id == chatId &&
         ('participants' in request.resource.data) &&
         directChatIdMatchesParticipants(chatId, request.resource.data.participants) &&
@@ -813,6 +995,7 @@ service cloud.firestore {
       ) || (
         isChatParticipant(chatId) &&
         canInteractWithChatByBlockPolicy(chatId) &&
+        directChatAgeCompatible(request.resource.data) &&
         request.resource.data.diff(resource.data).changedKeys().hasOnly([
           'participants',
           'lastMessage',
@@ -853,9 +1036,11 @@ service cloud.firestore {
 
       match /messages/{messageId} {
         allow read: if (isChatParticipant(chatId) || isGroupAdmin(chatId)) &&
-          canInteractWithChatByBlockPolicy(chatId);
+          canInteractWithChatByBlockPolicy(chatId) &&
+          directChatAgeCompatible(get(chatDoc(chatId)).data);
         allow create: if (isChatParticipant(chatId) || isGroupAdmin(chatId)) &&
           canInteractWithChatByBlockPolicy(chatId) &&
+          directChatAgeCompatible(get(chatDoc(chatId)).data) &&
           request.resource.data.senderId == request.auth.uid;
         allow update: if false;
         allow delete: if isChatGroupAdmin(chatId) ||
@@ -865,9 +1050,11 @@ service cloud.firestore {
 
       match /readReceipts/{uid} {
         allow read: if (isChatParticipant(chatId) || isGroupAdmin(chatId)) &&
-          canInteractWithChatByBlockPolicy(chatId);
+          canInteractWithChatByBlockPolicy(chatId) &&
+          directChatAgeCompatible(get(chatDoc(chatId)).data);
         allow create, update: if (isChatParticipant(chatId) || isGroupAdmin(chatId)) &&
           canInteractWithChatByBlockPolicy(chatId) &&
+          directChatAgeCompatible(get(chatDoc(chatId)).data) &&
           request.auth.uid == uid &&
           request.resource.data.uid == request.auth.uid;
         allow delete: if isChatGroupAdmin(chatId) ||

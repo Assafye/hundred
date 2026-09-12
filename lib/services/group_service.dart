@@ -188,6 +188,16 @@ class GroupService {
     List<String> invitedFriendUids = const <String>[],
   }) async {
     final adminUid = _requireUid();
+    final adminSnapshot = await _db.collection('users').doc(adminUid).get();
+    final creatorTag = AgePolicy.tagFromUserData(
+      adminSnapshot.data() ?? const <String, dynamic>{},
+    );
+    if (creatorTag == null) {
+      throw FirebaseAuthException(
+        code: 'age-verification-required',
+        message: 'לא ניתן ליצור קבוצה עד לאימות תאריך הלידה.',
+      );
+    }
     if (!isValidAgeRange(minAge, maxAge)) {
       throw ArgumentError(
         'Age range must be between $minimumUserAge and $maximumAgeRange.',
@@ -197,6 +207,21 @@ class GroupService {
         .map((e) => e.trim())
         .where((e) => e.isNotEmpty && e != adminUid)
         .toSet()
+        .toList(growable: false);
+    final invitedUserSnapshots = await Future.wait(
+      normalizedInvitedUids.map(
+        (uid) => _db.collection('users').doc(uid).get(),
+      ),
+    );
+    final compatibleInvitedUids = invitedUserSnapshots
+        .where((snapshot) {
+          final invitedTag = AgePolicy.tagFromUserData(
+            snapshot.data() ?? const <String, dynamic>{},
+          );
+          return invitedTag != null &&
+              AgePolicy.canViewCreatorTag(invitedTag, creatorTag);
+        })
+        .map((snapshot) => snapshot.id)
         .toList(growable: false);
 
     String groupImageUrl = '';
@@ -210,7 +235,6 @@ class GroupService {
 
     final groupRef = _db.collection('groups').doc();
     final initialMembers = <String>[adminUid];
-    final chatParticipants = <String>[adminUid, ...normalizedInvitedUids];
 
     await _db.runTransaction((tx) async {
       tx.set(groupRef, {
@@ -229,6 +253,7 @@ class GroupService {
         'isPublic': isPublic,
         'isAdminApprovalRequired': isAdminApprovalRequired,
         'adminUid': adminUid,
+        'creatorTag': creatorTag,
         'originType': 'regular',
         'members': initialMembers,
         'membersList': initialMembers,
@@ -236,7 +261,7 @@ class GroupService {
         'createdAt': FieldValue.serverTimestamp(),
         'membersCount': 1,
         'pendingCount': 0,
-        'invitedFriendUids': normalizedInvitedUids,
+        'invitedFriendUids': compatibleInvitedUids,
       });
 
       // Keep chat directory in sync with group creation for chat discovery screens.
@@ -246,8 +271,9 @@ class GroupService {
         'description': description.trim(),
         'groupImageUrl': groupImageUrl,
         'isPublic': isPublic,
+        'creatorTag': creatorTag,
         'originType': 'regular',
-        'participants': chatParticipants,
+        'participants': initialMembers,
         'sourceGroupId': groupRef.id,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
@@ -288,11 +314,23 @@ class GroupService {
     final groupName = (groupData['groupName'] as String? ?? '').trim();
     final originType = (groupData['originType'] as String? ?? '').trim();
     final groupAdminUid = (groupData['adminUid'] as String? ?? '').trim();
+    final groupCreatorTag = (groupData['creatorTag'] as num?)?.toInt();
+    final userSnap = await _db.collection('users').doc(uid).get();
+    final userTag = AgePolicy.tagFromUserData(
+      userSnap.data() ?? const <String, dynamic>{},
+    );
+    if (!AgePolicy.isValidTag(groupCreatorTag) ||
+        userTag == null ||
+        !AgePolicy.canViewCreatorTag(userTag, groupCreatorTag!)) {
+      throw const GroupJoinException(
+        code: 'age-restricted',
+        message: 'לא ניתן להצטרף לקבוצה זו בשל הגבלות גיל.',
+      );
+    }
     final minScoreRequired =
         (groupData['isMinScoreRequired'] as bool?) ?? false;
     final minScore = (groupData['minScore'] as num?)?.toInt() ?? 0;
     if (minScoreRequired && minScore > 0) {
-      final userSnap = await _db.collection('users').doc(uid).get();
       final userScore = (userSnap.data()?['score'] as num?)?.toInt() ?? 0;
       if (userScore < minScore) {
         throw GroupJoinException(

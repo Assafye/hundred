@@ -843,7 +843,8 @@ class AuthService {
   }
 
   bool _isAgeRestrictedUserData(Map<String, dynamic> data) {
-    if (data['isAgeRestricted'] == true) {
+    if (data['isAgeRestricted'] == true ||
+        data['ageTag'] == AgePolicy.restrictedUnderageTagId) {
       return true;
     }
 
@@ -2426,6 +2427,12 @@ class AuthService {
       throw FirebaseAuthException(
         code: 'invalid-birth-date',
         message: 'תאריך הלידה אינו תקין.',
+      );
+    }
+    if (isFutureBirthDate(birthDate)) {
+      throw FirebaseAuthException(
+        code: 'invalid-birth-date',
+        message: 'לא ניתן להזין תאריך לידה עתידי.',
       );
     }
   }

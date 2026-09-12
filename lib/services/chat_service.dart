@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 
+import '../age_restrictions.dart';
 import 'notification_service.dart';
 import 'block_user_service.dart';
 import 'secure_action_queue_service.dart';
@@ -22,6 +23,15 @@ class _ResolvedDirectChatTarget {
 }
 
 class ChatService {
+  static const String ageRestrictedPrivateChatMessage =
+      'המשתמש לא בטווח הגילאים שתואם לגילך. אנו נוקטים אמצעי ביטחון על מנת לשמור על המשתמשים שלנו ולכן לא ניתן לפתוח צאט פרטי עם משתמש זה.';
+
+  static bool isAgeRestrictedError(Object error) {
+    return error is FirebaseException &&
+        (error.code == 'age-restricted-chat' ||
+            error.code == 'age-verification-required');
+  }
+
   static String buildGroupJoinAnnouncementText(String displayName) {
     final normalized = displayName.trim();
     if (normalized.isEmpty) {
@@ -67,6 +77,64 @@ class ChatService {
 
   bool _isPermissionDenied(Object error) {
     return error is FirebaseException && error.code == 'permission-denied';
+  }
+
+  Future<int> _requireUserAgeTag(String uid) async {
+    final snapshot = await _users.doc(uid).get();
+    final tag = AgePolicy.tagFromUserData(
+      snapshot.data() ?? const <String, dynamic>{},
+    );
+    if (tag == null) {
+      throw FirebaseAuthException(
+        code: 'age-verification-required',
+        message: ageRestrictedPrivateChatMessage,
+      );
+    }
+    return tag;
+  }
+
+  Future<void> _assertDirectAgeCompatibility(
+    String currentUid,
+    String otherUid,
+  ) async {
+    final tags = await Future.wait([
+      _requireUserAgeTag(currentUid),
+      _requireUserAgeTag(otherUid),
+    ]);
+    if (!AgePolicy.canOpenPrivateChatByTags(tags[0], tags[1])) {
+      throw FirebaseAuthException(
+        code: 'age-restricted-chat',
+        message: ageRestrictedPrivateChatMessage,
+      );
+    }
+  }
+
+  Future<void> ensureDirectChatAllowed({
+    required String chatId,
+    String? otherUserId,
+  }) async {
+    final currentUid = _requireUid();
+    var normalizedOtherUid = (otherUserId ?? '').trim();
+    if (normalizedOtherUid.isEmpty) {
+      final chatSnapshot = await _chats.doc(chatId.trim()).get();
+      final participants =
+          ((chatSnapshot.data()?['participants'] as List<dynamic>?) ??
+                  const <dynamic>[])
+              .map((value) => value.toString().trim())
+              .where((value) => value.isNotEmpty)
+              .toList(growable: false);
+      normalizedOtherUid = participants.firstWhere(
+        (participantUid) => participantUid != currentUid,
+        orElse: () => '',
+      );
+    }
+    if (normalizedOtherUid.isEmpty) {
+      throw FirebaseAuthException(
+        code: 'age-verification-required',
+        message: ageRestrictedPrivateChatMessage,
+      );
+    }
+    await _assertDirectAgeCompatibility(currentUid, normalizedOtherUid);
   }
 
   void _dispatchMessageNotificationBestEffort({
@@ -455,6 +523,21 @@ class ChatService {
       );
     }
 
+    final currentUid = _requireUid();
+    final participants =
+        (chatContext['participants'] as List<String>? ?? const <String>[]);
+    final otherUid = participants.firstWhere(
+      (participantUid) => participantUid != currentUid,
+      orElse: () => '',
+    );
+    if (otherUid.isEmpty) {
+      throw FirebaseAuthException(
+        code: 'age-verification-required',
+        message: ageRestrictedPrivateChatMessage,
+      );
+    }
+    await _assertDirectAgeCompatibility(currentUid, otherUid);
+
     return;
   }
 
@@ -498,6 +581,10 @@ class ChatService {
           'find_or_create_invalid_other_uid elapsedMs=${sw.elapsedMilliseconds}');
       throw ArgumentError('otherUserId cannot be empty');
     }
+    await _assertDirectAgeCompatibility(
+      _requireUid(),
+      normalizedOtherUserId,
+    );
 
     final resolved = await _resolveDirectChatTarget(
       otherUserId: normalizedOtherUserId,
@@ -604,7 +691,16 @@ class ChatService {
   }
 
   Stream<QuerySnapshot<Map<String, dynamic>>> streamPublicChats() {
-    return _chats.where('isPublic', isEqualTo: true).snapshots();
+    final uid = _requireUid();
+    return Stream.fromFuture(_requireUserAgeTag(uid)).asyncExpand((userTag) {
+      return _chats
+          .where('isPublic', isEqualTo: true)
+          .where(
+            'creatorTag',
+            whereIn: AgePolicy.getAllowedTagsForUser(userTag),
+          )
+          .snapshots();
+    });
   }
 
   Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
@@ -945,9 +1041,9 @@ class ChatService {
       _trace(
           'send_message_context_loaded chatId=$targetChatId elapsedMs=${sw.elapsedMilliseconds}');
       await _assertChatInteractionAllowed(chatContext);
+      final participants = chatContext['participants'] as List<String>;
       _trace(
           'send_message_interaction_allowed chatId=$targetChatId elapsedMs=${sw.elapsedMilliseconds}');
-      final participants = chatContext['participants'] as List<String>;
       final chatName = chatContext['chatName'] as String;
       final senderIdentity = await _resolveSenderIdentity(uid, currentUser);
       _trace(

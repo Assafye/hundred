@@ -3881,6 +3881,16 @@ class _ChatsScreenState extends State<ChatsScreen> {
 
     return _globalSearchCache.putIfAbsent(normalizedQuery, () async {
       final currentUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+      int? currentUserTag;
+      if (currentUid.isNotEmpty) {
+        final currentUserSnapshot = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(currentUid)
+            .get();
+        currentUserTag = AgePolicy.tagFromUserData(
+          currentUserSnapshot.data() ?? const <String, dynamic>{},
+        );
+      }
       debugPrint(
         '[ChatsScreen][globalSearch] query="$normalizedQuery" currentUid=${currentUid.isEmpty ? 'empty' : currentUid}',
       );
@@ -3919,10 +3929,20 @@ class _ChatsScreenState extends State<ChatsScreen> {
       final groupQueries = <Future<QuerySnapshot<Map<String, dynamic>>>>[];
 
       try {
+        if (currentUserTag == null) {
+          throw StateError('Current user age is not verified');
+        }
         debugPrint(
             '[ChatsScreen][globalSearch] path=groups where(isPublic==true)');
         groupQueries.add(
-          groupCollection.where('isPublic', isEqualTo: true).limit(300).get(),
+          groupCollection
+              .where('isPublic', isEqualTo: true)
+              .where(
+                'creatorTag',
+                whereIn: AgePolicy.getAllowedTagsForUser(currentUserTag),
+              )
+              .limit(300)
+              .get(),
         );
       } catch (error, stackTrace) {
         debugPrint(

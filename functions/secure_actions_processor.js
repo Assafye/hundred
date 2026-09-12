@@ -67,6 +67,25 @@ function normalizeUidSet(raw) {
   );
 }
 
+const ALLOWED_CREATOR_TAGS_BY_USER_TAG = {
+  1: [1, 2, 3],
+  2: [1, 2, 3, 4],
+  3: [1, 2, 3, 4, 5],
+  4: [2, 3, 4, 5, 6],
+  5: [3, 4, 5, 6, 7],
+  6: [4, 5, 6, 7, 8],
+  7: [5, 6, 7, 8],
+  8: [6, 7, 8],
+};
+
+function canUserViewCreatorTag(userData = {}, creatorTag) {
+  const userTag = userData.ageTag;
+  return Number.isInteger(userTag) &&
+    userData.ageTagVerifiedAt != null &&
+    Number.isInteger(creatorTag) &&
+    (ALLOWED_CREATOR_TAGS_BY_USER_TAG[userTag] || []).includes(creatorTag);
+}
+
 async function actorSummary(uid) {
   const normalizedUid = String(uid ?? '').trim();
   if (!normalizedUid) {
@@ -1306,10 +1325,12 @@ async function processJoinGroup(actorUid, payload) {
     const adminUid = String(groupData.adminUid ?? '').trim();
     if (actorUid === adminUid) return;
 
+    const userSnap = await tx.get(db.collection('users').doc(actorUid));
+    if (!canUserViewCreatorTag(userSnap.data(), groupData.creatorTag)) return;
+
     const minScoreRequired = Boolean(groupData.isMinScoreRequired ?? false);
     const minScore = Number(groupData.minScore ?? 0) || 0;
     if (minScoreRequired && minScore > 0) {
-      const userSnap = await tx.get(db.collection('users').doc(actorUid));
       const userScore = Number(userSnap.data()?.score ?? 0) || 0;
       if (userScore < minScore) return;
     }
@@ -1395,6 +1416,8 @@ async function processInviteUserToGroup(actorUid, payload) {
 
     const groupData = groupSnap.data() || {};
     const chatData = chatSnap.exists ? (chatSnap.data() || {}) : {};
+    const targetUserSnap = await tx.get(db.collection('users').doc(targetUid));
+    if (!canUserViewCreatorTag(targetUserSnap.data(), groupData.creatorTag)) return;
 
     const adminUid = String(groupData.adminUid ?? '').trim();
     if (actorUid !== adminUid) {
@@ -1559,6 +1582,9 @@ async function processJoinPublicChat(actorUid, payload) {
     const chatData = chatSnap.data() || {};
     const isPublic = Boolean(chatData.isPublic ?? false);
     if (!isPublic) return;
+
+    const userSnap = await tx.get(db.collection('users').doc(actorUid));
+    if (!canUserViewCreatorTag(userSnap.data(), chatData.creatorTag)) return;
 
     const participants = normalizeUidSet(chatData.participants);
     if (participants.has(actorUid)) return;

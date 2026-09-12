@@ -17,6 +17,117 @@ const MAX_RESULTS = 360;
 const POST_LIFETIME_MS = 24 * 60 * 60 * 1000;
 const RATE_LIMIT_MS = 10 * 1000;
 const GEOHASH_ALPHABET = '0123456789bcdefghjkmnpqrstuvwxyz';
+const UNDERAGE_TAG = 999;
+const ALLOWED_CREATOR_TAGS_BY_USER_TAG = {
+  1: [1, 2, 3],
+  2: [1, 2, 3, 4],
+  3: [1, 2, 3, 4, 5],
+  4: [2, 3, 4, 5, 6],
+  5: [3, 4, 5, 6, 7],
+  6: [4, 5, 6, 7, 8],
+  7: [5, 6, 7, 8],
+  8: [6, 7, 8],
+};
+
+function parseBirthDate(value) {
+  const normalized = String(value ?? '').trim();
+  let match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(normalized);
+  let year;
+  let month;
+  let day;
+  if (match) {
+    day = Number(match[1]);
+    month = Number(match[2]);
+    year = Number(match[3]);
+  } else {
+    match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(normalized);
+    if (!match) return null;
+    year = Number(match[1]);
+    month = Number(match[2]);
+    day = Number(match[3]);
+  }
+
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  if (parsed.getUTCFullYear() !== year ||
+      parsed.getUTCMonth() !== month - 1 ||
+      parsed.getUTCDate() !== day) {
+    return null;
+  }
+  return parsed;
+}
+
+function ageTagFromBirthDate(value, now = new Date()) {
+  const birthDate = parseBirthDate(value);
+  if (!birthDate) return null;
+  const localParts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Jerusalem',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(now).map((part) => [part.type, part.value]),
+  );
+  const currentYear = Number(localParts.year);
+  const currentMonth = Number(localParts.month);
+  const currentDay = Number(localParts.day);
+  const birthDateIsFuture = birthDate.getUTCFullYear() > currentYear ||
+    (birthDate.getUTCFullYear() === currentYear &&
+      birthDate.getUTCMonth() + 1 > currentMonth) ||
+    (birthDate.getUTCFullYear() === currentYear &&
+      birthDate.getUTCMonth() + 1 === currentMonth &&
+      birthDate.getUTCDate() > currentDay);
+  if (birthDateIsFuture) return null;
+  let age = currentYear - birthDate.getUTCFullYear();
+  const birthdayOccurred = currentMonth > birthDate.getUTCMonth() + 1 ||
+    (currentMonth === birthDate.getUTCMonth() + 1 &&
+      currentDay >= birthDate.getUTCDate());
+  if (!birthdayOccurred) age -= 1;
+  if (age < 13) return UNDERAGE_TAG;
+  if (age >= 20) return 8;
+  return age - 12;
+}
+
+function isValidAgeTag(value) {
+  return Number.isInteger(value) && value >= 1 && value <= 8;
+}
+
+async function syncUserAgeTag(snapshot, now = new Date()) {
+  const data = snapshot.data() ?? {};
+  const ageTag = ageTagFromBirthDate(data.birthDate, now);
+  const currentTag = Number.isInteger(data.ageTag) ? data.ageTag : null;
+  const parsedBirthDate = parseBirthDate(data.birthDate);
+  const hasBirthDate = String(data.birthDate ?? '').trim() !== '';
+  if (hasBirthDate && parsedBirthDate && ageTag === null) {
+    await snapshot.ref.set({
+      birthDate: FieldValue.delete(),
+      ageTag: FieldValue.delete(),
+      ageTagVerifiedAt: FieldValue.delete(),
+      isAgeRestricted: true,
+    }, { merge: true });
+    return true;
+  }
+  if (ageTag === null) {
+    if (!('ageTag' in data) && !('ageTagVerifiedAt' in data)) return false;
+    await snapshot.ref.set({
+      ageTag: FieldValue.delete(),
+      ageTagVerifiedAt: FieldValue.delete(),
+    }, { merge: true });
+    return true;
+  }
+  const isAgeRestricted = ageTag === UNDERAGE_TAG;
+  if (ageTag === currentTag &&
+      data.ageTagVerifiedAt &&
+      data.isAgeRestricted === isAgeRestricted) {
+    return false;
+  }
+
+  await snapshot.ref.set({
+    ageTag,
+    ageTagVerifiedAt: FieldValue.serverTimestamp(),
+    isAgeRestricted,
+  }, { merge: true });
+  return true;
+}
 
 function collectFcmTokens(data) {
   const tokens = new Set();
@@ -330,10 +441,182 @@ exports.processPendingSecureActions = onSchedule(
   },
 );
 
+exports.syncAgeTagOnUserWrite = onDocumentWritten(
+  {
+    region: REGION,
+    document: 'users/{uid}',
+  },
+  async (event) => {
+    const snapshot = event.data?.after;
+    if (!snapshot?.exists) return;
+    await syncUserAgeTag(snapshot);
+  },
+);
+
+exports.refreshAgeTagsDaily = onSchedule(
+  {
+    region: REGION,
+    schedule: '15 0 * * *',
+    timeZone: 'Asia/Jerusalem',
+    maxInstances: 1,
+    retryCount: 3,
+  },
+  async () => {
+    const now = new Date();
+    let lastDocument = null;
+    let updatedCount = 0;
+
+    while (true) {
+      let query = db.collection('users').orderBy('__name__').limit(400);
+      if (lastDocument) query = query.startAfter(lastDocument);
+      const snapshot = await query.get();
+      if (snapshot.empty) break;
+
+      for (const userSnapshot of snapshot.docs) {
+        if (await syncUserAgeTag(userSnapshot, now)) updatedCount += 1;
+      }
+      lastDocument = snapshot.docs[snapshot.docs.length - 1];
+      if (snapshot.size < 400) break;
+    }
+
+    console.log('Daily age tag refresh completed', { updatedCount });
+  },
+);
+
+async function runAgePolicyCreatorTagBackfill() {
+  const migrationRef = db.doc('system_migrations/age_policy_creator_tags_v2');
+  if ((await migrationRef.get()).get('completed') === true) {
+    return { completed: true, alreadyCompleted: true };
+  }
+
+  const userTagCache = new Map();
+  async function tagForUser(uid) {
+    const normalizedUid = String(uid ?? '').trim();
+    if (!normalizedUid) return null;
+    if (userTagCache.has(normalizedUid)) return userTagCache.get(normalizedUid);
+    const userSnapshot = await db.doc(`users/${normalizedUid}`).get();
+    const data = userSnapshot.data() ?? {};
+    const candidateTag = isValidAgeTag(data.ageTag)
+      ? data.ageTag
+      : ageTagFromBirthDate(data.birthDate);
+    const tag = isValidAgeTag(candidateTag) ? candidateTag : null;
+    userTagCache.set(normalizedUid, tag);
+    return tag;
+  }
+
+  const writer = db.bulkWriter();
+  let updatedGroups = 0;
+  let updatedChats = 0;
+  let updatedPops = 0;
+  let untaggableGroups = 0;
+  let untaggableChats = 0;
+  let untaggablePops = 0;
+  const groupCreatorTags = new Map();
+  const groups = await db.collection('groups').get();
+  for (const group of groups.docs) {
+    const data = group.data();
+    const creatorTag = isValidAgeTag(data.creatorTag)
+      ? data.creatorTag
+      : await tagForUser(data.adminUid ?? data.originAuthorUid);
+    if (!creatorTag) {
+      untaggableGroups += 1;
+      continue;
+    }
+    groupCreatorTags.set(group.id, creatorTag);
+    if (!isValidAgeTag(data.creatorTag)) {
+      writer.set(group.ref, { creatorTag }, { merge: true });
+      updatedGroups += 1;
+    }
+  }
+
+  const publicChats = await db.collection('chats')
+    .where('isPublic', '==', true)
+    .get();
+  for (const chat of publicChats.docs) {
+    const data = chat.data();
+    if (isValidAgeTag(data.creatorTag)) continue;
+    const sourceGroupId = String(data.sourceGroupId ?? chat.id).trim();
+    const creatorTag = groupCreatorTags.get(sourceGroupId) ?? null;
+    if (!creatorTag) {
+      untaggableChats += 1;
+      continue;
+    }
+    writer.set(chat.ref, { creatorTag }, { merge: true });
+    updatedChats += 1;
+  }
+
+  const pops = await db.collection('meet_now_posts').get();
+  for (const pop of pops.docs) {
+    const data = pop.data();
+    if (isValidAgeTag(data.creatorTag)) continue;
+    const creatorTag = await tagForUser(data.authorUid ?? data.uid);
+    if (!creatorTag) {
+      untaggablePops += 1;
+      continue;
+    }
+    writer.set(pop.ref, { creatorTag }, { merge: true });
+    updatedPops += 1;
+  }
+
+  await writer.close();
+  const completed = untaggableGroups === 0 &&
+    untaggableChats === 0 &&
+    untaggablePops === 0;
+  const result = {
+    completed,
+    alreadyCompleted: false,
+    updatedGroups,
+    updatedChats,
+    updatedPops,
+    untaggableGroups,
+    untaggableChats,
+    untaggablePops,
+  };
+  await migrationRef.set({
+    ...result,
+    lastRunAt: FieldValue.serverTimestamp(),
+    ...(completed ? { completedAt: FieldValue.serverTimestamp() } : {}),
+  }, { merge: true });
+  console.log('Age policy creator tag backfill finished', result);
+  return result;
+}
+
+exports.backfillAgePolicyCreatorTags = onSchedule(
+  {
+    region: REGION,
+    schedule: '45 0 * * *',
+    timeZone: 'Asia/Jerusalem',
+    maxInstances: 1,
+    retryCount: 3,
+  },
+  runAgePolicyCreatorTagBackfill,
+);
+
+exports.backfillAgePolicyCreatorTagsNow = onCall(
+  { region: REGION },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError('unauthenticated', 'Authentication is required.');
+    }
+    if (request.auth.token.admin !== true) {
+      throw new HttpsError('permission-denied', 'Administrator access is required.');
+    }
+    return runAgePolicyCreatorTagBackfill();
+  },
+);
+
 exports.rankMeetNowPosts = onCall({ region: REGION, enforceAppCheck: true }, async (request) => {
   const viewerUid = request.auth?.uid;
   if (!viewerUid) throw new HttpsError('unauthenticated', 'Authentication is required.');
   if (!request.app) throw new HttpsError('failed-precondition', 'App Check is required.');
+
+  const viewerSnapshot = await db.doc(`users/${viewerUid}`).get();
+  const viewerData = viewerSnapshot.data() ?? {};
+  const viewerTag = viewerData.ageTag;
+  if (!isValidAgeTag(viewerTag) || !viewerData.ageTagVerifiedAt) {
+    throw new HttpsError('failed-precondition', 'Age verification is required.');
+  }
+  const allowedCreatorTags = ALLOWED_CREATOR_TAGS_BY_USER_TAG[viewerTag] ?? [];
 
   const rateLimitRef = db.doc(`users/${viewerUid}/private/rank_meet_now_rate_limit`);
   await db.runTransaction(async (transaction) => {
@@ -370,7 +653,10 @@ exports.rankMeetNowPosts = onCall({ region: REGION, enforceAppCheck: true }, asy
   const now = Date.now();
   const candidates = [...postById.values()].filter((post) => {
     const createdAt = post.get('createdAt')?.toDate?.();
-    return createdAt && now - createdAt.getTime() < POST_LIFETIME_MS && post.get('authorUid') !== viewerUid;
+    return createdAt &&
+      now - createdAt.getTime() < POST_LIFETIME_MS &&
+      post.get('authorUid') !== viewerUid &&
+      allowedCreatorTags.includes(post.get('creatorTag'));
   });
   const authorUids = [...new Set(candidates.map((post) => String(post.get('authorUid') || '').trim()).filter(Boolean))];
   const locations = await db.getAll(...authorUids.map((uid) => db.doc(`users/${uid}/private/location`)));

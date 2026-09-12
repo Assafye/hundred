@@ -245,7 +245,13 @@ class _PostShareTargetsSheetState extends State<PostShareTargetsSheet> {
         data: <String, Object?>{'postId': postId, 'error': error},
       );
       messenger?.showSnackBar(
-        SnackBar(content: Text('שליחה נכשלה: $error')),
+        SnackBar(
+          content: Text(
+            ChatService.isAgeRestrictedError(error)
+                ? ChatService.ageRestrictedPrivateChatMessage
+                : 'שליחה נכשלה: $error',
+          ),
+        ),
       );
     }
 

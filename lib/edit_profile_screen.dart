@@ -53,6 +53,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   late TextEditingController _lifeMottoController;
   late TextEditingController _bioController;
   DateTime? _birthDate;
+  bool _isBirthDateLocked = false;
   late bool _allowGroupInvite;
   final List<String> _existingProfileImageUrls = <String>[];
   final List<XFile> _newProfileImageFiles = <XFile>[];
@@ -80,6 +81,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       initialBirthDate = parseStoredBirthDate(widget.currentBirthDate.trim());
     }
     _birthDate = initialBirthDate;
+    _isBirthDateLocked = initialBirthDate != null;
     _birthDateController = TextEditingController(
       text: initialBirthDate == null ? '' : _formatDate(initialBirthDate),
     );
@@ -144,6 +146,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           if (parsed != null) {
             setState(() {
               _birthDate = parsed;
+              _isBirthDateLocked = true;
               _birthDateController.text = _formatDate(parsed);
             });
           }
@@ -294,17 +297,19 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   }
 
   Future<void> _pickBirthDate() async {
+    if (_isBirthDateLocked) return;
+    final today = DateTime.now();
     final latestBirthDate = latestEligibleBirthDate();
     final storedBirthDate = _birthDate;
     final initialDate =
-        storedBirthDate != null && isAtLeastMinimumAge(storedBirthDate)
+        storedBirthDate != null && !isFutureBirthDate(storedBirthDate, today)
             ? storedBirthDate
             : latestBirthDate;
     final picked = await showDatePicker(
       context: context,
       initialDate: initialDate,
       firstDate: DateTime(1900),
-      lastDate: latestBirthDate,
+      lastDate: today,
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
@@ -337,7 +342,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     final lifeMottoValue = _lifeMottoController.text.trim();
     final bioValue = _bioController.text.trim();
     final birthDateValue = _birthDate;
-    final birthDateText = birthDateValue == null
+    final birthDateText = birthDateValue == null || _isBirthDateLocked
         ? ''
         : '${birthDateValue.year.toString().padLeft(4, '0')}-${birthDateValue.month.toString().padLeft(2, '0')}-${birthDateValue.day.toString().padLeft(2, '0')}';
 
@@ -800,7 +805,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                             controller: _birthDateController,
                             onTapOutside: (_) {},
                             readOnly: true,
-                            onTap: _pickBirthDate,
+                            onTap: _isBirthDateLocked ? null : _pickBirthDate,
                             textDirection: TextDirection.rtl,
                             textAlign: TextAlign.right,
                             style: TextStyle(

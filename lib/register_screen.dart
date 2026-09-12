@@ -228,19 +228,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       return null;
     }
 
-    final parts = raw.split('/');
-    if (parts.length != 3) {
-      return null;
-    }
-
-    try {
-      final day = int.parse(parts[0]);
-      final month = int.parse(parts[1]);
-      final year = int.parse(parts[2]);
-      return DateTime(year, month, day);
-    } catch (_) {
-      return null;
-    }
+    return parseStoredBirthDate(raw);
   }
 
   void _toggleBgAnimation() {
@@ -3031,6 +3019,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   final birthDate = _parseDdMmYyyy(v);
                   if (birthDate == null) {
                     return 'פורמט לא תקין, יש להזין DD/MM/YYYY';
+                  }
+                  if (isFutureBirthDate(birthDate)) {
+                    return 'לא ניתן להזין תאריך לידה עתידי';
                   }
                   return null;
                 },

@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'age_restrictions.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/rendering.dart';
 
@@ -3744,6 +3745,10 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       if (error is TimeoutException) {
         message = 'פתיחת הצ\'אט אורכת יותר מדי זמן. נסה שוב.';
       } else if (error is FirebaseAuthException &&
+          (error.code == 'age-restricted-chat' ||
+              error.code == 'age-verification-required')) {
+        message = ChatService.ageRestrictedPrivateChatMessage;
+      } else if (error is FirebaseAuthException &&
           error.code == 'blocked-user') {
         message = 'לא ניתן לפתוח צ\'אט: קיימת חסימה בין המשתמשים.';
       } else if (error is FirebaseException &&
@@ -3828,6 +3833,10 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       String message;
       if (effectiveError is TimeoutException) {
         message = 'שליחת ההודעה אורכת יותר מדי זמן. נסה שוב.';
+      } else if (effectiveError is FirebaseAuthException &&
+          (effectiveError.code == 'age-restricted-chat' ||
+              effectiveError.code == 'age-verification-required')) {
+        message = ChatService.ageRestrictedPrivateChatMessage;
       } else if (effectiveError is FirebaseAuthException &&
           effectiveError.code == 'blocked-user') {
         message = 'לא ניתן לשלוח הודעה: קיימת חסימה בין המשתמשים.';
@@ -4087,6 +4096,19 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   Future<List<DocumentSnapshot<Map<String, dynamic>>>>
       _publicGroupsOfUser() async {
     final targetUid = widget.uid.trim();
+    final currentUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    if (currentUid.isEmpty) {
+      return const <DocumentSnapshot<Map<String, dynamic>>>[];
+    }
+    final currentUserSnapshot =
+        await _db.collection('users').doc(currentUid).get();
+    final currentUserTag = AgePolicy.tagFromUserData(
+      currentUserSnapshot.data() ?? const <String, dynamic>{},
+    );
+    if (currentUserTag == null) {
+      return const <DocumentSnapshot<Map<String, dynamic>>>[];
+    }
+    final allowedCreatorTags = AgePolicy.getAllowedTagsForUser(currentUserTag);
 
     final byId = <String, DocumentSnapshot<Map<String, dynamic>>>{};
 
@@ -4096,6 +4118,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       final snapshot = await _db
           .collection('chats')
           .where('isPublic', isEqualTo: true)
+          .where('creatorTag', whereIn: allowedCreatorTags)
           .where('participants', arrayContains: targetUid)
           .get();
       chatDocs = snapshot.docs;
@@ -4104,6 +4127,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         final allPublicChats = await _db
             .collection('chats')
             .where('isPublic', isEqualTo: true)
+            .where('creatorTag', whereIn: allowedCreatorTags)
             .get();
         chatDocs = allPublicChats.docs.where((doc) {
           final participants = (doc.data()['participants'] as List<dynamic>? ??
@@ -4143,6 +4167,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         final groupsSnapshot = await _db
             .collection('groups')
             .where('isPublic', isEqualTo: true)
+            .where('creatorTag', whereIn: allowedCreatorTags)
             .get();
         for (final doc in groupsSnapshot.docs) {
           if (await _groupHasUserMembership(doc, targetUid)) {

@@ -673,152 +673,172 @@ class AppHomeService {
 
   Stream<List<HomePublicGroupEntry>> streamUpcomingPublicGroups(
       {int withinDays = 7}) {
-    // Query by public + near-date on server side to avoid applying `limit`
-    // before date filtering (which can hide all relevant groups).
-    return Stream.multi((controller) {
-      final now = DateTime.now();
-      final start = DateTime(now.year, now.month, now.day);
-      final endExclusive = start.add(Duration(days: withinDays + 1));
-
-      QuerySnapshot<Map<String, dynamic>>? dateSnapshot;
-      QuerySnapshot<Map<String, dynamic>>? executionDateSnapshot;
-      QuerySnapshot<Map<String, dynamic>>? fallbackSnapshot;
-
-      StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? dateSub;
-      StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? executionDateSub;
-      StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? fallbackSub;
-
-      HomePublicGroupEntry toEntry(
-        QueryDocumentSnapshot<Map<String, dynamic>> doc,
-      ) {
-        final data = doc.data();
-        return HomePublicGroupEntry(
-          groupId: doc.id,
-          name: _textValue(data, const ['groupName', 'name']),
-          description: _textValue(data, const ['description']),
-          imageUrl: _textValue(data, const ['groupImageUrl']),
-          category: _textValue(data, const ['category', 'mainCategory']),
-          subCategory: _textValue(data, const ['subCategory']),
-          location: _textValue(data, const ['location', 'meetingRegion']),
-          geo: _geoPointFromData(data),
-          date: _dateValue(data, const ['date', 'executionDate']),
-          minScore: _intValue(data, const ['minScore']),
-          isMinScoreRequired: (data['isMinScoreRequired'] as bool?) ??
-              _intValue(data, const ['minScore']) > 0,
-          membersCount: _intValue(data, const ['membersCount'], fallback: 0),
-          participants: (data['membersList'] as List<dynamic>?) ??
-              (data['members'] as List<dynamic>?) ??
-              const <dynamic>[],
-          participantAvatarUrls: const <String>[],
-        );
+    final uid = currentUid;
+    if (uid == null || uid.isEmpty) {
+      return Stream.value(const <HomePublicGroupEntry>[]);
+    }
+    return Stream.fromFuture(_users.doc(uid).get()).asyncExpand((userSnapshot) {
+      final userTag = AgePolicy.tagFromUserData(
+        userSnapshot.data() ?? const <String, dynamic>{},
+      );
+      if (userTag == null) {
+        return Stream.value(const <HomePublicGroupEntry>[]);
       }
+      final allowedCreatorTags = AgePolicy.getAllowedTagsForUser(userTag);
+      // Query by public + near-date on server side to avoid applying `limit`
+      // before date filtering (which can hide all relevant groups).
+      return Stream.multi((controller) {
+        final now = DateTime.now();
+        final start = DateTime(now.year, now.month, now.day);
+        final endExclusive = start.add(Duration(days: withinDays + 1));
 
-      bool isInRange(HomePublicGroupEntry entry) {
-        final date = entry.date;
-        if (date == null) {
-          return false;
+        QuerySnapshot<Map<String, dynamic>>? dateSnapshot;
+        QuerySnapshot<Map<String, dynamic>>? executionDateSnapshot;
+        QuerySnapshot<Map<String, dynamic>>? fallbackSnapshot;
+
+        StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? dateSub;
+        StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
+            executionDateSub;
+        StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? fallbackSub;
+
+        HomePublicGroupEntry toEntry(
+          QueryDocumentSnapshot<Map<String, dynamic>> doc,
+        ) {
+          final data = doc.data();
+          return HomePublicGroupEntry(
+            groupId: doc.id,
+            name: _textValue(data, const ['groupName', 'name']),
+            description: _textValue(data, const ['description']),
+            imageUrl: _textValue(data, const ['groupImageUrl']),
+            category: _textValue(data, const ['category', 'mainCategory']),
+            subCategory: _textValue(data, const ['subCategory']),
+            location: _textValue(data, const ['location', 'meetingRegion']),
+            geo: _geoPointFromData(data),
+            date: _dateValue(data, const ['date', 'executionDate']),
+            minScore: _intValue(data, const ['minScore']),
+            isMinScoreRequired: (data['isMinScoreRequired'] as bool?) ??
+                _intValue(data, const ['minScore']) > 0,
+            membersCount: _intValue(data, const ['membersCount'], fallback: 0),
+            participants: (data['membersList'] as List<dynamic>?) ??
+                (data['members'] as List<dynamic>?) ??
+                const <dynamic>[],
+            participantAvatarUrls: const <String>[],
+          );
         }
-        return isUpcomingPublicGroupDateWithinWindow(
-          groupDate: date,
-          now: now,
-          windowStart: start,
-          windowEndExclusive: endExclusive,
-        );
-      }
 
-      void emitMerged() {
-        final mergedById = <String, HomePublicGroupEntry>{};
+        bool isInRange(HomePublicGroupEntry entry) {
+          final date = entry.date;
+          if (date == null) {
+            return false;
+          }
+          return isUpcomingPublicGroupDateWithinWindow(
+            groupDate: date,
+            now: now,
+            windowStart: start,
+            windowEndExclusive: endExclusive,
+          );
+        }
 
-        void mergeSnapshot(QuerySnapshot<Map<String, dynamic>>? snapshot) {
-          if (snapshot == null) {
+        void emitMerged() {
+          final mergedById = <String, HomePublicGroupEntry>{};
+
+          void mergeSnapshot(QuerySnapshot<Map<String, dynamic>>? snapshot) {
+            if (snapshot == null) {
+              return;
+            }
+            for (final doc in snapshot.docs) {
+              final entry = toEntry(doc);
+              if (!isInRange(entry)) {
+                continue;
+              }
+              mergedById[entry.groupId] = entry;
+            }
+          }
+
+          mergeSnapshot(dateSnapshot);
+          mergeSnapshot(executionDateSnapshot);
+          mergeSnapshot(fallbackSnapshot);
+
+          final entries = mergedById.values.toList(growable: false)
+            ..sort((a, b) {
+              final aDate = a.date ?? DateTime.fromMillisecondsSinceEpoch(0);
+              final bDate = b.date ?? DateTime.fromMillisecondsSinceEpoch(0);
+              return aDate.compareTo(bDate);
+            });
+
+          controller.add(entries);
+        }
+
+        fallbackSub = _groups
+            .where('isPublic', isEqualTo: true)
+            .where('creatorTag', whereIn: allowedCreatorTags)
+            .limit(600)
+            .snapshots()
+            .listen((snapshot) {
+          fallbackSnapshot = snapshot;
+          emitMerged();
+        }, onError: (error, stackTrace) {
+          debugPrint(
+            '[AppHomeService][streamUpcomingPublicGroups] fallback stream failed: $error',
+          );
+        });
+
+        dateSub = _groups
+            .where('isPublic', isEqualTo: true)
+            .where('creatorTag', whereIn: allowedCreatorTags)
+            .where('date', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
+            .where('date', isLessThan: Timestamp.fromDate(endExclusive))
+            .limit(200)
+            .snapshots()
+            .listen((snapshot) {
+          dateSnapshot = snapshot;
+          emitMerged();
+        }, onError: (error, stackTrace) {
+          if (error is FirebaseException &&
+              error.code == 'failed-precondition') {
+            dateSnapshot = null;
+            emitMerged();
             return;
           }
-          for (final doc in snapshot.docs) {
-            final entry = toEntry(doc);
-            if (!isInRange(entry)) {
-              continue;
-            }
-            mergedById[entry.groupId] = entry;
-          }
-        }
-
-        mergeSnapshot(dateSnapshot);
-        mergeSnapshot(executionDateSnapshot);
-        mergeSnapshot(fallbackSnapshot);
-
-        final entries = mergedById.values.toList(growable: false)
-          ..sort((a, b) {
-            final aDate = a.date ?? DateTime.fromMillisecondsSinceEpoch(0);
-            final bDate = b.date ?? DateTime.fromMillisecondsSinceEpoch(0);
-            return aDate.compareTo(bDate);
-          });
-
-        controller.add(entries);
-      }
-
-      fallbackSub = _groups
-          .where('isPublic', isEqualTo: true)
-          .limit(600)
-          .snapshots()
-          .listen((snapshot) {
-        fallbackSnapshot = snapshot;
-        emitMerged();
-      }, onError: (error, stackTrace) {
-        debugPrint(
-          '[AppHomeService][streamUpcomingPublicGroups] fallback stream failed: $error',
-        );
-      });
-
-      dateSub = _groups
-          .where('isPublic', isEqualTo: true)
-          .where('date', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
-          .where('date', isLessThan: Timestamp.fromDate(endExclusive))
-          .limit(200)
-          .snapshots()
-          .listen((snapshot) {
-        dateSnapshot = snapshot;
-        emitMerged();
-      }, onError: (error, stackTrace) {
-        if (error is FirebaseException && error.code == 'failed-precondition') {
+          debugPrint(
+            '[AppHomeService][streamUpcomingPublicGroups] date stream failed: $error',
+          );
           dateSnapshot = null;
           emitMerged();
-          return;
-        }
-        debugPrint(
-          '[AppHomeService][streamUpcomingPublicGroups] date stream failed: $error',
-        );
-        dateSnapshot = null;
-        emitMerged();
-      });
+        });
 
-      executionDateSub = _groups
-          .where('isPublic', isEqualTo: true)
-          .where('executionDate',
-              isGreaterThanOrEqualTo: Timestamp.fromDate(start))
-          .where('executionDate', isLessThan: Timestamp.fromDate(endExclusive))
-          .limit(200)
-          .snapshots()
-          .listen((snapshot) {
-        executionDateSnapshot = snapshot;
-        emitMerged();
-      }, onError: (error, stackTrace) {
-        if (error is FirebaseException && error.code == 'failed-precondition') {
+        executionDateSub = _groups
+            .where('isPublic', isEqualTo: true)
+            .where('creatorTag', whereIn: allowedCreatorTags)
+            .where('executionDate',
+                isGreaterThanOrEqualTo: Timestamp.fromDate(start))
+            .where('executionDate',
+                isLessThan: Timestamp.fromDate(endExclusive))
+            .limit(200)
+            .snapshots()
+            .listen((snapshot) {
+          executionDateSnapshot = snapshot;
+          emitMerged();
+        }, onError: (error, stackTrace) {
+          if (error is FirebaseException &&
+              error.code == 'failed-precondition') {
+            executionDateSnapshot = null;
+            emitMerged();
+            return;
+          }
+          debugPrint(
+            '[AppHomeService][streamUpcomingPublicGroups] executionDate stream failed: $error',
+          );
           executionDateSnapshot = null;
           emitMerged();
-          return;
-        }
-        debugPrint(
-          '[AppHomeService][streamUpcomingPublicGroups] executionDate stream failed: $error',
-        );
-        executionDateSnapshot = null;
-        emitMerged();
-      });
+        });
 
-      controller.onCancel = () async {
-        await dateSub?.cancel();
-        await executionDateSub?.cancel();
-        await fallbackSub?.cancel();
-      };
+        controller.onCancel = () async {
+          await dateSub?.cancel();
+          await executionDateSub?.cancel();
+          await fallbackSub?.cancel();
+        };
+      });
     });
   }
 
@@ -976,6 +996,13 @@ class AppHomeService {
         }
 
         final userData = currentUserSnapshot!.data() ?? <String, dynamic>{};
+        final userTag = AgePolicy.tagFromUserData(userData);
+        if (userTag == null) {
+          controller.add(const <MeetNowPostEntry>[]);
+          return;
+        }
+        final allowedCreatorTags =
+            AgePolicy.getAllowedTagsForUser(userTag).toSet();
         final userLocation = _userLocationFromData(userData);
         final docs = nearbyPostDocs();
         final entries = <MeetNowPostEntry>[];
@@ -1008,6 +1035,11 @@ class AppHomeService {
             final status =
                 (data['status'] as String? ?? 'active').trim().toLowerCase();
             if (status != 'active') {
+              return null;
+            }
+            final creatorTag = (data['creatorTag'] as num?)?.toInt();
+            if (!AgePolicy.isValidTag(creatorTag) ||
+                !allowedCreatorTags.contains(creatorTag)) {
               return null;
             }
 
@@ -1234,8 +1266,17 @@ class AppHomeService {
 
         const recentFallbackKey = 'recent-active';
         activeQueryKeys.add(recentFallbackKey);
+        final userTag = AgePolicy.tagFromUserData(
+          currentUserSnapshot?.data() ?? const <String, dynamic>{},
+        );
+        if (userTag == null) {
+          controller.add(const <MeetNowPostEntry>[]);
+          return;
+        }
+        final allowedCreatorTags = AgePolicy.getAllowedTagsForUser(userTag);
         final recentFallbackSub = _meetNowPosts
             .where('status', isEqualTo: 'active')
+            .where('creatorTag', whereIn: allowedCreatorTags)
             .orderBy('createdAt', descending: true)
             .limit(effectiveCandidateLimit)
             .snapshots()
@@ -1266,6 +1307,7 @@ class AppHomeService {
           activeQueryKeys.add(prefix);
           final sub = _meetNowPosts
               .where('status', isEqualTo: 'active')
+              .where('creatorTag', whereIn: allowedCreatorTags)
               .orderBy('geohash')
               .startAt([prefix])
               .endAt(['$prefix\uf8ff'])
@@ -1294,9 +1336,10 @@ class AppHomeService {
       void refreshMeetNowQueries() {
         final data = currentUserSnapshot?.data() ?? <String, dynamic>{};
         final location = _userLocationFromData(data).trim().toLowerCase();
+        final ageTag = AgePolicy.tagFromUserData(data)?.toString() ?? '';
         final latKey = currentUserGeo?.latitude.toStringAsFixed(5) ?? '';
         final lngKey = currentUserGeo?.longitude.toStringAsFixed(5) ?? '';
-        final nextSortKey = '$latKey|$lngKey|$location';
+        final nextSortKey = '$latKey|$lngKey|$location|$ageTag';
 
         // Presence/status writes can update the user doc frequently; only
         // recompute meet-now ordering when location/sort inputs changed.
@@ -1483,9 +1526,20 @@ class AppHomeService {
       throw const MeetNowLocationUnavailableException();
     }
     final normalizedDetails = details.trim();
+    final userSnapshot = await _users.doc(uid).get();
+    final creatorTag = AgePolicy.tagFromUserData(
+      userSnapshot.data() ?? const <String, dynamic>{},
+    );
+    if (creatorTag == null) {
+      throw FirebaseAuthException(
+        code: 'age-verification-required',
+        message: 'לא ניתן ליצור פופ עד לאימות תאריך הלידה.',
+      );
+    }
 
     final payload = <String, dynamic>{
       'authorUid': uid,
+      'creatorTag': creatorTag,
       'title': normalizedTitle,
       'details': normalizedDetails,
       'category': category.trim(),
@@ -1574,6 +1628,20 @@ class AppHomeService {
           message: 'Meet-now post is missing author uid.',
         );
       }
+      var creatorTag = (postData['creatorTag'] as num?)?.toInt();
+      if (!AgePolicy.isValidTag(creatorTag)) {
+        final authorSnapshot = await tx.get(_users.doc(authorUid));
+        creatorTag = AgePolicy.tagFromUserData(
+          authorSnapshot.data() ?? const <String, dynamic>{},
+        );
+      }
+      if (creatorTag == null) {
+        throw FirebaseException(
+          plugin: 'cloud_firestore',
+          code: 'failed-precondition',
+          message: 'Meet-now author age could not be verified.',
+        );
+      }
 
       final groupName = _textValue(postData, const ['title']).isNotEmpty
           ? _textValue(postData, const ['title'])
@@ -1605,10 +1673,6 @@ class AppHomeService {
       final groupId = groupRef.id;
       final effectiveAdminUid = authorUid;
       final initialMembers = <String>[effectiveAdminUid];
-      final initialChatParticipants = <String>{
-        effectiveAdminUid,
-        normalizedRequesterUid,
-      }.toList(growable: false);
 
       tx.set(groupRef, {
         'groupName': groupName,
@@ -1628,6 +1692,7 @@ class AppHomeService {
         'isPublic': true,
         'isAdminApprovalRequired': false,
         'adminUid': effectiveAdminUid,
+        'creatorTag': creatorTag,
         'originAuthorUid': authorUid,
         'originMeetPostId': postId,
         'originType': 'pop',
@@ -1647,8 +1712,9 @@ class AppHomeService {
         'groupImageUrl': '',
         'isPublic': true,
         'isDirect': false,
+        'creatorTag': creatorTag,
         'originType': 'pop',
-        'participants': initialChatParticipants,
+        'participants': initialMembers,
         'sourceGroupId': groupId,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
@@ -1668,6 +1734,7 @@ class AppHomeService {
           postRef,
           {
             'linkedGroupId': groupId,
+            'creatorTag': creatorTag,
             'updatedAt': FieldValue.serverTimestamp(),
           },
           SetOptions(merge: true));

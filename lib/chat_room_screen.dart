@@ -118,6 +118,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen>
   late final Animation<double> _bottomBubbleOpacity;
   late final Animation<double> _topBubbleScale;
   late final Animation<double> _topBubbleOpacity;
+  late final Future<void> _directChatAccessFuture;
+  bool _directChatAccessGranted = false;
 
   bool _isLightMode(BuildContext context) {
     return Theme.of(context).brightness == Brightness.light;
@@ -152,6 +154,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen>
   @override
   void initState() {
     super.initState();
+    _directChatAccessFuture = _resolveDirectChatAccess();
     _attachmentMenuController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 190),
@@ -183,9 +186,26 @@ class _ChatRoomScreenState extends State<ChatRoomScreen>
     KeyboardDismissController.suspend();
     _scrollController.addListener(_handleScrollActivity);
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _markChatAsReadFromServer();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      try {
+        await _directChatAccessFuture;
+      } catch (_) {
+        return;
+      }
+      await _markChatAsReadFromServer();
     });
+  }
+
+  Future<void> _resolveDirectChatAccess() async {
+    final isDirect = widget.isDirectChat == true ||
+        (widget.directOtherUserId ?? '').trim().isNotEmpty;
+    if (isDirect) {
+      await _chatService.ensureDirectChatAllowed(
+        chatId: widget.chatId,
+        otherUserId: widget.directOtherUserId,
+      );
+    }
+    _directChatAccessGranted = true;
   }
 
   void _handleScrollActivity() {
@@ -296,12 +316,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen>
       }
     } catch (error) {
       if (!mounted) return;
-      final message =
-          error is FirebaseAuthException && error.code == 'blocked-user'
-              ? 'לא ניתן לשלוח הודעה: קיימת חסימה בין המשתמשים.'
-              : error is TimeoutException
-                  ? 'שליחת ההודעה אורכת יותר מדי זמן. נסה שוב.'
-                  : 'שליחת הודעה נכשלה: $error';
+      final message = _messageSendErrorText(error);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(message)),
       );
@@ -312,6 +327,19 @@ class _ChatRoomScreenState extends State<ChatRoomScreen>
         });
       }
     }
+  }
+
+  String _messageSendErrorText(Object error) {
+    if (ChatService.isAgeRestrictedError(error)) {
+      return ChatService.ageRestrictedPrivateChatMessage;
+    }
+    if (error is FirebaseAuthException && error.code == 'blocked-user') {
+      return 'לא ניתן לשלוח הודעה: קיימת חסימה בין המשתמשים.';
+    }
+    if (error is TimeoutException) {
+      return 'שליחת ההודעה אורכת יותר מדי זמן. נסה שוב.';
+    }
+    return 'שליחת הודעה נכשלה: $error';
   }
 
   Future<void> _closeAttachmentMenu({bool immediate = false}) async {
@@ -2449,7 +2477,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen>
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('שליחת מדיה נכשלה: $e')),
+        SnackBar(content: Text(_messageSendErrorText(e))),
       );
     } finally {
       if (mounted) {
@@ -2892,7 +2920,9 @@ class _ChatRoomScreenState extends State<ChatRoomScreen>
     unawaited(_closeAttachmentMenu(immediate: true));
     _attachmentMenuController.dispose();
     KeyboardDismissController.resume();
-    _markChatAsReadFromServer();
+    if (_directChatAccessGranted) {
+      _markChatAsReadFromServer();
+    }
     _scrollController.removeListener(_handleScrollActivity);
     _controller.dispose();
     _inputFocusNode.dispose();
@@ -2902,6 +2932,52 @@ class _ChatRoomScreenState extends State<ChatRoomScreen>
 
   @override
   Widget build(BuildContext context) {
+    final isDirect = widget.isDirectChat == true ||
+        (widget.directOtherUserId ?? '').trim().isNotEmpty;
+    if (!isDirect) {
+      return _buildChatRoom(context);
+    }
+
+    return FutureBuilder<void>(
+      future: _directChatAccessFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return Scaffold(
+            backgroundColor:
+                _isLightMode(context) ? Colors.white : const Color(0xFF0B1019),
+            body: const Center(child: CircularProgressIndicator()),
+          );
+        }
+        if (snapshot.hasError) {
+          final error = snapshot.error;
+          final isAgeRestriction =
+              error != null && ChatService.isAgeRestrictedError(error);
+          return Scaffold(
+            backgroundColor:
+                _isLightMode(context) ? Colors.white : const Color(0xFF0B1019),
+            appBar: AppBar(
+              leading: const BackButton(),
+              title: Text(widget.chatName),
+            ),
+            body: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  isAgeRestriction
+                      ? ChatService.ageRestrictedPrivateChatMessage
+                      : 'לא ניתן לפתוח את הצ׳אט כרגע. נסו שוב מאוחר יותר.',
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ),
+          );
+        }
+        return _buildChatRoom(context);
+      },
+    );
+  }
+
+  Widget _buildChatRoom(BuildContext context) {
     final isLight = _isLightMode(context);
     final isDirectChat = widget.isDirectChat ?? false;
     final screenWidth = MediaQuery.of(context).size.width;
