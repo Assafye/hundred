@@ -5,11 +5,16 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'
-    show FilteringTextInputFormatter, LengthLimitingTextInputFormatter, PlatformException;
+    show
+        FilteringTextInputFormatter,
+        LengthLimitingTextInputFormatter,
+        PlatformException;
 
 import '../services/apns_token_status_service.dart';
 import '../services/auth_service.dart';
+import '../services/phone_auth_diagnostics.dart';
 import '../services/phone_auth_error_messages.dart';
+import '../services/phone_auth_verification_service.dart';
 
 enum _RecoveryMethod { phone, email }
 
@@ -34,7 +39,8 @@ Future<User?> showForgotPasswordSheet(
       initialEmail: initialEmail,
     ),
     transitionBuilder: (dialogContext, animation, _, child) {
-      final curved = CurvedAnimation(parent: animation, curve: Curves.easeOutCubic);
+      final curved =
+          CurvedAnimation(parent: animation, curve: Curves.easeOutCubic);
       return FadeTransition(
         opacity: curved,
         child: ScaleTransition(
@@ -78,7 +84,8 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
   String? _verificationId;
   int? _resendToken;
   String? _lastAutoSubmittedCode;
-  bool _internalErrorRetryUsed = false;
+  Timer? _retryCooldownTimer;
+  int _retryCooldownSeconds = 0;
 
   // Email flow.
   late final TextEditingController _emailController =
@@ -113,12 +120,30 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
 
   @override
   void dispose() {
+    _retryCooldownTimer?.cancel();
     _countryCodeController.dispose();
     _phoneController.dispose();
     _codeController.dispose();
     _codeFocusNode.dispose();
     _emailController.dispose();
     super.dispose();
+  }
+
+  void _startRetryCooldown() {
+    _retryCooldownTimer?.cancel();
+    setState(() => _retryCooldownSeconds = 60);
+    _retryCooldownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      if (_retryCooldownSeconds <= 1) {
+        timer.cancel();
+        setState(() => _retryCooldownSeconds = 0);
+        return;
+      }
+      setState(() => _retryCooldownSeconds--);
+    });
   }
 
   InputDecoration _fieldDecoration(String label) {
@@ -160,6 +185,7 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
     StackTrace? stackTrace,
     required String reason,
     required bool apnsTokenReady,
+    required String attemptId,
   }) async {
     try {
       await FirebaseCrashlytics.instance.recordError(
@@ -167,7 +193,10 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
         stackTrace,
         reason: reason,
         fatal: false,
-        information: <String>['apnsTokenReady=$apnsTokenReady'],
+        information: <String>[
+          'attemptId=$attemptId',
+          'apnsTokenReady=$apnsTokenReady',
+        ],
       );
     } catch (_) {
       // Never let telemetry reporting break the recovery flow.
@@ -191,18 +220,14 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
         : '+$countryDigits$localDigits';
   }
 
-  Future<void> _sendPhoneCode({String? retryPhone}) async {
-    final isRetry = retryPhone != null;
-    if (!isRetry) {
-      if (_phoneController.text.trim().isEmpty) {
-        setState(() => _error = 'יש להזין מספר טלפון.');
-        return;
-      }
-      _internalErrorRetryUsed = false;
+  Future<void> _sendPhoneCode() async {
+    if (_phoneController.text.trim().isEmpty) {
+      setState(() => _error = 'יש להזין מספר טלפון.');
+      return;
     }
-    final phone = retryPhone ??
+    final phone =
         widget.authService.normalizePhoneNumber(_enteredPhoneNumber());
-    if (!isRetry && !RegExp(r'^\+[1-9]\d{7,14}$').hasMatch(phone)) {
+    if (!RegExp(r'^\+[1-9]\d{7,14}$').hasMatch(phone)) {
       setState(() => _error = 'יש להזין מספר טלפון תקין.');
       return;
     }
@@ -212,24 +237,22 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
       _error = null;
     });
 
-    if (!isRetry) {
-      try {
-        if (!await widget.authService.isRegisteredPhone(phone)) {
-          if (!mounted) return;
-          setState(() {
-            _busy = false;
-            _error = 'לא נמצא חשבון עם מספר הטלפון הזה.';
-          });
-          return;
-        }
-      } catch (_) {
+    try {
+      if (!await widget.authService.isRegisteredPhone(phone)) {
         if (!mounted) return;
         setState(() {
           _busy = false;
-          _error = 'לא ניתן לבדוק את החשבון כרגע. נסה שוב.';
+          _error = 'לא נמצא חשבון עם מספר הטלפון הזה.';
         });
         return;
       }
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _error = 'לא ניתן לבדוק את החשבון כרגע. נסה שוב.';
+      });
+      return;
     }
 
     final alreadyReady = await ApnsTokenStatusService.isReady();
@@ -237,55 +260,52 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
     if (alreadyReady) {
       apnsTokenReady = true;
     } else {
-      if (!isRetry && mounted) {
+      if (mounted) {
         setState(() => _apnsPreparing = true);
       }
       apnsTokenReady = await ApnsTokenStatusService.waitForToken(
         timeout: const Duration(seconds: 2),
       );
-      if (!isRetry && mounted) {
+      if (mounted) {
         setState(() => _apnsPreparing = false);
       }
     }
 
+    final attemptId = PhoneAuthVerificationService.createAttemptId();
+    debugPrint('PHONE_RECOVERY_VERIFY_START | attemptId=$attemptId');
     try {
-      await FirebaseAuth.instance.verifyPhoneNumber(
+      await PhoneAuthVerificationService.verifyPhoneNumber(
         phoneNumber: phone,
+        attemptId: attemptId,
         forceResendingToken: _resendToken,
         verificationCompleted: (credential) async {
           if (!mounted) return;
           await _signInWithPhoneCredential(credential);
         },
-        verificationFailed: (error) {
+        verificationFailed: (error, stackTrace) {
+          debugPrint(
+            'PHONE_RECOVERY_VERIFY_FAILED | attemptId=$attemptId | '
+            '${phoneAuthExceptionDiagnostics(error)}',
+          );
           unawaited(_reportPhoneVerifyError(
             error: error,
-            stackTrace: error.stackTrace,
-            reason: 'verificationFailed:${error.code}',
+            stackTrace: stackTrace,
+            reason: 'verificationFailed',
             apnsTokenReady: apnsTokenReady,
+            attemptId: attemptId,
           ));
           if (!mounted) return;
-          // Transient failures (e.g. iOS silent-push device check not ready
-          // yet) can succeed a moment later — retry once automatically.
-          const transientCodes = {
-            'internal-error',
-            'network-request-failed',
-            'unknown',
-          };
-          if (!_internalErrorRetryUsed &&
-              transientCodes.contains(error.code)) {
-            _internalErrorRetryUsed = true;
-            Future.delayed(const Duration(milliseconds: 1500), () {
-              if (!mounted) return;
-              _sendPhoneCode(retryPhone: phone);
-            });
-            return;
-          }
           setState(() {
             _busy = false;
-            _error = _friendlyAuthError(error, 'לא הצלחנו לשלוח קוד אימות.');
+            _error = friendlyPhoneAuthErrorMessage(
+              error,
+              fallback: 'לא הצלחנו לשלוח קוד אימות.',
+            );
           });
+          _startRetryCooldown();
         },
         codeSent: (verificationId, resendToken) {
+          debugPrint('PHONE_RECOVERY_CODE_SENT | attemptId=$attemptId');
           if (!mounted) return;
           setState(() {
             _verificationId = verificationId;
@@ -295,6 +315,7 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
             _lastAutoSubmittedCode = null;
             _codeController.clear();
           });
+          _startRetryCooldown();
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted) _codeFocusNode.requestFocus();
           });
@@ -309,38 +330,46 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
         stackTrace: stackTrace,
         reason: 'verifyPhoneNumber:FirebaseAuthException:${error.code}',
         apnsTokenReady: apnsTokenReady,
+        attemptId: attemptId,
       );
       if (!mounted) return;
       setState(() {
         _busy = false;
         _error = _friendlyAuthError(error, 'לא הצלחנו לשלוח קוד אימות.');
       });
+      _startRetryCooldown();
     } on PlatformException catch (error, stackTrace) {
       // verifyPhoneNumber can throw a raw PlatformException instead of
       // routing through verificationFailed — make sure it's still caught.
+      debugPrintPhoneAuthException(error);
       await _reportPhoneVerifyError(
         error: error,
         stackTrace: stackTrace,
         reason: 'verifyPhoneNumber:PlatformException:${error.code}',
         apnsTokenReady: apnsTokenReady,
+        attemptId: attemptId,
       );
       if (!mounted) return;
       setState(() {
         _busy = false;
-        _error = friendlyPhoneAuthErrorMessage(error, fallback: 'לא הצלחנו לשלוח קוד אימות.');
+        _error = friendlyPhoneAuthErrorMessage(error,
+            fallback: 'לא הצלחנו לשלוח קוד אימות.');
       });
+      _startRetryCooldown();
     } catch (error, stackTrace) {
       await _reportPhoneVerifyError(
         error: error,
         stackTrace: stackTrace,
         reason: 'verifyPhoneNumber:unknown',
         apnsTokenReady: apnsTokenReady,
+        attemptId: attemptId,
       );
       if (!mounted) return;
       setState(() {
         _busy = false;
         _error = 'לא הצלחנו לשלוח קוד אימות.';
       });
+      _startRetryCooldown();
     }
   }
 
@@ -531,7 +560,8 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
                       child: Text(
                         busyLabel,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w800, fontSize: 12),
                       ),
                     ),
                   ],
@@ -539,7 +569,8 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
               )
             : Text(
                 label,
-                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+                style:
+                    const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
               ),
       ),
     );
@@ -558,7 +589,8 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
         const Text(
           'התחבר בעזרת קוד אימות לטלפון',
           textAlign: TextAlign.center,
-          style: TextStyle(color: _muted, fontSize: 14, fontWeight: FontWeight.w600),
+          style: TextStyle(
+              color: _muted, fontSize: 14, fontWeight: FontWeight.w600),
         ),
         const SizedBox(height: 18),
         Center(
@@ -577,19 +609,22 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
                       textInputAction: TextInputAction.next,
                       textDirection: TextDirection.ltr,
                       textAlign: TextAlign.center,
-                      style: const TextStyle(color: _text, fontWeight: FontWeight.w700),
+                      style: const TextStyle(
+                          color: _text, fontWeight: FontWeight.w700),
                       decoration: InputDecoration(
                         hintText: '+972',
-                        hintStyle: TextStyle(color: _muted.withValues(alpha: .7)),
+                        hintStyle:
+                            TextStyle(color: _muted.withValues(alpha: .7)),
                         filled: true,
                         fillColor: _fieldFill,
-                        contentPadding:
-                            const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 12),
                         border: phoneBorder,
                         enabledBorder: phoneBorder,
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(18),
-                          borderSide: const BorderSide(color: _accent, width: 1.8),
+                          borderSide:
+                              const BorderSide(color: _accent, width: 1.8),
                         ),
                       ),
                     ),
@@ -603,19 +638,22 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
                       onFieldSubmitted: (_) => _busy ? null : _sendPhoneCode(),
                       textDirection: TextDirection.ltr,
                       textAlign: TextAlign.left,
-                      style: const TextStyle(color: _text, fontWeight: FontWeight.w700),
+                      style: const TextStyle(
+                          color: _text, fontWeight: FontWeight.w700),
                       decoration: InputDecoration(
                         hintText: '05*-*******',
-                        hintStyle: TextStyle(color: _muted.withValues(alpha: .7)),
+                        hintStyle:
+                            TextStyle(color: _muted.withValues(alpha: .7)),
                         filled: true,
                         fillColor: _fieldFill,
-                        contentPadding:
-                            const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 12),
                         border: phoneBorder,
                         enabledBorder: phoneBorder,
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(18),
-                          borderSide: const BorderSide(color: _accent, width: 1.8),
+                          borderSide:
+                              const BorderSide(color: _accent, width: 1.8),
                         ),
                       ),
                     ),
@@ -628,10 +666,12 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
         const SizedBox(height: 44),
         Center(
           child: _primaryButton(
-            'קבלת קוד אימות',
+            _retryCooldownSeconds > 0
+                ? 'שליחה מחדש בעוד 00:${_retryCooldownSeconds.toString().padLeft(2, '0')}'
+                : 'קבלת קוד אימות',
             _sendPhoneCode,
-            disabledExtra: _apnsPreparing,
-            busyLabel: 'מכינים את האבטחה במכשיר...',
+            disabledExtra: _apnsPreparing || _retryCooldownSeconds > 0,
+            busyLabel: _apnsPreparing ? 'מכינים את האבטחה במכשיר...' : null,
           ),
         ),
       ],
@@ -795,7 +835,8 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
               child: Text(
                 'הזן את קוד האימות שנשלח אליך',
                 textAlign: TextAlign.center,
-                style: TextStyle(color: _muted, fontSize: 14, fontWeight: FontWeight.w600),
+                style: TextStyle(
+                    color: _muted, fontSize: 14, fontWeight: FontWeight.w600),
               ),
             ),
             const SizedBox(width: 48),
@@ -826,13 +867,18 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
             color: _accent.withValues(alpha: .16),
             shape: BoxShape.circle,
           ),
-          child: const Icon(Icons.mark_email_read_rounded, color: _accent, size: 32),
+          child: const Icon(Icons.mark_email_read_rounded,
+              color: _accent, size: 32),
         ),
         const SizedBox(height: 16),
         const Text(
           'אם קיים חשבון עם כתובת המייל שהזנת, נשלח אליו מייל לאיפוס הסיסמה. בדוק גם בתיקיית הספאם.',
           textAlign: TextAlign.center,
-          style: TextStyle(color: _text, fontSize: 15, fontWeight: FontWeight.w600, height: 1.4),
+          style: TextStyle(
+              color: _text,
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+              height: 1.4),
         ),
         const SizedBox(height: 22),
         _primaryButton('סגירה', () => Navigator.of(context).pop()),
@@ -849,7 +895,8 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
         const Text(
           'לקבלת מייל לאיפוס הסיסמה',
           textAlign: TextAlign.center,
-          style: TextStyle(color: _muted, fontSize: 14, fontWeight: FontWeight.w600),
+          style: TextStyle(
+              color: _muted, fontSize: 14, fontWeight: FontWeight.w600),
         ),
         const SizedBox(height: 18),
         Center(
@@ -878,8 +925,7 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
     final mediaSize = MediaQuery.of(context).size;
     final dialogWidth = mediaSize.width > 380 ? 340.0 : mediaSize.width - 32;
     final keyboardInset = MediaQuery.of(context).viewInsets.bottom;
-    final isPhoneCodeStep =
-        _method == _RecoveryMethod.phone && _phoneStep == 1;
+    final isPhoneCodeStep = _method == _RecoveryMethod.phone && _phoneStep == 1;
 
     final bubble = ConstrainedBox(
       constraints: BoxConstraints(maxWidth: dialogWidth),
@@ -945,7 +991,8 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
                 alignment: Alignment.topCenter,
                 children: [
                   _stepLayer(
-                    visible: _method == _RecoveryMethod.phone && _phoneStep == 0,
+                    visible:
+                        _method == _RecoveryMethod.phone && _phoneStep == 0,
                     child: _phoneEntryStep(),
                   ),
                   _stepLayer(
@@ -976,7 +1023,9 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
                 if (_method == _RecoveryMethod.phone && _phoneStep == 0) ...[
                   const SizedBox(height: 8),
                   TextButton.icon(
-                    onPressed: _busy ? null : () => _sendPhoneCode(),
+                    onPressed: _busy || _retryCooldownSeconds > 0
+                        ? null
+                        : () => _sendPhoneCode(),
                     icon: const Icon(
                       Icons.refresh_rounded,
                       color: _accent,

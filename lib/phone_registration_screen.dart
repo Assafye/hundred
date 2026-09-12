@@ -5,14 +5,19 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'
-    show FilteringTextInputFormatter, LengthLimitingTextInputFormatter, PlatformException;
+    show
+        FilteringTextInputFormatter,
+        LengthLimitingTextInputFormatter,
+        PlatformException;
 
 import 'login_screen.dart';
 import 'register_screen.dart';
 import 'services/apns_token_status_service.dart';
 import 'services/auth_service.dart';
 import 'services/keyboard_dismiss_controller.dart';
+import 'services/phone_auth_diagnostics.dart';
 import 'services/phone_auth_error_messages.dart';
+import 'services/phone_auth_verification_service.dart';
 import 'services/share_flow_log_service.dart';
 import 'widgets/swipe_back_wrapper.dart';
 
@@ -57,7 +62,6 @@ class _PhoneRegistrationScreenState extends State<PhoneRegistrationScreen>
   bool _hideConfirmPassword = true;
   String? _lastAutoSubmittedCode;
   String? _error;
-  bool _internalErrorRetryUsed = false;
   bool _apnsPreparing = false;
 
   @override
@@ -179,9 +183,12 @@ class _PhoneRegistrationScreenState extends State<PhoneRegistrationScreen>
     StackTrace? stackTrace,
     required String reason,
     required bool apnsTokenReady,
+    required String attemptId,
   }) async {
+    final diagnostics = phoneAuthExceptionDiagnostics(error);
     await ShareFlowLogService.log(
-      'PHONE_VERIFY_ERROR_REPORTED | reason=$reason | apnsReady=$apnsTokenReady | error=$error',
+      'PHONE_VERIFY_ERROR_REPORTED | attemptId=$attemptId | reason=$reason | '
+      'apnsReady=$apnsTokenReady | $diagnostics',
     );
     try {
       await FirebaseCrashlytics.instance.recordError(
@@ -190,6 +197,7 @@ class _PhoneRegistrationScreenState extends State<PhoneRegistrationScreen>
         reason: reason,
         fatal: false,
         information: <String>[
+          'attemptId=$attemptId',
           'apnsTokenReady=$apnsTokenReady',
         ],
       );
@@ -198,24 +206,19 @@ class _PhoneRegistrationScreenState extends State<PhoneRegistrationScreen>
     }
   }
 
-  Future<void> _sendCode({String? retryPhone}) async {
-    final isRetry = retryPhone != null;
-    if (!isRetry) {
-      if (_countryCodeController.text.trim().isEmpty ||
-          _phoneController.text.trim().isEmpty) {
-        setState(() => _error = 'יש להזין מספר טלפון.');
-        return;
-      }
-      _internalErrorRetryUsed = false;
+  Future<void> _sendCode() async {
+    if (_countryCodeController.text.trim().isEmpty ||
+        _phoneController.text.trim().isEmpty) {
+      setState(() => _error = 'יש להזין מספר טלפון.');
+      return;
     }
     setState(() {
       _busy = true;
       _error = null;
     });
 
-    final phone = retryPhone ??
-        _authService.normalizePhoneNumber(_enteredPhoneNumber());
-    if (!isRetry && !RegExp(r'^\+[1-9]\d{7,14}$').hasMatch(phone)) {
+    final phone = _authService.normalizePhoneNumber(_enteredPhoneNumber());
+    if (!RegExp(r'^\+[1-9]\d{7,14}$').hasMatch(phone)) {
       setState(() {
         _busy = false;
         _error = 'יש להזין מספר טלפון תקין, לדוגמה 052-1234567.';
@@ -223,20 +226,18 @@ class _PhoneRegistrationScreenState extends State<PhoneRegistrationScreen>
       return;
     }
 
-    if (!isRetry) {
-      try {
-        final isTaken = await _authService.isRegisteredPhone(phone);
-        if (isTaken) {
-          if (!mounted) return;
-          setState(() {
-            _busy = false;
-            _error = 'מספר הטלפון הזה כבר רשום במערכת. יש לעבור למסך ההתחברות.';
-          });
-          return;
-        }
-      } catch (e) {
-        debugPrint('[PhoneRegistrationScreen] isRegisteredPhone check error: $e');
+    try {
+      final isTaken = await _authService.isRegisteredPhone(phone);
+      if (isTaken) {
+        if (!mounted) return;
+        setState(() {
+          _busy = false;
+          _error = 'מספר הטלפון הזה כבר רשום במערכת. יש לעבור למסך ההתחברות.';
+        });
+        return;
       }
+    } catch (e) {
+      debugPrint('[PhoneRegistrationScreen] isRegisteredPhone check error: $e');
     }
 
     final alreadyReady = await ApnsTokenStatusService.isReady();
@@ -246,68 +247,57 @@ class _PhoneRegistrationScreenState extends State<PhoneRegistrationScreen>
       // feels instant.
       apnsTokenReady = true;
     } else {
-      if (!isRetry && mounted) {
+      if (mounted) {
         setState(() => _apnsPreparing = true);
       }
       apnsTokenReady = await ApnsTokenStatusService.waitForToken(
         timeout: const Duration(seconds: 2),
       );
-      if (!isRetry && mounted) {
+      if (mounted) {
         setState(() => _apnsPreparing = false);
       }
     }
     await ShareFlowLogService.log(
-      'PHONE_VERIFY_APNS_STATUS | ready=$apnsTokenReady | retry=$isRetry',
+      'PHONE_VERIFY_APNS_STATUS | ready=$apnsTokenReady',
     );
 
+    final attemptId = PhoneAuthVerificationService.createAttemptId();
     try {
       await ShareFlowLogService.log(
-        'PHONE_VERIFY_START | phone=$phone | retry=$isRetry',
+        'PHONE_VERIFY_START | attemptId=$attemptId',
       );
-      await FirebaseAuth.instance.verifyPhoneNumber(
+      await PhoneAuthVerificationService.verifyPhoneNumber(
         phoneNumber: phone,
+        attemptId: attemptId,
         forceResendingToken: _resendToken,
         verificationCompleted: (credential) async {
           await ShareFlowLogService.log('PHONE_VERIFY_AUTO_COMPLETED');
           if (!mounted) return;
           await _verifyCredential(credential);
         },
-        verificationFailed: (error) {
+        verificationFailed: (error, stackTrace) {
+          final diagnostics = phoneAuthExceptionDiagnostics(error);
           ShareFlowLogService.log(
-            'PHONE_VERIFY_FAILED | code=${error.code} | message=${error.message}',
+            'PHONE_VERIFY_FAILED | attemptId=$attemptId | $diagnostics',
           );
           unawaited(_reportPhoneVerifyError(
             error: error,
-            stackTrace: error.stackTrace,
-            reason: 'verificationFailed:${error.code}',
+            stackTrace: stackTrace,
+            reason: 'verificationFailed',
             apnsTokenReady: apnsTokenReady,
+            attemptId: attemptId,
           ));
           if (!mounted) return;
-          // Transient failures (e.g. the iOS silent-push device check not
-          // ready yet) can succeed a moment later — retry once automatically
-          // before surfacing an error to the user.
-          const transientCodes = {
-            'internal-error',
-            'network-request-failed',
-            'unknown',
-          };
-          if (!_internalErrorRetryUsed &&
-              transientCodes.contains(error.code)) {
-            _internalErrorRetryUsed = true;
-            ShareFlowLogService.log('PHONE_VERIFY_AUTO_RETRY');
-            Future.delayed(const Duration(milliseconds: 1500), () {
-              if (!mounted) return;
-              _sendCode(retryPhone: phone);
-            });
-            return;
-          }
           setState(() {
             _busy = false;
             _error = friendlyPhoneAuthErrorMessage(error);
           });
+          _startResendCountdown();
         },
         codeSent: (verificationId, resendToken) {
-          ShareFlowLogService.log('PHONE_VERIFY_CODE_SENT');
+          ShareFlowLogService.log(
+            'PHONE_VERIFY_CODE_SENT | attemptId=$attemptId',
+          );
           if (!mounted) return;
           setState(() {
             _verificationId = verificationId;
@@ -323,7 +313,9 @@ class _PhoneRegistrationScreenState extends State<PhoneRegistrationScreen>
           });
         },
         codeAutoRetrievalTimeout: (verificationId) {
-          ShareFlowLogService.log('PHONE_VERIFY_AUTO_RETRIEVAL_TIMEOUT');
+          ShareFlowLogService.log(
+            'PHONE_VERIFY_AUTO_RETRIEVAL_TIMEOUT | attemptId=$attemptId',
+          );
           _verificationId = verificationId;
         },
       );
@@ -336,45 +328,56 @@ class _PhoneRegistrationScreenState extends State<PhoneRegistrationScreen>
         stackTrace: stackTrace,
         reason: 'verifyPhoneNumber:FirebaseAuthException:${error.code}',
         apnsTokenReady: apnsTokenReady,
+        attemptId: attemptId,
       );
       if (mounted) {
         setState(() {
           _busy = false;
           _error = friendlyPhoneAuthErrorMessage(error);
         });
+        _startResendCountdown();
       }
     } on PlatformException catch (error, stackTrace) {
       // verifyPhoneNumber can throw a raw PlatformException (e.g. a native
       // internal-error) instead of routing through verificationFailed —
       // this guarantees it's still caught and reported.
+      final diagnostics = phoneAuthExceptionDiagnostics(error);
+      debugPrintPhoneAuthException(error);
       await ShareFlowLogService.log(
-        'PHONE_VERIFY_PLATFORM_EXCEPTION | code=${error.code} | message=${error.message}',
+        'PHONE_VERIFY_PLATFORM_EXCEPTION | $diagnostics',
       );
       await _reportPhoneVerifyError(
         error: error,
         stackTrace: stackTrace,
         reason: 'verifyPhoneNumber:PlatformException:${error.code}',
         apnsTokenReady: apnsTokenReady,
+        attemptId: attemptId,
       );
       if (mounted) {
         setState(() {
           _busy = false;
           _error = friendlyPhoneAuthErrorMessage(error);
         });
+        _startResendCountdown();
       }
     } catch (error, stackTrace) {
-      await ShareFlowLogService.log('PHONE_VERIFY_UNKNOWN_EXCEPTION | error=$error');
+      await ShareFlowLogService.log(
+        'PHONE_VERIFY_UNKNOWN_EXCEPTION | '
+        '${phoneAuthExceptionDiagnostics(error)}',
+      );
       await _reportPhoneVerifyError(
         error: error,
         stackTrace: stackTrace,
         reason: 'verifyPhoneNumber:unknown',
         apnsTokenReady: apnsTokenReady,
+        attemptId: attemptId,
       );
       if (mounted) {
         setState(() {
           _busy = false;
           _error = 'לא הצלחנו לשלוח קוד אימות.';
         });
+        _startResendCountdown();
       }
     }
   }
@@ -435,7 +438,8 @@ class _PhoneRegistrationScreenState extends State<PhoneRegistrationScreen>
       if (!mounted) return;
       setState(() {
         _busy = false;
-        _error = friendlyPhoneAuthErrorMessage(error, fallback: 'קוד האימות אינו תקין.');
+        _error = friendlyPhoneAuthErrorMessage(error,
+            fallback: 'קוד האימות אינו תקין.');
       });
     }
   }
@@ -492,7 +496,8 @@ class _PhoneRegistrationScreenState extends State<PhoneRegistrationScreen>
       if (mounted) {
         setState(() {
           _busy = false;
-          _error = friendlyPhoneAuthErrorMessage(error, fallback: 'לא הצלחנו ליצור את החשבון.');
+          _error = friendlyPhoneAuthErrorMessage(error,
+              fallback: 'לא הצלחנו ליצור את החשבון.');
         });
       }
     } catch (error) {
@@ -805,11 +810,11 @@ class _PhoneRegistrationScreenState extends State<PhoneRegistrationScreen>
         _phoneField(),
         const SizedBox(height: 26),
         _button(
-          'שליחת קוד',
+          _resendSecondsRemaining > 0 ? _resendCountdownLabel : 'שליחת קוד',
           _sendCode,
           compact: true,
-          disabledExtra: _apnsPreparing,
-          busyLabel: 'מכינים את האבטחה במכשיר...',
+          disabledExtra: _apnsPreparing || _resendSecondsRemaining > 0,
+          busyLabel: _apnsPreparing ? 'מכינים את האבטחה במכשיר...' : null,
         ),
         const SizedBox(height: 20),
         Row(

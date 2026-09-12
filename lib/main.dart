@@ -55,6 +55,37 @@ Future<void> _configureAuthConnection() async {
   auth.useAuthEmulator(emulatorHost, 9099);
 }
 
+Future<void> _verifyAppCheckConfiguration() async {
+  try {
+    final token = await FirebaseAppCheck.instance.getTokenResult(true);
+    await ShareFlowLogService.log(
+      'APP_CHECK_TOKEN_READY | hasToken=${token?.token.isNotEmpty == true}',
+    );
+  } on FirebaseException catch (error) {
+    await ShareFlowLogService.log(
+      'APP_CHECK_TOKEN_FAILED',
+      data: <String, Object?>{
+        'code': error.code,
+        'message': error.message,
+      },
+    );
+  } on PlatformException catch (error) {
+    await ShareFlowLogService.log(
+      'APP_CHECK_TOKEN_PLATFORM_FAILED',
+      data: <String, Object?>{
+        'code': error.code,
+        'message': error.message,
+        'details': error.details,
+      },
+    );
+  } catch (error) {
+    await ShareFlowLogService.log(
+      'APP_CHECK_TOKEN_UNKNOWN_FAILED',
+      data: <String, Object?>{'error': error},
+    );
+  }
+}
+
 class AppColors {
   static const Color background = Color(0xFF070B12);
   static const Color backgroundElevated = Color(0xFF101827);
@@ -79,7 +110,7 @@ Future<void> main() async {
     if (!kIsWeb) {
       await ShareFlowLogService.log(
         'APP_CHECK_PROVIDER_SELECTION | kDebugMode=$kDebugMode | '
-        'appleProvider=${kDebugMode ? 'AppleDebugProvider' : 'AppleDeviceCheckProvider'}',
+        'appleProvider=${kDebugMode ? 'AppleDebugProvider' : 'AppleAppAttestWithDeviceCheckFallbackProvider'}',
       );
       await FirebaseAppCheck.instance.activate(
         providerAndroid: kDebugMode
@@ -87,13 +118,15 @@ Future<void> main() async {
             : const AndroidPlayIntegrityProvider(),
         providerApple: kDebugMode
             ? const AppleDebugProvider()
-          : const AppleDeviceCheckProvider(),
+            : const AppleAppAttestWithDeviceCheckFallbackProvider(),
       );
+      await _verifyAppCheckConfiguration();
     }
     await ShareFlowLogService.log('APP_CHECK_ACTIVATED');
 
     if (!kIsWeb) {
-      FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;
+      FlutterError.onError =
+          FirebaseCrashlytics.instance.recordFlutterFatalError;
       PlatformDispatcher.instance.onError = (error, stack) {
         FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
         return true;

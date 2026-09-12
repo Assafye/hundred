@@ -10,6 +10,102 @@ import UserNotifications
   private static var hasApnsToken = false
   private static var pendingApnsResults: [UUID: FlutterResult] = [:]
   private static let apnsChannelName = "com.hundred.hundred/apns_status"
+  private static let phoneAuthChannelName = "com.hundred.hundred/phone_auth_diagnostics"
+
+  private static let sensitiveErrorKeys = [
+    "appcredential", "credential", "phone", "phonenumber", "receipt", "secret", "token",
+  ]
+
+  private static func normalizedErrorKey(_ key: String) -> String {
+    key.lowercased().filter { $0.isLetter }
+  }
+
+  private static func sanitizeErrorText(_ value: String) -> String {
+    var sanitized = value
+    let patterns = [#"\+?\d{8,15}"#, #"[A-Za-z0-9_\-./+=]{40,}"#]
+    for pattern in patterns {
+      guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
+      let range = NSRange(sanitized.startIndex..<sanitized.endIndex, in: sanitized)
+      sanitized = regex.stringByReplacingMatches(
+        in: sanitized,
+        range: range,
+        withTemplate: "<redacted>"
+      )
+    }
+    return sanitized
+  }
+
+  private static func sanitizeErrorValue(_ value: Any, key: String? = nil) -> Any {
+    if let key,
+      sensitiveErrorKeys.contains(where: { normalizedErrorKey(key).contains($0) })
+    {
+      return "<redacted>"
+    }
+    if let dictionary = value as? [String: Any] {
+      var sanitized: [String: Any] = [:]
+      for (nestedKey, nestedValue) in dictionary {
+        sanitized[nestedKey] = sanitizeErrorValue(nestedValue, key: nestedKey)
+      }
+      return sanitized
+    }
+    if let dictionary = value as? [AnyHashable: Any] {
+      var sanitized: [String: Any] = [:]
+      for (nestedKey, nestedValue) in dictionary {
+        let keyString = String(describing: nestedKey)
+        sanitized[keyString] = sanitizeErrorValue(nestedValue, key: keyString)
+      }
+      return sanitized
+    }
+    if let values = value as? [Any] {
+      return values.map { sanitizeErrorValue($0) }
+    }
+    if let text = value as? String {
+      return sanitizeErrorText(text)
+    }
+    if value is NSNull || value is NSNumber {
+      return value
+    }
+    return sanitizeErrorText(String(describing: value))
+  }
+
+  private static func diagnosticDetails(for error: NSError, depth: Int = 0) -> [String: Any] {
+    var details: [String: Any] = [
+      "nativeDomain": error.domain,
+      "nativeCode": error.code,
+      "localizedDescription": sanitizeErrorText(error.localizedDescription),
+      "userInfoKeys": error.userInfo.keys.map { String(describing: $0) }.sorted(),
+    ]
+    if let authErrorName = error.userInfo[AuthErrorUserInfoNameKey] as? String {
+      details["authErrorName"] = authErrorName
+    }
+    if let failureReason = error.userInfo[NSLocalizedFailureReasonErrorKey] as? String {
+      details["failureReason"] = sanitizeErrorText(failureReason)
+    }
+    if let recoverySuggestion = error.userInfo[NSLocalizedRecoverySuggestionErrorKey] as? String {
+      details["recoverySuggestion"] = sanitizeErrorText(recoverySuggestion)
+    }
+    if let deserializedResponse =
+      error.userInfo["FIRAuthErrorUserInfoDeserializedResponseKey"]
+    {
+      details["backendResponse"] = sanitizeErrorValue(deserializedResponse)
+    }
+    if depth < 4,
+      let underlyingError = error.userInfo[NSUnderlyingErrorKey] as? NSError
+    {
+      details["underlyingError"] = diagnosticDetails(for: underlyingError, depth: depth + 1)
+    }
+    return details
+  }
+
+  private static func flutterErrorCode(for error: NSError) -> String {
+    guard let authErrorName = error.userInfo[AuthErrorUserInfoNameKey] as? String else {
+      return "internal-error"
+    }
+    return authErrorName
+      .replacingOccurrences(of: "ERROR_", with: "")
+      .replacingOccurrences(of: "_", with: "-")
+      .lowercased()
+  }
 
   override func application(
     _ application: UIApplication,
@@ -42,6 +138,58 @@ import UserNotifications
           }
         default:
           result(FlutterMethodNotImplemented)
+        }
+      }
+
+      let phoneAuthChannel = FlutterMethodChannel(
+        name: AppDelegate.phoneAuthChannelName,
+        binaryMessenger: controller.binaryMessenger
+      )
+      phoneAuthChannel.setMethodCallHandler { call, result in
+        guard call.method == "verifyPhoneNumber" else {
+          result(FlutterMethodNotImplemented)
+          return
+        }
+        guard let arguments = call.arguments as? [String: Any],
+          let phoneNumber = arguments["phoneNumber"] as? String,
+          !phoneNumber.isEmpty,
+          let attemptId = arguments["attemptId"] as? String,
+          !attemptId.isEmpty
+        else {
+          result(FlutterError(
+            code: "invalid-arguments",
+            message: "Phone number and attempt ID are required.",
+            details: nil
+          ))
+          return
+        }
+
+        print("PHONE_AUTH_NATIVE_START | attemptId=\(attemptId)")
+        PhoneAuthProvider.provider(auth: Auth.auth()).verifyPhoneNumber(
+          phoneNumber,
+          uiDelegate: nil
+        ) { verificationId, error in
+          if let error = error as NSError? {
+            var details = AppDelegate.diagnosticDetails(for: error)
+            details["attemptId"] = attemptId
+            print("PHONE_AUTH_NATIVE_FAILED | attemptId=\(attemptId) | details=\(details)")
+            result(FlutterError(
+              code: AppDelegate.flutterErrorCode(for: error),
+              message: AppDelegate.sanitizeErrorText(error.localizedDescription),
+              details: details
+            ))
+            return
+          }
+          guard let verificationId, !verificationId.isEmpty else {
+            result(FlutterError(
+              code: "missing-verification-id",
+              message: "Phone verification returned no verification ID.",
+              details: ["attemptId": attemptId]
+            ))
+            return
+          }
+          print("PHONE_AUTH_NATIVE_CODE_SENT | attemptId=\(attemptId)")
+          result(["verificationId": verificationId])
         }
       }
     }
