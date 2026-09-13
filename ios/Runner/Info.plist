@@ -51,7 +51,7 @@
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>המיקום שלך משמש להצגת פופים ופעילויות קרובים ולדירוגם לפי קרבה. משתמשים אחרים רואים רק טווח מרחק כללי, ולא את מיקומך המדויק.</string>
 	<key>NSCameraUsageDescription</key>
-	<string>המצלמה משמשת לצילום תמונות וסרטונים לפוסטים, צ׳אטים ותמונות קבוצה.</string>
+	<string>המצלמה משמשת לאימות אנושי ולצילום תמונות וסרטונים באפליקציה.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>המיקרופון משמש להקלטת קול בעת צילום וידאו באפליקציה.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

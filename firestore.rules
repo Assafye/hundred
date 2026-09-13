@@ -69,6 +69,14 @@ service cloud.firestore {
         );
     }
 
+    function isServerFaceVerificationDataUnchanged() {
+      return !request.resource.data.diff(resource.data).changedKeys().hasAny([
+        'isFaceVerified',
+        'faceVerifiedAt',
+        'faceVerificationVersion'
+      ]);
+    }
+
     function isBirthDateUnchangedOrInitiallySet() {
       return (
           !('birthDate' in resource.data) &&
@@ -807,8 +815,13 @@ service cloud.firestore {
 
     match /meet_now_posts/{postId} {
       allow read: if isSignedIn() &&
-        ('creatorTag' in resource.data) &&
-        canUserViewAgeTag(request.auth.uid, resource.data.creatorTag);
+        (
+          resource.data.authorUid == request.auth.uid ||
+          (
+            ('creatorTag' in resource.data) &&
+            canUserViewAgeTag(request.auth.uid, resource.data.creatorTag)
+          )
+        );
       allow create: if isSignedIn() &&
         request.resource.data.authorUid == request.auth.uid &&
         request.resource.data.creatorTag ==
@@ -845,9 +858,13 @@ service cloud.firestore {
       allow create: if isSelf(document) &&
         !('ageTag' in request.resource.data) &&
         !('ageTagVerifiedAt' in request.resource.data) &&
+        !('isFaceVerified' in request.resource.data) &&
+        !('faceVerifiedAt' in request.resource.data) &&
+        !('faceVerificationVersion' in request.resource.data) &&
         hasNoExactLocationFields(request.resource.data);
       allow update: if isSelf(document) &&
         isServerAgeDataUnchanged() &&
+        isServerFaceVerificationDataUnchanged() &&
         (isBirthDateUnchangedOrInitiallySet() ||
           isAccountDeletionTombstone()) &&
         hasNoExactLocationFields(request.resource.data);

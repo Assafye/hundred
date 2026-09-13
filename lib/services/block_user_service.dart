@@ -49,6 +49,9 @@ class BlockUserService {
   }
 
   bool _isRecoverableBlockReadError(Object error) {
+    if (error is TimeoutException) {
+      return true;
+    }
     if (error is! FirebaseException) {
       return false;
     }
@@ -259,11 +262,11 @@ class BlockUserService {
   }
 
   Future<bool> isEitherUserBlocked(String otherUid) async {
-    final byMe = await isBlockedByMe(otherUid);
-    if (byMe) {
-      return true;
-    }
     try {
+      final byMe = await isBlockedByMe(otherUid);
+      if (byMe) {
+        return true;
+      }
       return await isBlockedByOther(otherUid);
     } catch (error) {
       if (_isRecoverableBlockReadError(error)) {
@@ -742,7 +745,8 @@ class BlockUserService {
       'following': FieldValue.arrayRemove(<String>[normalizedTargetUid]),
       'followers': FieldValue.arrayRemove(<String>[normalizedTargetUid]),
       'followRequests': FieldValue.arrayRemove(<String>[normalizedTargetUid]),
-      'sentFollowRequests': FieldValue.arrayRemove(<String>[normalizedTargetUid]),
+      'sentFollowRequests':
+          FieldValue.arrayRemove(<String>[normalizedTargetUid]),
       'friends': FieldValue.arrayRemove(<String>[normalizedTargetUid]),
       'updatedAt': FieldValue.serverTimestamp(),
     };

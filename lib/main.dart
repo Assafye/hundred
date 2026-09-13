@@ -10,9 +10,11 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'firebase_options.dart';
+import 'features/verification/face_verification_screen.dart';
 import 'feed_screen.dart';
 import 'login_screen.dart';
 import 'services/auth_service.dart';
+import 'services/face_verification_service.dart';
 import 'services/share_flow_log_service.dart';
 import 'services/theme_mode_service.dart';
 import 'services/location_service.dart';
@@ -57,9 +59,9 @@ Future<void> _configureAuthConnection() async {
 
 Future<void> _verifyAppCheckConfiguration() async {
   try {
-    final token = await FirebaseAppCheck.instance.getTokenResult(true);
+    final token = await FirebaseAppCheck.instance.getToken(true);
     await ShareFlowLogService.log(
-      'APP_CHECK_TOKEN_READY | hasToken=${token?.token.isNotEmpty == true}',
+      'APP_CHECK_TOKEN_READY | hasToken=${token?.isNotEmpty == true}',
     );
   } on FirebaseException catch (error) {
     await ShareFlowLogService.log(
@@ -113,12 +115,11 @@ Future<void> main() async {
         'appleProvider=${kDebugMode ? 'AppleDebugProvider' : 'AppleAppAttestWithDeviceCheckFallbackProvider'}',
       );
       await FirebaseAppCheck.instance.activate(
-        providerAndroid: kDebugMode
-            ? const AndroidDebugProvider()
-            : const AndroidPlayIntegrityProvider(),
-        providerApple: kDebugMode
-            ? const AppleDebugProvider()
-            : const AppleAppAttestWithDeviceCheckFallbackProvider(),
+        androidProvider:
+            kDebugMode ? AndroidProvider.debug : AndroidProvider.playIntegrity,
+        appleProvider: kDebugMode
+            ? AppleProvider.debug
+            : AppleProvider.appAttestWithDeviceCheckFallback,
       );
       await _verifyAppCheckConfiguration();
     }
@@ -796,9 +797,21 @@ class VerifiedSessionGate extends StatefulWidget {
   State<VerifiedSessionGate> createState() => _VerifiedSessionGateState();
 }
 
+class _VerifiedSessionState {
+  const _VerifiedSessionState({
+    required this.onboardingStep,
+    required this.isFaceVerified,
+  });
+
+  final OnboardingStep onboardingStep;
+  final bool isFaceVerified;
+}
+
 class _VerifiedSessionGateState extends State<VerifiedSessionGate> {
   final AuthService _authService = AuthService();
-  late final Future<OnboardingStep> _verificationCheck;
+  final FaceVerificationService _faceVerificationService =
+      FaceVerificationService();
+  late Future<_VerifiedSessionState> _verificationCheck;
 
   @override
   void initState() {
@@ -806,35 +819,66 @@ class _VerifiedSessionGateState extends State<VerifiedSessionGate> {
     _verificationCheck = _ensureVerifiedSession();
   }
 
-  Future<OnboardingStep> _ensureVerifiedSession() async {
+  Future<_VerifiedSessionState> _ensureVerifiedSession() async {
     final currentUser = FirebaseAuth.instance.currentUser;
     if (currentUser == null) {
-      return OnboardingStep.pendingVerification;
+      return const _VerifiedSessionState(
+        onboardingStep: OnboardingStep.pendingVerification,
+        isFaceVerified: false,
+      );
     }
 
     if (await _authService.canCurrentUserAccessApp()) {
-      return OnboardingStep.active;
+      var isFaceVerified = false;
+      try {
+        isFaceVerified = await _faceVerificationService.isCurrentUserVerified();
+      } catch (_) {
+        // A status read failure must fail closed and keep the app gated.
+      }
+      return _VerifiedSessionState(
+        onboardingStep: OnboardingStep.active,
+        isFaceVerified: isFaceVerified,
+      );
     }
 
-    return await _authService.currentUserOnboardingStep();
+    return _VerifiedSessionState(
+      onboardingStep: await _authService.currentUserOnboardingStep(),
+      isFaceVerified: false,
+    );
+  }
+
+  void _handleFaceVerified() {
+    if (!mounted) return;
+    setState(() {
+      _verificationCheck = _ensureVerifiedSession();
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<OnboardingStep>(
+    return FutureBuilder<_VerifiedSessionState>(
       future: _verificationCheck,
       builder: (context, snapshot) {
         if (snapshot.connectionState != ConnectionState.done) {
           return const AnimatedInfinitySplashScreen();
         }
 
-        final onboardingStep =
-            snapshot.data ?? OnboardingStep.pendingVerification;
+        final sessionState = snapshot.data ??
+            const _VerifiedSessionState(
+              onboardingStep: OnboardingStep.pendingVerification,
+              isFaceVerified: false,
+            );
         final currentUser = FirebaseAuth.instance.currentUser;
-        final isReady =
-            onboardingStep == OnboardingStep.active && currentUser != null;
+        final isReady = sessionState.onboardingStep == OnboardingStep.active &&
+            currentUser != null;
 
         if (isReady) {
+          if (!sessionState.isFaceVerified) {
+            return FaceVerificationScreen(
+              onVerified: _handleFaceVerified,
+              showExistingUserNotice: true,
+            );
+          }
           return const AuthenticatedAppShell();
         }
 

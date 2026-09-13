@@ -1791,36 +1791,40 @@ class AuthService {
       final phoneRef = _db.collection('registered_phones').doc(normalizedPhone);
       final batch = _db.batch();
 
-      batch.set(userRef, {
-        'uid': user.uid,
-        'email': (user.email ?? '').trim(),
-        'phoneAuthEmail': phoneAuthEmail(normalizedPhone),
-        'username': normalizedUsername,
-        'usernameLowercase': normalizedUsername,
-        'firstName': normalizedFirstName,
-        'lastName': normalizedLastName,
-        'displayName': normalizedDisplayName,
-        'phone': normalizedPhone,
-        'birthDate': normalizedBirthDate,
-        'isAgeRestricted': isAgeRestricted,
-        'lifeMotto': normalizedLifeMotto,
-        'bio': normalizedBio,
-        'profilePictureUrl': defaultProfilePictureUrl,
-        'profileImageUrls': uploadedProfileImageUrls,
-        'followers': <String>[],
-        'following': <String>[],
-        'friends': <String>[],
-        'followersCount': 0,
-        'followingCount': 0,
-        'friendsCount': 0,
-        'isPrivate': false,
-        'score': 0,
-        if (privacyAccepted) ...{
-          privacyAcceptedAtField: FieldValue.serverTimestamp(),
-          privacyPolicyVersionField: '2026-08-06',
+      batch.set(
+        userRef,
+        {
+          'uid': user.uid,
+          'email': (user.email ?? '').trim(),
+          'phoneAuthEmail': phoneAuthEmail(normalizedPhone),
+          'username': normalizedUsername,
+          'usernameLowercase': normalizedUsername,
+          'firstName': normalizedFirstName,
+          'lastName': normalizedLastName,
+          'displayName': normalizedDisplayName,
+          'phone': normalizedPhone,
+          'birthDate': normalizedBirthDate,
+          'isAgeRestricted': isAgeRestricted,
+          'lifeMotto': normalizedLifeMotto,
+          'bio': normalizedBio,
+          'profilePictureUrl': defaultProfilePictureUrl,
+          'profileImageUrls': uploadedProfileImageUrls,
+          'followers': <String>[],
+          'following': <String>[],
+          'friends': <String>[],
+          'followersCount': 0,
+          'followingCount': 0,
+          'friendsCount': 0,
+          'isPrivate': false,
+          'score': 0,
+          if (privacyAccepted) ...{
+            privacyAcceptedAtField: FieldValue.serverTimestamp(),
+            privacyPolicyVersionField: '2026-08-06',
+          },
+          'createdAt': FieldValue.serverTimestamp(),
         },
-        'createdAt': FieldValue.serverTimestamp(),
-      });
+        SetOptions(merge: true),
+      );
 
       batch.set(userPublicRef, {
         ..._publicProfilePayload(

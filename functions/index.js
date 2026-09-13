@@ -1,6 +1,7 @@
 const { initializeApp } = require('firebase-admin/app');
 const { FieldValue, getFirestore } = require('firebase-admin/firestore');
 const { getMessaging } = require('firebase-admin/messaging');
+const { getStorage } = require('firebase-admin/storage');
 const { HttpsError, onCall } = require('firebase-functions/v2/https');
 const { onDocumentCreated, onDocumentWritten } = require('firebase-functions/v2/firestore');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
@@ -12,6 +13,7 @@ const {
 initializeApp();
 const db = getFirestore();
 const messaging = getMessaging();
+const storage = getStorage();
 const REGION = 'europe-west3';
 const MAX_RESULTS = 360;
 const POST_LIFETIME_MS = 24 * 60 * 60 * 1000;
@@ -602,6 +604,70 @@ exports.backfillAgePolicyCreatorTagsNow = onCall(
       throw new HttpsError('permission-denied', 'Administrator access is required.');
     }
     return runAgePolicyCreatorTagBackfill();
+  },
+);
+
+exports.initializeFaceVerificationStatus = onDocumentCreated(
+  { document: 'users/{uid}', region: REGION },
+  async (event) => {
+    const snapshot = event.data;
+    if (!snapshot || snapshot.get('isFaceVerified') === true) return;
+    await snapshot.ref.set({ isFaceVerified: false }, { merge: true });
+  },
+);
+
+exports.finalizeFaceVerification = onCall(
+  { region: REGION, enforceAppCheck: true },
+  async (request) => {
+    const uid = request.auth?.uid;
+    if (!uid) {
+      throw new HttpsError('unauthenticated', 'Authentication is required.');
+    }
+    if (!request.app) {
+      throw new HttpsError('failed-precondition', 'App Check is required.');
+    }
+
+    const userRef = db.doc(`users/${uid}`);
+    const userSnapshot = await userRef.get();
+    if (!userSnapshot.exists) {
+      throw new HttpsError('failed-precondition', 'User profile is missing.');
+    }
+    if (userSnapshot.get('isFaceVerified') === true) {
+      return { verified: true };
+    }
+
+    const bucket = storage.bucket();
+    const files = [1, 2, 3].map(
+      (index) => bucket.file(`users/${uid}/verification/image_${index}.jpg`),
+    );
+    const metadataEntries = await Promise.all(files.map(async (file) => {
+      const [exists] = await file.exists();
+      if (!exists) {
+        throw new HttpsError(
+          'failed-precondition',
+          'All verification images are required.',
+        );
+      }
+      const [metadata] = await file.getMetadata();
+      return metadata;
+    }));
+
+    const hasInvalidImage = metadataEntries.some((metadata) => {
+      const size = Number(metadata.size ?? 0);
+      return metadata.contentType !== 'image/jpeg' || size <= 0 || size > 5 * 1024 * 1024;
+    });
+    if (hasInvalidImage) {
+      throw new HttpsError('invalid-argument', 'Invalid verification image.');
+    }
+
+    await userRef.set({
+      isFaceVerified: true,
+      faceVerifiedAt: FieldValue.serverTimestamp(),
+      faceVerificationVersion: 1,
+      updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+
+    return { verified: true };
   },
 );
 

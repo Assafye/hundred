@@ -11,9 +11,11 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 
 import 'age_restrictions.dart';
+import 'features/verification/face_verification_screen.dart';
 import 'login_screen.dart';
 import 'privacy_policy_dialog.dart';
 import 'services/auth_service.dart';
+import 'services/face_verification_service.dart';
 import 'services/keyboard_dismiss_controller.dart';
 import 'usage_guide_screen.dart';
 import 'widgets/swipe_back_wrapper.dart';
@@ -106,12 +108,33 @@ class _RegisterScreenState extends State<RegisterScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
       await _restorePendingRegistrationDraft();
+      if (_currentStep == 1) {
+        await _ensureFaceVerificationBeforeProfile();
+      }
       if (!mounted) return;
       setState(() {
         _animateBg = true;
         _isRestoringDraft = false;
       });
     });
+  }
+
+  Future<bool> _ensureFaceVerificationBeforeProfile() async {
+    var isFaceVerified = false;
+    try {
+      isFaceVerified = await FaceVerificationService().isCurrentUserVerified();
+    } catch (_) {
+      // Fail closed: an unreadable status must not bypass verification.
+    }
+    if (isFaceVerified) return true;
+    if (!mounted) return false;
+
+    final didVerifyFace = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        builder: (_) => const FaceVerificationScreen(),
+      ),
+    );
+    return didVerifyFace == true;
   }
 
   int _profileStageFromName(String stage) {
@@ -1075,6 +1098,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
         await _authService.endPendingRegistrationFlow(signOut: true);
         return;
       }
+
+      final didVerifyFace = await _ensureFaceVerificationBeforeProfile();
+      if (!mounted || !didVerifyFace) return;
 
       setState(() {
         _currentStep = 1;
