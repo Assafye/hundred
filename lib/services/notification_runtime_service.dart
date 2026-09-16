@@ -184,6 +184,17 @@ class NotificationRuntimeService with WidgetsBindingObserver {
     return true;
   }
 
+  String _inAppDeduplicationKey(
+    String notificationId,
+    Map<String, dynamic> data,
+  ) {
+    final revision = data['notificationRevision']?.toString().trim() ?? '';
+    if (notificationId.isEmpty || revision.isEmpty) {
+      return notificationId;
+    }
+    return '$notificationId:$revision';
+  }
+
   void _onInAppListenerAttached() {
     if (_pendingInAppEvents.isNotEmpty) {
       for (final event in _pendingInAppEvents) {
@@ -288,7 +299,9 @@ class NotificationRuntimeService with WidgetsBindingObserver {
       }
 
       final notificationId = (payload['notificationId'] as String? ?? '').trim();
-      if (!_markShownOnce(notificationId)) {
+        final deduplicationKey =
+          _inAppDeduplicationKey(notificationId, payload);
+        if (!_markShownOnce(deduplicationKey)) {
         debugPrint(
           'NotificationRuntimeService: skipping duplicate onMessage event for $notificationId',
         );
@@ -449,7 +462,8 @@ class NotificationRuntimeService with WidgetsBindingObserver {
           'at=${DateTime.now().toIso8601String()}',
         );
 
-        if (!_markShownOnce(docId)) {
+        final deduplicationKey = _inAppDeduplicationKey(docId, data);
+        if (!_markShownOnce(deduplicationKey)) {
           debugPrint(
             'NotificationRuntimeService: skipping duplicate Firestore event for $docId',
           );

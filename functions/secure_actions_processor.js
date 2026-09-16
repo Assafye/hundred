@@ -329,6 +329,7 @@ async function upsertPostLikeNotification({
   postImageUrl = '',
   likeCount,
   currentLikeUids = null,
+  shouldNotify = true,
 }) {
   const recipient = String(recipientUid ?? '').trim();
   const normalizedPostId = String(postId ?? '').trim();
@@ -383,6 +384,10 @@ async function upsertPostLikeNotification({
     .filter(Boolean);
 
   const wasRead = Boolean(existing.isRead ?? false);
+  const notificationRevision = Math.max(
+    0,
+    Number(existing.notificationRevision ?? 0) || 0,
+  ) + (shouldNotify ? 1 : 0);
   const payload = {
     recipientUid: recipient,
     type: 'post_like',
@@ -393,16 +398,20 @@ async function upsertPostLikeNotification({
     actorAvatarUrl: primaryActor.avatarUrl,
     postId: normalizedPostId,
     postImageUrl: String(postImageUrl || existing.postImageUrl || '').trim(),
-    isRead: canonicalSnap.exists ? wasRead : false,
+    isRead: shouldNotify ? false : wasRead,
     likeCount: resolvedLikeCount,
-    recentLikeActorUids,
+    recentLikeActorUids: recentActorUids,
     recentLikeActorAvatarUrls: recentAvatarUrls,
+    notificationRevision,
+    suppressPush: !shouldNotify,
     updatedAt: FieldValue.serverTimestamp(),
-    ...(canonicalSnap.exists ? {} : { createdAt: FieldValue.serverTimestamp() }),
+    ...(shouldNotify || !canonicalSnap.exists
+      ? { createdAt: FieldValue.serverTimestamp() }
+      : {}),
   };
 
   await canonicalRef.set(payload, { merge: true });
-  if (!canonicalSnap.exists) {
+  if (!canonicalSnap.exists || (shouldNotify && wasRead)) {
     await db.collection('users').doc(recipient).set(
       { unreadNotificationsCount: FieldValue.increment(1) },
       { merge: true }
@@ -907,6 +916,7 @@ async function processTogglePostLike(actorUid, payload) {
       postImageUrl: String(postAfter.imageUrl ?? postAfter.mediaUrl ?? '').trim(),
       likeCount: Number(postAfter.likesCount ?? 0) || 0,
       currentLikeUids: Array.isArray(postAfter.likes) ? postAfter.likes : [],
+      shouldNotify: didAddLike,
     });
   }
 }
@@ -928,6 +938,7 @@ async function processReconcilePostLikeNotification(actorUid, payload) {
     ).trim(),
     likeCount: Number(postData.likesCount ?? 0) || 0,
     currentLikeUids: Array.isArray(postData.likes) ? postData.likes : [],
+    shouldNotify: notifyingActorUid.length > 0,
   });
 }
 

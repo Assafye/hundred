@@ -245,7 +245,11 @@ class NotificationService {
     try {
       await _db.collection('users').doc(recipientUid).set(
         <String, dynamic>{
-          'notificationDedupe.$type.$bucket': FieldValue.serverTimestamp(),
+          'notificationDedupe': <String, dynamic>{
+            type: <String, dynamic>{
+              bucket: FieldValue.serverTimestamp(),
+            },
+          },
         },
         SetOptions(merge: true),
       );
@@ -271,19 +275,26 @@ class NotificationService {
         (data['notificationSettings'] as Map<String, dynamic>?) ??
             const <String, dynamic>{};
 
-    final updates = <String, dynamic>{};
+    final missingSettings = <String, bool>{};
     for (final entry in defaultSettings.entries) {
       if (existingSettings[entry.key] is! bool) {
-        updates['notificationSettings.${entry.key}'] = entry.value;
+        final legacyValue = data['notificationSettings.${entry.key}'];
+        missingSettings[entry.key] =
+            legacyValue is bool ? legacyValue : entry.value;
       }
     }
 
-    if (updates.isEmpty) {
+    if (missingSettings.isEmpty) {
       return;
     }
 
-    updates['updatedAt'] = FieldValue.serverTimestamp();
-    await userRef.set(updates, SetOptions(merge: true));
+    await userRef.set(
+      <String, dynamic>{
+        'notificationSettings': missingSettings,
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
   }
 
   Future<void> updateCurrentUserSettings(Map<String, bool> updates) async {
@@ -291,12 +302,9 @@ class NotificationService {
     if (uid.isEmpty || updates.isEmpty) return;
 
     final payload = <String, dynamic>{
+      'notificationSettings': updates,
       'updatedAt': FieldValue.serverTimestamp(),
     };
-
-    for (final entry in updates.entries) {
-      payload['notificationSettings.${entry.key}'] = entry.value;
-    }
 
     await _db
         .collection('users')
@@ -1053,6 +1061,10 @@ class NotificationService {
     final dynamic value = settings[settingKey];
     if (value is bool) {
       return value;
+    }
+    final legacyValue = data['notificationSettings.$settingKey'];
+    if (legacyValue is bool) {
+      return legacyValue;
     }
     return defaultSettings[settingKey] ?? true;
   }

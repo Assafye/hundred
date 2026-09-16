@@ -22,7 +22,6 @@ import 'services/notification_runtime_service.dart';
 import 'services/presence_service.dart';
 import 'services/app_navigator.dart';
 import 'services/keyboard_dismiss_controller.dart';
-import 'services/challenge_notifications_orchestrator.dart';
 import 'services/post_interaction_overlay_service.dart';
 import 'services/public_user_profile_service.dart';
 import 'widgets/adaptive_viewport.dart';
@@ -770,14 +769,12 @@ class _AuthenticatedAppShellState extends State<AuthenticatedAppShell> {
     super.initState();
     _presenceService.start();
     _locationService.start();
-    ChallengeNotificationsOrchestrator.instance.start();
   }
 
   @override
   void dispose() {
     _presenceService.stop();
     _locationService.stop();
-    ChallengeNotificationsOrchestrator.instance.stop();
     super.dispose();
   }
 

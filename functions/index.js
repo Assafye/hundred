@@ -1,5 +1,5 @@
 const { initializeApp } = require('firebase-admin/app');
-const { FieldValue, getFirestore } = require('firebase-admin/firestore');
+const { FieldValue, Timestamp, getFirestore } = require('firebase-admin/firestore');
 const { getMessaging } = require('firebase-admin/messaging');
 const { getStorage } = require('firebase-admin/storage');
 const { HttpsError, onCall } = require('firebase-functions/v2/https');
@@ -231,11 +231,51 @@ function notificationDataPayload(notificationId, data, recipientUid = '', imageU
     'groupName',
     'groupImageUrl',
     'isGroupChat',
+    'notificationRevision',
   ]) {
     const value = String(data[key] ?? '').trim();
     if (value) payload[key] = value;
   }
   return payload;
+}
+
+const NOTIFICATION_DELIVERY_FIELDS = [
+  'type',
+  'title',
+  'body',
+  'actorUid',
+  'actorName',
+  'actorAvatarUrl',
+  'postId',
+  'postImageUrl',
+  'chatId',
+  'chatName',
+  'chatAvatarUrl',
+  'groupId',
+  'groupName',
+  'groupImageUrl',
+  'commentId',
+  'isGroupChat',
+  'likeCount',
+  'recentLikeActorUids',
+  'recentLikeActorAvatarUrls',
+  'warningHoursRemaining',
+  'spontaneousCategory',
+  'spontaneousSubCategory',
+  'challengeCategory',
+  'challengeSubCategory',
+  'addedUserUid',
+  'addedUserName',
+  'addedUserUids',
+  'addedUserNames',
+  'addedUsersCount',
+  'notificationRevision',
+];
+
+function notificationDeliveryFingerprint(data = {}) {
+  return JSON.stringify(Object.fromEntries(
+    NOTIFICATION_DELIVERY_FIELDS.map((key) => [key, data[key] ?? null])
+  ));
 }
 
 function encodeGeoHash(latitude, longitude, precision) {
@@ -368,10 +408,21 @@ exports.sendPushForNotification = onDocumentWritten(
     const snapshot = event.data?.after;
     if (!snapshot || !snapshot.exists) return;
 
+    const previousSnapshot = event.data?.before;
+    if (previousSnapshot?.exists) {
+      const previousData = previousSnapshot.data() || {};
+      const currentData = snapshot.data() || {};
+      if (notificationDeliveryFingerprint(previousData) ===
+          notificationDeliveryFingerprint(currentData)) {
+        return;
+      }
+    }
+
     const uid = String(event.params.uid ?? '').trim();
     if (!uid) return;
 
     const data = snapshot.data() || {};
+    if (data.suppressPush === true) return;
     const title = String(data.title ?? '').trim();
     const body = String(data.body ?? '').trim();
     if (!title && !body) return;
@@ -426,6 +477,359 @@ exports.sendPushForNotification = onDocumentWritten(
         failureCount: response.failureCount,
       });
     }
+  },
+);
+
+function jerusalemDayKey(date = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Jerusalem',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function utcWeekIndex(date = new Date()) {
+  const anchor = Date.UTC(2024, 0, 1);
+  return Math.floor((date.getTime() - anchor) / (7 * 24 * 60 * 60 * 1000));
+}
+
+function notificationSettingEnabled(userData, settingKey) {
+  const nestedValue = userData.notificationSettings?.[settingKey];
+  if (typeof nestedValue === 'boolean') return nestedValue;
+  const legacyValue = userData[`notificationSettings.${settingKey}`];
+  return typeof legacyValue === 'boolean' ? legacyValue : true;
+}
+
+async function createScheduledChallengeNotifications({
+  type,
+  title,
+  body,
+  settingKey,
+  periodKey,
+  userUpdate,
+}) {
+  const usersSnapshot = await db.collection('users').get();
+  let createdCount = 0;
+
+  for (let offset = 0; offset < usersSnapshot.docs.length; offset += 100) {
+    const userDocs = usersSnapshot.docs.slice(offset, offset + 100);
+    const results = await Promise.all(userDocs.map(async (userDoc) => {
+      if (!notificationSettingEnabled(userDoc.data() || {}, settingKey)) return false;
+
+      const notificationId = `${type}_${periodKey}`;
+      const notificationRef = userDoc.ref.collection('notifications').doc(notificationId);
+
+      return db.runTransaction(async (tx) => {
+        const existing = await tx.get(notificationRef);
+        if (existing.exists) return false;
+
+        tx.create(notificationRef, {
+          recipientUid: userDoc.id,
+          type,
+          title,
+          body,
+          actorUid: '',
+          actorName: '',
+          actorAvatarUrl: '',
+          isRead: false,
+          createdAt: FieldValue.serverTimestamp(),
+        });
+        tx.set(userDoc.ref, {
+          unreadNotificationsCount: FieldValue.increment(1),
+          ...userUpdate,
+        }, { merge: true });
+        return true;
+      });
+    }));
+    createdCount += results.filter(Boolean).length;
+  }
+
+  console.log('Scheduled challenge notifications completed', {
+    type,
+    periodKey,
+    usersScanned: usersSnapshot.size,
+    createdCount,
+  });
+}
+
+exports.sendDailyChallengeUpdateNotifications = onSchedule(
+  {
+    region: REGION,
+    schedule: '0 14 * * *',
+    timeZone: 'Asia/Jerusalem',
+    maxInstances: 1,
+    retryCount: 3,
+  },
+  async () => {
+    const now = new Date();
+    const dayKey = jerusalemDayKey(now);
+    await createScheduledChallengeNotifications({
+      type: 'daily_challenge_updated',
+      title: 'המשימה היומית התעדכנה',
+      body: 'משימה יומית חדשה מחכה לך בכוכבי השבוע',
+      settingKey: 'dailyChallengeUpdates',
+      periodKey: dayKey,
+      userUpdate: {
+        notificationMeta: {
+          dailyChallenge: {
+            lastDayKey: dayKey,
+            lastSentAt: FieldValue.serverTimestamp(),
+          },
+        },
+      },
+    });
+  },
+);
+
+exports.sendWeeklyChallengeUpdateNotifications = onSchedule(
+  {
+    region: REGION,
+    schedule: '0 12 * * 1',
+    timeZone: 'Asia/Jerusalem',
+    maxInstances: 1,
+    retryCount: 3,
+  },
+  async () => {
+    const now = new Date();
+    const weekIndex = utcWeekIndex(now);
+    await createScheduledChallengeNotifications({
+      type: 'weekly_challenge_updated',
+      title: 'האתגר השבועי התעדכן',
+      body: 'אתגר חדש עם ניקוד כפול מחכה לך בכוכבי השבוע',
+      settingKey: 'weeklyChallengeUpdates',
+      periodKey: `week_${weekIndex}`,
+      userUpdate: {
+        notificationMeta: {
+          weeklyChallenge: {
+            lastWeekIndex: weekIndex,
+            lastSentAt: FieldValue.serverTimestamp(),
+          },
+        },
+      },
+    });
+  },
+);
+
+function timestampDate(value) {
+  if (value && typeof value.toDate === 'function') return value.toDate();
+  if (value instanceof Date) return value;
+  if (typeof value === 'string') {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+  return null;
+}
+
+function spontaneousTaskFromUserData(userData, now) {
+  const raw = userData.weeklySpontaneousChallenge;
+  if (!raw || typeof raw !== 'object') return null;
+
+  const category = String(raw.category ?? '').trim();
+  const subCategory = String(raw.subCategory ?? '').trim();
+  const assignedAt = timestampDate(raw.assignedAt);
+  const expiresAt = timestampDate(raw.expiresAt);
+  if (!category || !subCategory || !assignedAt || !expiresAt) return null;
+  if (expiresAt.getTime() <= now.getTime()) return null;
+
+  return { category, subCategory, assignedAt, expiresAt };
+}
+
+function spontaneousTaskKey(task) {
+  return `${task.category}::${task.subCategory}::${task.expiresAt.toISOString()}`;
+}
+
+exports.sendSpontaneousNoTaskReminders = onSchedule(
+  {
+    region: REGION,
+    schedule: '0 10 * * *',
+    timeZone: 'Asia/Jerusalem',
+    maxInstances: 1,
+    timeoutSeconds: 540,
+    retryCount: 3,
+  },
+  async () => {
+    const now = new Date();
+    const dayKey = jerusalemDayKey(now);
+    const usersSnapshot = await db.collection('users').get();
+    let createdCount = 0;
+
+    for (let offset = 0; offset < usersSnapshot.docs.length; offset += 100) {
+      const userDocs = usersSnapshot.docs.slice(offset, offset + 100);
+      const results = await Promise.all(userDocs.map((userDoc) =>
+        db.runTransaction(async (tx) => {
+          const freshUserSnapshot = await tx.get(userDoc.ref);
+          const userData = freshUserSnapshot.data() || {};
+          if (spontaneousTaskFromUserData(userData, now)) return false;
+
+          const lastReminderAt = timestampDate(
+            userData.notificationMeta?.spontaneous?.lastNoTaskReminderAt
+          );
+          if (lastReminderAt && now.getTime() - lastReminderAt.getTime() < 24 * 60 * 60 * 1000) {
+            return false;
+          }
+
+          const notificationRef = userDoc.ref
+            .collection('notifications')
+            .doc(`spontaneous_reminder_${dayKey}`);
+          const existing = await tx.get(notificationRef);
+          const remindersEnabled = notificationSettingEnabled(
+            userData,
+            'spontaneousReminders'
+          );
+
+          if (remindersEnabled && !existing.exists) {
+            tx.create(notificationRef, {
+              recipientUid: userDoc.id,
+              type: 'spontaneous_reminder',
+              title: 'בוא נבדוק את הספונטניות שלך',
+              body: 'זה הזמן להגריל משימה ספונטנית!',
+              actorUid: '',
+              actorName: '',
+              actorAvatarUrl: '',
+              isRead: false,
+              createdAt: FieldValue.serverTimestamp(),
+            });
+          }
+
+          tx.set(userDoc.ref, {
+            ...(remindersEnabled && !existing.exists
+              ? { unreadNotificationsCount: FieldValue.increment(1) }
+              : {}),
+            notificationMeta: {
+              spontaneous: {
+                lastNoTaskReminderAt: FieldValue.serverTimestamp(),
+              },
+            },
+          }, { merge: true });
+          return remindersEnabled && !existing.exists;
+        })
+      ));
+      createdCount += results.filter(Boolean).length;
+    }
+
+    console.log('Spontaneous no-task reminders completed', {
+      dayKey,
+      usersScanned: usersSnapshot.size,
+      createdCount,
+    });
+  },
+);
+
+exports.sendSpontaneousTimeWarnings = onSchedule(
+  {
+    region: REGION,
+    schedule: 'every 20 minutes',
+    timeZone: 'Asia/Jerusalem',
+    maxInstances: 1,
+    timeoutSeconds: 540,
+    retryCount: 3,
+  },
+  async () => {
+    const now = new Date();
+    const usersSnapshot = await db
+      .collection('users')
+      .where('weeklySpontaneousChallenge.expiresAt', '>', Timestamp.fromDate(now))
+      .get();
+    let createdCount = 0;
+
+    for (let offset = 0; offset < usersSnapshot.docs.length; offset += 100) {
+      const userDocs = usersSnapshot.docs.slice(offset, offset + 100);
+      const results = await Promise.all(userDocs.map((userDoc) =>
+        db.runTransaction(async (tx) => {
+          const freshUserSnapshot = await tx.get(userDoc.ref);
+          const userData = freshUserSnapshot.data() || {};
+          const task = spontaneousTaskFromUserData(userData, now);
+          if (!task) return false;
+
+          const taskKey = spontaneousTaskKey(task);
+          const previousMeta = userData.notificationMeta?.spontaneous || {};
+          const isTrackedTask = previousMeta.activeTaskKey === taskKey;
+          const sent = {
+            sent72h: isTrackedTask && previousMeta.sent72h === true,
+            sent24h: isTrackedTask && previousMeta.sent24h === true,
+            sent12h: isTrackedTask && previousMeta.sent12h === true,
+            sent4h: isTrackedTask && previousMeta.sent4h === true,
+            sent1h: isTrackedTask && previousMeta.sent1h === true,
+          };
+          const totalDurationMs = task.expiresAt.getTime() - task.assignedAt.getTime();
+          const remainingMs = task.expiresAt.getTime() - now.getTime();
+          const thresholds = [
+            ...(totalDurationMs >= 7 * 24 * 60 * 60 * 1000
+              ? [{ hours: 72, flag: 'sent72h' }]
+              : []),
+            { hours: 24, flag: 'sent24h' },
+            { hours: 12, flag: 'sent12h' },
+            { hours: 4, flag: 'sent4h' },
+            { hours: 1, flag: 'sent1h' },
+          ];
+          const eligible = thresholds.filter(({ hours, flag }) =>
+            remainingMs <= hours * 60 * 60 * 1000 && !sent[flag]
+          );
+          if (eligible.length === 0) {
+            if (!isTrackedTask) {
+              tx.set(userDoc.ref, {
+                notificationMeta: {
+                  spontaneous: { activeTaskKey: taskKey, ...sent },
+                },
+              }, { merge: true });
+            }
+            return false;
+          }
+
+          const selected = eligible[eligible.length - 1];
+          for (const threshold of eligible) sent[threshold.flag] = true;
+          const warningsEnabled = notificationSettingEnabled(
+            userData,
+            'spontaneousTimeWarnings'
+          );
+          const notificationId =
+            `spontaneous_time_warning_${task.assignedAt.getTime()}_${task.expiresAt.getTime()}_${selected.hours}h`;
+          const notificationRef = userDoc.ref.collection('notifications').doc(notificationId);
+          const existing = await tx.get(notificationRef);
+
+          if (warningsEnabled && !existing.exists) {
+            const hoursText = selected.hours === 1 ? 'שעה אחת' : `${selected.hours} שעות`;
+            tx.create(notificationRef, {
+              recipientUid: userDoc.id,
+              type: 'spontaneous_time_warning',
+              title: 'תזכורת למשימה הספונטנית',
+              body: `נשארו לך ${hoursText} למשימה הספונטנית.`,
+              actorUid: '',
+              actorName: '',
+              actorAvatarUrl: '',
+              warningHoursRemaining: selected.hours,
+              spontaneousCategory: task.category,
+              spontaneousSubCategory: task.subCategory,
+              isRead: false,
+              createdAt: FieldValue.serverTimestamp(),
+            });
+          }
+
+          tx.set(userDoc.ref, {
+            ...(warningsEnabled && !existing.exists
+              ? { unreadNotificationsCount: FieldValue.increment(1) }
+              : {}),
+            notificationMeta: {
+              spontaneous: {
+                activeTaskKey: taskKey,
+                ...sent,
+                lastAnyWarningAt: FieldValue.serverTimestamp(),
+              },
+            },
+          }, { merge: true });
+          return warningsEnabled && !existing.exists;
+        })
+      ));
+      createdCount += results.filter(Boolean).length;
+    }
+
+    console.log('Spontaneous time warnings completed', {
+      usersScanned: usersSnapshot.size,
+      createdCount,
+    });
   },
 );
 
