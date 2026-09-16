@@ -2169,19 +2169,6 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
       if (blocked.contains(uid)) {
         continue;
       }
-
-      var isBlockedRelation = false;
-      try {
-        isBlockedRelation = await _blockUserService.isEitherUserBlocked(uid);
-      } catch (_) {
-        isBlockedRelation = false;
-      }
-
-      if (isBlockedRelation) {
-        blocked.add(uid);
-        continue;
-      }
-
       visible.add(uid);
     }
 
@@ -4202,7 +4189,11 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                           future:
                               _filteredRelationListsForProfileData(profileData),
                           builder: (context, relationSnapshot) {
-                            final relationLists = relationSnapshot.data;
+                            final relationLists =
+                              relationSnapshot.connectionState ==
+                                  ConnectionState.done
+                                ? relationSnapshot.data
+                                : null;
                             final followers = relationLists?.followers ??
                                 rawFollowers.toList(growable: false);
                             final following = relationLists?.following ??

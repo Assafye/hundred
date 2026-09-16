@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -67,6 +68,108 @@ class GroupService {
       );
     }
     return uid;
+  }
+
+  Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+      streamDiscoverablePublicGroups(String userId) {
+    final normalizedUid = userId.trim();
+    if (normalizedUid.isEmpty) {
+      return Stream.value(
+        const <QueryDocumentSnapshot<Map<String, dynamic>>>[],
+      );
+    }
+
+    return Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>>.multi(
+      (controller) {
+        StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
+            groupsSubscription;
+        List<QueryDocumentSnapshot<Map<String, dynamic>>>? lastGoodGroups;
+        var isCancelled = false;
+
+        void handleError(Object error, StackTrace stackTrace) {
+          if (kDebugMode) {
+            final code = error is FirebaseException ? error.code : 'unknown';
+            debugPrint(
+              '[GroupService][discoverablePublicGroups] uid=$normalizedUid code=$code error=$error',
+            );
+          }
+          if (lastGoodGroups != null) {
+            controller.add(lastGoodGroups!);
+            return;
+          }
+          controller.addError(error, stackTrace);
+        }
+
+        Future<void>(() async {
+          try {
+            final userSnapshot =
+                await _db.collection('users').doc(normalizedUid).get();
+            if (isCancelled) {
+              return;
+            }
+
+            final userTag = AgePolicy.tagFromUserData(
+              userSnapshot.data() ?? const <String, dynamic>{},
+            );
+            if (userTag == null) {
+              controller.addError(
+                FirebaseAuthException(
+                  code: 'age-verification-required',
+                  message: 'Age verification is required.',
+                ),
+              );
+              controller.close();
+              return;
+            }
+
+            groupsSubscription = _db
+                .collection('groups')
+                .where('isPublic', isEqualTo: true)
+                .where(
+                  'creatorTag',
+                  whereIn: AgePolicy.getAllowedTagsForUser(userTag),
+                )
+                .snapshots()
+                .listen(
+              (snapshot) {
+                final groups = snapshot.docs.where((doc) {
+                  final data = doc.data();
+                  final memberIds = <String>{
+                    ...((data['members'] as List<dynamic>?) ??
+                            const <dynamic>[])
+                        .map((value) => value.toString().trim()),
+                    ...((data['membersList'] as List<dynamic>?) ??
+                            const <dynamic>[])
+                        .map((value) => value.toString().trim()),
+                    ...((data['participants'] as List<dynamic>?) ??
+                            const <dynamic>[])
+                        .map((value) => value.toString().trim()),
+                    (data['adminUid'] as String? ?? '').trim(),
+                  }..remove('');
+                  return !memberIds.contains(normalizedUid);
+                }).toList(growable: false);
+                lastGoodGroups = groups;
+                controller.add(groups);
+              },
+              onError: (Object error, StackTrace stackTrace) {
+                handleError(error, stackTrace);
+              },
+              onDone: controller.close,
+            );
+          } catch (error, stackTrace) {
+            if (!isCancelled) {
+              handleError(error, stackTrace);
+              controller.close();
+            }
+          }
+        });
+
+        controller.onCancel = () {
+          isCancelled = true;
+          return groupsSubscription?.cancel();
+        };
+      },
+    );
   }
 
   Future<bool> _isApprovedOrPendingMemberByAnySchema({

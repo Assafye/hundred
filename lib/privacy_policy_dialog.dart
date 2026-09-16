@@ -183,7 +183,7 @@ Contact
 Privacy requests and inquiries: assafyeho@gmail.com''';
 
 const String termsOfUseText = '''תנאי שימוש
-תאריך עדכון אחרון: 06 באוגוסט 2026
+תאריך עדכון אחרון: 16 בספטמבר 2026
 תנאי שימוש אלה חלים על השימוש באפליקציית Hundred ובשירותים הנלווים לה ("השירות").
 מפעיל השירות: אסף יהושע.
 יצירת קשר: assafyeho@gmail.com
@@ -191,14 +191,21 @@ const String termsOfUseText = '''תנאי שימוש
 הסכמה לתנאים
 שימוש באפליקציה, הרשמה או המשך שימוש מהווים אישור שקראת והסכמת לתנאים אלה ולמדיניות הפרטיות.
 
-זכאות
+זכאות וקטינים
 השירות מיועד למשתמשים בני 13 ומעלה בלבד. המשתמש מצהיר כי גילו עומד בדרישה זו.
+ידוע למשתמש כי ככל שגילו נמוך מגיל 18 (קטין), עצם השימוש בשירות וביצוע פעילויות או מפגשים כלשהם מותנים בקבלת אישור מפורש מאת הוריו או האפוטרופוס החוקי שלו. המפעיל אינו יכול לוודא את גילם המדויק של המשתמשים, והאחריות המלאה לוודא קבלת אישור הורים ופיקוח על פעילות הקטין חלה על הקטין ועל הוריו/אפוטרופוסיו בלבד.
 
 שימוש מותר ואסור
 המשתמש מתחייב להשתמש בשירות באופן חוקי, הוגן ובתום לב.
 חל איסור להעלות תוכן בלתי חוקי, פוגעני, מאיים, מסית, מטריד, מתחזה, מפר זכויות צדדים שלישיים או פוגע בפרטיות.
 חל איסור לבצע פעולות שמטרתן פגיעה בזמינות השירות, עקיפת אבטחה, כריית מידע לא מורשית, או מניפולציה במערכות.
 המשתמש אחראי בלעדית לתוכן שהוא מעלה, משתף או מפיץ.
+
+מפגשים ופעילויות בין משתמשים (באחריות המשתמש)
+השירות עשוי לאפשר למשתמשים ליצור קשר, לתאם פעילויות משותפות ולהכיר משתמשים אחרים. כל החלטה ליצור קשר, להיפגש פיזית או לבצע פעילות כלשהי עם משתמש אחר – בין אם במסגרת השירות ובין אם מחוצה לו בעולם האמיתי – נעשית על אחריותם האישית והבלעדית של המשתמשים בלבד.
+המפעיל אינו צד למפגשים או לפעילויות בין משתמשים, אינו מארגן, מפקח, מלווה או שולט בהם, ואינו מתחייב לבצע בדיקות רקע, אימות זהות, בדיקות פליליות או סינון כלשהו של משתמשים.
+המשתמש אחראי בלעדית להפעלת שיקול דעת סביר, לבדיקת בטיחותו ולנקיטת כל אמצעי הזהירות הנדרשים טרם כל מפגש. המפעיל לא יישא באחריות כלשהי לכל נזק (ישיר או עקיף), פגיעה גופנית, נפשית, רכושית, הטרדה, אובדן או תוצאה הנובעים ממפגשים או אינטראקציות בין משתמשים.
+במקרה של חשש לסכנה, איום, הטרדה או פעילות בלתי חוקית מצד משתמש כלשהו, על המשתמש להימנע מיד מכל קשר או מפגש, לדווח על כך למפעיל, ולפנות מיד לגורמי אכיפת החוק המוסמכים.
 
 הרשאות ותפקוד
 חלק מהפונקציות תלויות בהרשאות מכשיר, לרבות מיקום, מצלמה, מיקרופון וגלריה.
@@ -207,16 +214,16 @@ const String termsOfUseText = '''תנאי שימוש
 חשבון משתמש ואבטחה
 המשתמש אחראי לסודיות פרטי ההתחברות ולכל פעילות בחשבונו.
 על המשתמש לעדכן מידע חשבון באופן מדויק.
-אנו רשאים לנקוט באמצעים לאבטחת החשבון, כולל אימותים והגבלות.
+המפעיל יהיה רשאי (אך לא חייב) לנקוט באמצעים סבירים לאבטחת החשבון, כולל אימותים והגבלות.
 
 תוכן משתמש ורישיון שימוש
 הבעלות בתוכן המשתמש נשארת של המשתמש.
 המשתמש מעניק למפעיל רישיון לא בלעדי, כלל-עולמי, ללא תמלוגים, לאחסן, להציג, לשכפל, לעבד ולהפיץ את התוכן ככל שנדרש לתפעול השירות, אבטחתו, שיפורו ואכיפת הכללים.
 המשתמש מצהיר שיש לו את כל הזכויות הנדרשות בתוכן שהעלה.
 
-אכיפה, ניטור וצעדי בטיחות קהילה
-אנו רשאים, לפי שיקול דעת סביר ובטיחות קהילה, להסיר תוכן, להגביל חשיפה, להשעות או למחוק חשבונות, להגביל גישה לפיצ'רים, ולנקוט כל פעולה תפעולית או משפטית נדרשת.
-סמכות זו תחול במיוחד במקרה של הפרת תנאים, חשש לפגיעה במשתמשים, הונאה, סיכון אבטחתי או דרישת דין.
+אכיפה, ניטור, דיווח והסרה (מדיניות Safe Harbor)
+המפעיל אינו מחויב לנטר באופן רציף את כל התכנים או האינטראקציות באפליקציה, אך יהיה רשאי, לפי שיקול דעתו הסביר ולצרכי בטיחות הקהילה, להסיר תוכן, להגביל חשיפה, להשעות או למחוק חשבונות, להגביל גישה לפיצ'רים, ולנקוט כל פעולה תפעולית או משפטית נדרשת.
+הובא לידיעת המפעיל דבר קיומו של תוכן מפר או משתמש פוגע, המפעיל יעשה את המאמצים הסבירים לבחון את הפנייה ולפעול להסרת התוכן או לחסימת המשתמש בזמן סביר, מבלי שתצמח מכך אחריות משפטית כלשהי כלפי צד ג'.
 
 מחיקת חשבון
 המשתמש רשאי לבקש/לבצע מחיקת חשבון דרך מנגנוני האפליקציה.
@@ -224,17 +231,17 @@ const String termsOfUseText = '''תנאי שימוש
 ייתכנו שמירות מוגבלות בגיבויים/לוגים לצורכי אבטחה, התאוששות או דרישות דין.
 
 זמינות השירות ושינויים
-השירות ניתן כמות שהוא (AS IS) וכפי שהוא זמין (AS AVAILABLE).
-איננו מתחייבים לזמינות רציפה, היעדר תקלות או התאמה לכל צורך.
-אנו רשאים לשנות, להשהות או להפסיק פיצ'רים או חלק מהשירות, זמנית או קבועה.
+השירות ניתנים כמות שהם (AS IS) וכפי שהם זמינים (AS AVAILABLE).
+המפעיל יעשה את המאמצים הסבירים לספק את השירות כהלכה, אך אינו מתחייב לזמינות רציפה, היעדר תקלות, או התאמה מלאה לכל צורך ספציפי.
+אנו רשאים לשנות, להשהות או להפסיק פיצ'רים או חלק מהשירות, זמנית או קבועה, לפי שיקול דעתנו.
 
 הגבלת אחריות
 השימוש בשירות הוא באחריות המשתמש בלבד.
-המפעיל לא יישא באחריות לנזקים עקיפים, תוצאתיים, אובדן רווחים, אובדן מידע, פגיעה מיחסי משתמש-משתמש, או נזקים הנובעים מהסתמכות על תוכן משתמשים.
+המפעיל לא יישא באחריות כלשהי לנזקים עקיפים, תוצאתיים, אובדן רווחים, אובדן מידע, פגיעה מיחסי משתמש-משתמש, מפגשים פיזיים, או נזקים הנובעים מהסתמכות על תוכן משתמשים.
 מקום בו הדין אינו מאפשר החרגה מלאה, האחריות תוגבל למידה המרבית המותרת בדין.
 
 שיפוי
-המשתמש ישפה את המפעיל בגין נזק, הפסד, הוצאה או תביעה הנובעים מהפרת תנאים אלה, מהתוכן שהעלה, או מהפרת דין/זכויות צד שלישי על ידו.
+המשתמש ישפה את המפעיל בגין כל נזק, הפסד, הוצאה או תביעה הנובעים מהפרת תנאים אלה, מהתוכן שהעלה, ממפגשים או אינטראקציות עם משתמשים אחרים, או מהפרת דין/זכויות צד שלישי על ידו.
 
 דין חל וסמכות שיפוט
 על תנאים אלה יחולו דיני מדינת ישראל בלבד.
@@ -246,12 +253,10 @@ const String termsOfUseText = '''תנאי שימוש
 יצירת קשר
 לשאלות משפטיות או תפעוליות: assafyeho@gmail.com
 
-====================
-English Version
-====================
+English Version (Updated)
 
 Terms of Use
-Last updated: August 6, 2026
+Last updated: September 16, 2026
 
 These Terms of Use govern your use of the Hundred application and related services (the "Service").
 Operator: Assaf Yehoshua
@@ -260,14 +265,21 @@ Contact: assafyeho@gmail.com
 Acceptance
 By downloading, registering, or using the Service, you agree to these Terms and the Privacy Policy.
 
-Eligibility
+Eligibility and Minors
 The Service is for users aged 13 and above only. You represent that you meet this requirement.
+If you are under 18 (a minor), your use of the Service and any activities or meetings are conditional upon receiving explicit consent from your parents or legal guardian. The Operator cannot verify the exact age of users, and the sole responsibility for obtaining parental consent and supervising the minor rests entirely with the minor and their parents or guardians.
 
 Permitted and Prohibited Use
 You must use the Service lawfully, fairly, and in good faith.
 You must not upload or distribute unlawful, abusive, threatening, harassing, infringing, deceptive, or privacy-violating content.
 You must not attempt to disrupt service availability, bypass security, scrape data without authorization, or manipulate system behavior.
 You are solely responsible for content you upload, share, or publish.
+
+User Meetings and Activities (At User's Own Risk)
+The Service may enable users to connect, coordinate joint activities, and meet other users. Any decision to contact, meet in person, or engage in any activity with another user—whether through the Service or in the real world—is at the users' sole and exclusive risk.
+The Operator is not a party to any meetings or interactions between users, does not organize, supervise, monitor, or control them, and does not commit to performing background checks, identity verifications, or screening of users.
+Users are solely responsible for exercising sound judgment, ensuring their own safety, and taking appropriate precautions prior to any meeting or interaction. The Operator shall bear no liability whatsoever for any direct or indirect damage, bodily injury, emotional distress, property loss, harassment, or negative outcome arising from user meetings or interactions.
+In the event of any suspected danger, threat, harassment, or illegal activity, users must immediately refrain from any contact or meeting, report the matter to the Operator, and contact the appropriate law enforcement authorities.
 
 Permissions and Functionality
 Certain features require device permissions, including location, camera, microphone, and photos/gallery.
@@ -276,16 +288,16 @@ Without certain permissions, especially location, key parts of the Service may f
 Account Security
 You are responsible for safeguarding your login credentials and all activity under your account.
 You must provide accurate account data and keep it updated.
-We may apply verification and restrictions to protect account security.
+The Operator may use reasonable efforts to apply verification and restrictions to protect account security, but is not strictly obligated to do so.
 
 User Content and License
 You retain ownership of your content.
 You grant the Operator a non-exclusive, worldwide, royalty-free license to host, store, reproduce, process, display, and distribute your content as necessary to operate, secure, enforce, and improve the Service.
 You represent that you have all rights required for the content you submit.
 
-Enforcement and Community Safety
-We may, at our reasonable discretion and for community safety, remove content, limit exposure, suspend or terminate accounts, restrict feature access, and take any operational or legal action reasonably required.
-This applies especially in case of policy violations, user risk, fraud, security incidents, or legal requirements.
+Enforcement, Monitoring, Reporting, and Takedown (Safe Harbor)
+The Operator is not obligated to continuously monitor all content or interactions on the app. However, we may, at our reasonable discretion and for community safety, remove content, limit exposure, suspend or terminate accounts, restrict feature access, and take any operational or legal action reasonably required.
+If notified of infringing content or harmful behavior, the Operator will use reasonable efforts to review the report and act to remove content or restrict users within a reasonable timeframe, without assuming any legal liability toward third parties.
 
 Account Deletion
 You may request/initiate account deletion through available in-app mechanisms.
@@ -294,16 +306,16 @@ Limited backup/log retention may apply for security, recovery, or legal complian
 
 Service Availability and Changes
 The Service is provided on an "AS IS" and "AS AVAILABLE" basis.
-We do not guarantee uninterrupted operation, error-free performance, or fitness for every purpose.
+The Operator will use reasonable efforts to maintain service functionality, but does not guarantee uninterrupted operation, error-free performance, or fitness for every purpose.
 We may modify, suspend, or discontinue features or parts of the Service at any time.
 
 Limitation of Liability
 Use of the Service is at your own risk.
-The Operator is not liable for indirect, consequential, incidental, special, or punitive damages, loss of profits/data, or harm arising from user-to-user interactions or reliance on user content.
+The Operator is not liable for indirect, consequential, incidental, special, or punitive damages, loss of profits/data, or harm arising from user-to-user interactions, physical meetings, or reliance on user content.
 Where full exclusion is not permitted by law, liability is limited to the maximum extent permitted.
 
 Indemnity
-You agree to indemnify the Operator against losses, costs, claims, and damages arising from your breach of these Terms, your content, or your violation of law/third-party rights.
+You agree to indemnify the Operator against losses, costs, claims, and damages arising from your breach of these Terms, your content, meetings or interactions with other users, or your violation of law/third-party rights.
 
 Governing Law and Jurisdiction
 These Terms are governed exclusively by the laws of the State of Israel.

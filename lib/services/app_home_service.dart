@@ -677,29 +677,21 @@ class AppHomeService {
     if (uid == null || uid.isEmpty) {
       return Stream.value(const <HomePublicGroupEntry>[]);
     }
-    return Stream.fromFuture(_users.doc(uid).get()).asyncExpand((userSnapshot) {
-      final userTag = AgePolicy.tagFromUserData(
-        userSnapshot.data() ?? const <String, dynamic>{},
-      );
-      if (userTag == null) {
-        return Stream.value(const <HomePublicGroupEntry>[]);
-      }
-      final allowedCreatorTags = AgePolicy.getAllowedTagsForUser(userTag);
-      // Query by public + near-date on server side to avoid applying `limit`
-      // before date filtering (which can hide all relevant groups).
-      return Stream.multi((controller) {
-        final now = DateTime.now();
-        final start = DateTime(now.year, now.month, now.day);
-        final endExclusive = start.add(Duration(days: withinDays + 1));
 
-        QuerySnapshot<Map<String, dynamic>>? dateSnapshot;
-        QuerySnapshot<Map<String, dynamic>>? executionDateSnapshot;
-        QuerySnapshot<Map<String, dynamic>>? fallbackSnapshot;
-
-        StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? dateSub;
-        StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
-            executionDateSub;
-        StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? fallbackSub;
+    Stream<List<HomePublicGroupEntry>> createSource() {
+      return Stream.fromFuture(_users.doc(uid).get())
+          .asyncExpand((userSnapshot) {
+        final userTag = AgePolicy.tagFromUserData(
+          userSnapshot.data() ?? const <String, dynamic>{},
+        );
+        if (userTag == null) {
+          return Stream.value(const <HomePublicGroupEntry>[]);
+        }
+        final allowedCreatorTags = AgePolicy.getAllowedTagsForUser(userTag);
+        return Stream.multi((controller) {
+          final now = DateTime.now();
+          final start = DateTime(now.year, now.month, now.day);
+          final endExclusive = start.add(Duration(days: withinDays + 1));
 
         HomePublicGroupEntry toEntry(
           QueryDocumentSnapshot<Map<String, dynamic>> doc,
@@ -739,106 +731,55 @@ class AppHomeService {
           );
         }
 
-        void emitMerged() {
-          final mergedById = <String, HomePublicGroupEntry>{};
+          final subscription = _groups
+              .where('isPublic', isEqualTo: true)
+              .where('creatorTag', whereIn: allowedCreatorTags)
+              .limit(600)
+              .snapshots()
+              .listen((snapshot) {
+            final entries = snapshot.docs
+                .map(toEntry)
+                .where(isInRange)
+                .toList(growable: false)
+              ..sort((a, b) {
+                final aDate = a.date ?? DateTime.fromMillisecondsSinceEpoch(0);
+                final bDate = b.date ?? DateTime.fromMillisecondsSinceEpoch(0);
+                return aDate.compareTo(bDate);
+              });
+            controller.add(entries);
+          }, onError: (error, stackTrace) {
+            controller.addError(error, stackTrace);
+          });
 
-          void mergeSnapshot(QuerySnapshot<Map<String, dynamic>>? snapshot) {
-            if (snapshot == null) {
-              return;
-            }
-            for (final doc in snapshot.docs) {
-              final entry = toEntry(doc);
-              if (!isInRange(entry)) {
-                continue;
-              }
-              mergedById[entry.groupId] = entry;
-            }
-          }
-
-          mergeSnapshot(dateSnapshot);
-          mergeSnapshot(executionDateSnapshot);
-          mergeSnapshot(fallbackSnapshot);
-
-          final entries = mergedById.values.toList(growable: false)
-            ..sort((a, b) {
-              final aDate = a.date ?? DateTime.fromMillisecondsSinceEpoch(0);
-              final bDate = b.date ?? DateTime.fromMillisecondsSinceEpoch(0);
-              return aDate.compareTo(bDate);
-            });
-
-          controller.add(entries);
-        }
-
-        fallbackSub = _groups
-            .where('isPublic', isEqualTo: true)
-            .where('creatorTag', whereIn: allowedCreatorTags)
-            .limit(600)
-            .snapshots()
-            .listen((snapshot) {
-          fallbackSnapshot = snapshot;
-          emitMerged();
-        }, onError: (error, stackTrace) {
-          debugPrint(
-            '[AppHomeService][streamUpcomingPublicGroups] fallback stream failed: $error',
-          );
+          controller.onCancel = () async {
+            await subscription.cancel();
+          };
         });
-
-        dateSub = _groups
-            .where('isPublic', isEqualTo: true)
-            .where('creatorTag', whereIn: allowedCreatorTags)
-            .where('date', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
-            .where('date', isLessThan: Timestamp.fromDate(endExclusive))
-            .limit(200)
-            .snapshots()
-            .listen((snapshot) {
-          dateSnapshot = snapshot;
-          emitMerged();
-        }, onError: (error, stackTrace) {
-          if (error is FirebaseException &&
-              error.code == 'failed-precondition') {
-            dateSnapshot = null;
-            emitMerged();
-            return;
-          }
-          debugPrint(
-            '[AppHomeService][streamUpcomingPublicGroups] date stream failed: $error',
-          );
-          dateSnapshot = null;
-          emitMerged();
-        });
-
-        executionDateSub = _groups
-            .where('isPublic', isEqualTo: true)
-            .where('creatorTag', whereIn: allowedCreatorTags)
-            .where('executionDate',
-                isGreaterThanOrEqualTo: Timestamp.fromDate(start))
-            .where('executionDate',
-                isLessThan: Timestamp.fromDate(endExclusive))
-            .limit(200)
-            .snapshots()
-            .listen((snapshot) {
-          executionDateSnapshot = snapshot;
-          emitMerged();
-        }, onError: (error, stackTrace) {
-          if (error is FirebaseException &&
-              error.code == 'failed-precondition') {
-            executionDateSnapshot = null;
-            emitMerged();
-            return;
-          }
-          debugPrint(
-            '[AppHomeService][streamUpcomingPublicGroups] executionDate stream failed: $error',
-          );
-          executionDateSnapshot = null;
-          emitMerged();
-        });
-
-        controller.onCancel = () async {
-          await dateSub?.cancel();
-          await executionDateSub?.cancel();
-          await fallbackSub?.cancel();
-        };
       });
+    }
+
+    return Stream<List<HomePublicGroupEntry>>.multi((controller) {
+      List<HomePublicGroupEntry>? lastGoodEntries;
+      final subscription = createSource().listen((entries) {
+        lastGoodEntries = entries;
+        controller.add(entries);
+      }, onError: (Object error, StackTrace stackTrace) {
+        if (kDebugMode) {
+          final code = error is FirebaseException ? error.code : 'unknown';
+          debugPrint(
+            '[AppHomeService][streamUpcomingPublicGroups] code=$code error=$error',
+          );
+        }
+        if (lastGoodEntries != null) {
+          controller.add(lastGoodEntries!);
+          return;
+        }
+        controller.addError(error, stackTrace);
+      }, onDone: controller.close);
+
+      controller.onCancel = () async {
+        await subscription.cancel();
+      };
     });
   }
 

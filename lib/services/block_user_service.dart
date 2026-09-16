@@ -503,20 +503,7 @@ class BlockUserService {
       return const <String>{};
     }
 
-    Set<String> blockedByMe = <String>{};
-    try {
-      final blockedByMeSnap = await _blockedUsersCol(myUid).get();
-      blockedByMe = blockedByMeSnap.docs
-          .map(
-              (doc) => ((doc.data()['blockedUid'] as String?) ?? doc.id).trim())
-          .where((uid) => uid.isNotEmpty)
-          .toSet();
-    } catch (error) {
-      if (!_isRecoverableBlockReadError(error)) {
-        rethrow;
-      }
-      blockedByMe = <String>{};
-    }
+    final blockedByMe = await fetchBlockedByMeUids();
 
     Set<String> blockedMe = <String>{};
     try {
@@ -581,6 +568,29 @@ class BlockUserService {
     }
 
     return mergeBlockedUidSets(blockedByMe, blockedMe);
+  }
+
+  Future<Set<String>> fetchBlockedByMeUids() async {
+    final myUid = _auth.currentUser?.uid.trim() ?? '';
+    if (myUid.isEmpty) {
+      return const <String>{};
+    }
+
+    try {
+      final snapshot = await _blockedUsersCol(myUid)
+          .get(const GetOptions(source: Source.serverAndCache))
+          .timeout(const Duration(seconds: 3));
+      return snapshot.docs
+          .map(
+              (doc) => ((doc.data()['blockedUid'] as String?) ?? doc.id).trim())
+          .where((uid) => uid.isNotEmpty)
+          .toSet();
+    } catch (error) {
+      if (!_isRecoverableBlockReadError(error)) {
+        rethrow;
+      }
+      return const <String>{};
+    }
   }
 
   Stream<BlockRelationship> streamRelationship(String otherUid) {

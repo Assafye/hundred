@@ -483,13 +483,6 @@ class ChatService {
         continue;
       }
 
-      final isBlockedEitherWay = _auth.currentUser == null
-          ? false
-          : await BlockUserService().isEitherUserBlocked(otherUid);
-      if (isBlockedEitherWay) {
-        continue;
-      }
-
       visible.add(chatDoc);
     }
 

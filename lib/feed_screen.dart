@@ -50,13 +50,11 @@ const int _feedSeenHistoryLimit = 400;
 const int _feedSeenHistoryRetentionDays = 30;
 const String _feedSeenHistoryStorageKeyPrefix = 'feed_seen_history_v1';
 
-// Scoped per signed-in uid so switching accounts on the same device never
-// makes a different user inherit another account's "seen everything" state.
-String _feedSeenHistoryStorageKeyForCurrentUser() {
-  final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
-  return uid.isEmpty
+String feedSeenHistoryStorageKeyForUid(String uid) {
+  final normalizedUid = uid.trim();
+  return normalizedUid.isEmpty
       ? _feedSeenHistoryStorageKeyPrefix
-      : '${_feedSeenHistoryStorageKeyPrefix}_$uid';
+      : '${_feedSeenHistoryStorageKeyPrefix}_$normalizedUid';
 }
 
 List<PostModel> filterFeedPostsForFreshnessAndSeen(
@@ -145,6 +143,9 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
   static const bool _experimentalFeedPostLayout = true;
   static const String _spontaneousPromptShownKeyPrefix =
       'feed_spontaneous_prompt_last_shown_at';
+    static final Map<String, Map<String, DateTime>> _sessionSeenHistoryByUid =
+      <String, Map<String, DateTime>>{};
+    static Future<void> _seenHistoryPersistQueue = Future<void>.value();
 
   bool isForYouFeed = true;
   int _currentFeedPageIndex = 0;
@@ -256,9 +257,11 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
   }
 
   Future<void> _loadSeenFeedHistory() async {
+    final requestedUid = _activeFeedUid;
+    final storageKey = feedSeenHistoryStorageKeyForUid(requestedUid);
     final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_feedSeenHistoryStorageKeyForCurrentUser());
-    if (!mounted) {
+    final raw = prefs.getString(storageKey);
+    if (!mounted || requestedUid != _activeFeedUid) {
       return;
     }
 
@@ -285,6 +288,10 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
         // Ignore malformed persisted history and start fresh.
       }
     }
+
+    loaded.addAll(
+      _sessionSeenHistoryByUid[requestedUid] ?? const <String, DateTime>{},
+    );
 
     final now = DateTime.now();
     final cutoff = now.subtract(
@@ -316,9 +323,14 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
       _feedSeenIds = _feedSeenHistory.keys.toSet();
       _hasLoadedSeenFeedHistory = true;
     });
+    if (kDebugMode) {
+      debugPrint(
+        '[FEED_SEEN] loaded uid=$requestedUid key=$storageKey count=${limited.length}',
+      );
+    }
   }
 
-  Future<void> _persistSeenFeedHistory() async {
+  void _persistSeenFeedHistory() {
     final entries = _feedSeenHistory.entries.toList()
       ..sort((a, b) => a.value.compareTo(b.value));
 
@@ -327,10 +339,24 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
       for (final entry in limitedEntries)
         entry.key: entry.value.millisecondsSinceEpoch,
     };
+    final uid = _activeFeedUid;
+    final storageKey = feedSeenHistoryStorageKeyForUid(uid);
+    final encodedPayload = jsonEncode(payload);
 
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-        _feedSeenHistoryStorageKeyForCurrentUser(), jsonEncode(payload));
+    _sessionSeenHistoryByUid[uid] = Map<String, DateTime>.from(
+      _feedSeenHistory,
+    );
+    _seenHistoryPersistQueue = _seenHistoryPersistQueue
+        .catchError((Object _) {})
+        .then((_) async {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(storageKey, encodedPayload);
+      if (kDebugMode) {
+        debugPrint(
+          '[FEED_SEEN] persisted uid=$uid key=$storageKey count=${payload.length}',
+        );
+      }
+    });
   }
 
   void _recordSeenFeedPost(PostModel post) {
@@ -361,7 +387,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
       ..addAll(trimmed);
     _feedSeenIds = _feedSeenHistory.keys.toSet();
 
-    unawaited(_persistSeenFeedHistory());
+    _persistSeenFeedHistory();
   }
 
   void _recordActiveFeedPostIfNeeded({

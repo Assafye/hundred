@@ -172,6 +172,9 @@ class _ChatsScreenState extends State<ChatsScreen> {
   final Map<String, Future<Map<String, Map<String, String>>>>
       _directChatSummariesCache =
       <String, Future<Map<String, Map<String, String>>>>{};
+  String _visibleDirectChatsCacheKey = '';
+  Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>?
+      _visibleDirectChatsFuture;
   final Map<String, Map<String, Map<String, String>>>
       _directChatSummariesLastGood =
       <String, Map<String, Map<String, String>>>{};
@@ -181,11 +184,15 @@ class _ChatsScreenState extends State<ChatsScreen> {
   final Map<String, bool> _joinedGroupEligibilityCache = <String, bool>{};
   final Map<String, Future<List<_GlobalSearchResult>>> _globalSearchCache =
       <String, Future<List<_GlobalSearchResult>>>{};
+  String _blockedByMeCacheUid = '';
+  Future<Set<String>>? _blockedByMeFuture;
   String _streamsUid = '';
   Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>>? _userChatsStream;
   Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>>? _publicChatsStream;
   List<QueryDocumentSnapshot<Map<String, dynamic>>>? _lastUserChatsDocs;
   List<QueryDocumentSnapshot<Map<String, dynamic>>>? _lastPublicChatsDocs;
+  String _publicGroupEntriesCacheKey = '';
+  Future<List<Map<String, dynamic>>>? _publicGroupEntriesFuture;
   StreamSubscription<List<QueryDocumentSnapshot<Map<String, dynamic>>>>?
       _userChatsNotificationsSub;
 
@@ -277,6 +284,9 @@ class _ChatsScreenState extends State<ChatsScreen> {
       _streamsUid = '';
       _userChatsStream = null;
       _publicChatsStream = null;
+      _blockedByMeCacheUid = '';
+      _blockedByMeFuture = null;
+      _globalSearchCache.clear();
       return;
     }
 
@@ -286,10 +296,29 @@ class _ChatsScreenState extends State<ChatsScreen> {
       return;
     }
 
+    if (_streamsUid != normalizedUid) {
+      _blockedByMeCacheUid = '';
+      _blockedByMeFuture = null;
+      _globalSearchCache.clear();
+    }
     _streamsUid = normalizedUid;
     _userChatsStream = _chatService.streamUserChatsSafeDocs(normalizedUid);
     _publicChatsStream =
-        _chatService.streamPublicChatsExcludingUserSafe(normalizedUid);
+        _groupService.streamDiscoverablePublicGroups(normalizedUid);
+  }
+
+  Future<Set<String>> _blockedByMeForChats(String uid) {
+    final normalizedUid = uid.trim();
+    if (normalizedUid.isEmpty) {
+      return Future<Set<String>>.value(const <String>{});
+    }
+    if (_blockedByMeCacheUid == normalizedUid && _blockedByMeFuture != null) {
+      return _blockedByMeFuture!;
+    }
+
+    _blockedByMeCacheUid = normalizedUid;
+    _blockedByMeFuture = _blockUserService.fetchBlockedByMeUids();
+    return _blockedByMeFuture!;
   }
 
   void _attachUserChatsNotificationsStream(String uid) {
@@ -325,19 +354,40 @@ class _ChatsScreenState extends State<ChatsScreen> {
       _resolveVisibleDirectChats(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> directDocs,
     String currentUid,
-  ) async {
-    Set<String> blockedUids = const <String>{};
-    try {
-      blockedUids = await _blockUserService.fetchBlockedConnections();
-    } catch (_) {
-      blockedUids = const <String>{};
+  ) {
+    final cacheKey = <String>[
+      currentUid,
+      ...directDocs.map((doc) {
+        final data = doc.data();
+        final updatedAt = data['updatedAt'];
+        final version = updatedAt is Timestamp
+            ? updatedAt.millisecondsSinceEpoch.toString()
+            : data['blockedBy'].toString();
+        return '${doc.id}:$version';
+      }),
+    ].join('|');
+
+    if (_visibleDirectChatsCacheKey == cacheKey &&
+        _visibleDirectChatsFuture != null) {
+      return _visibleDirectChatsFuture!;
     }
 
-    return _chatService.filterVisibleDirectChatsForUser(
-      chats: directDocs,
-      currentUid: currentUid,
-      blockedUids: blockedUids,
-    );
+    _visibleDirectChatsCacheKey = cacheKey;
+    _visibleDirectChatsFuture = () async {
+      Set<String> blockedUids = const <String>{};
+      try {
+        blockedUids = await _blockedByMeForChats(currentUid);
+      } catch (_) {
+        blockedUids = const <String>{};
+      }
+
+      return _chatService.filterVisibleDirectChatsForUser(
+        chats: directDocs,
+        currentUid: currentUid,
+        blockedUids: blockedUids,
+      );
+    }();
+    return _visibleDirectChatsFuture!;
   }
 
   Future<void> _refreshTabNotificationsFromChatsDocs(
@@ -424,8 +474,6 @@ class _ChatsScreenState extends State<ChatsScreen> {
             return lastGood;
           }
           return const <String, Map<String, String>>{};
-        } finally {
-          _directChatSummariesCache.remove(cacheKey);
         }
       },
     );
@@ -1944,10 +1992,25 @@ class _ChatsScreenState extends State<ChatsScreen> {
         }
 
         if (snapshot.hasError) {
+          final error = snapshot.error;
+          final code = error is FirebaseException ? error.code : 'unknown';
+          debugPrint(
+            '[ChatsScreen][publicGroups] code=$code error=$error',
+          );
+          final cachedDocs = _lastPublicChatsDocs;
+          if (cachedDocs != null) {
+            final filteredDocs = _filterPublicChats(cachedDocs);
+            if (filteredDocs.isNotEmpty) {
+              return _buildResolvedPublicGroupsList(
+                isLight: isLight,
+                docs: filteredDocs,
+              );
+            }
+          }
           return Column(
             children: [
               _buildPublicGroupsFiltersBar(),
-              _buildPublicGroupsEmptyState(context),
+              _buildErrorState('לא ניתן לטעון קבוצות ציבוריות כרגע'),
             ],
           );
         }
@@ -1965,8 +2028,20 @@ class _ChatsScreenState extends State<ChatsScreen> {
           );
         }
 
-        return FutureBuilder<List<Map<String, dynamic>>>(
-          future: _resolvePublicGroupEntries(filteredDocs),
+        return _buildResolvedPublicGroupsList(
+          isLight: isLight,
+          docs: filteredDocs,
+        );
+      },
+    );
+  }
+
+  Widget _buildResolvedPublicGroupsList({
+    required bool isLight,
+    required List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  }) {
+    return FutureBuilder<List<Map<String, dynamic>>>(
+          future: _resolvePublicGroupEntries(docs),
           builder: (context, resolvedSnapshot) {
             if (resolvedSnapshot.connectionState != ConnectionState.done &&
                 !resolvedSnapshot.hasData) {
@@ -2320,8 +2395,6 @@ class _ChatsScreenState extends State<ChatsScreen> {
             );
           },
         );
-      },
-    );
   }
 
   Future<void> _joinPublicGroup(String groupId) async {
@@ -2554,25 +2627,34 @@ class _ChatsScreenState extends State<ChatsScreen> {
 
   Future<List<Map<String, dynamic>>> _resolvePublicGroupEntries(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-  ) async {
-    final resolved = <Map<String, dynamic>>[];
-
-    for (final doc in docs) {
-      final chatData = doc.data();
-      final targetGroupId = _targetGroupIdFromChatData(doc);
-      final detailsDoc = await _groupDetails(targetGroupId);
-      final detailsData = detailsDoc.data() ?? <String, dynamic>{};
-
-      resolved.add(<String, dynamic>{
-        ...chatData,
-        ...detailsData,
-        '_targetGroupId': targetGroupId,
-        '_participants':
-            (chatData['participants'] as List<dynamic>?) ?? const <dynamic>[],
-      });
+  ) {
+    final cacheKey = docs.map((doc) {
+      final updatedAt = doc.data()['updatedAt'];
+      final version = updatedAt is Timestamp
+          ? updatedAt.millisecondsSinceEpoch.toString()
+          : '';
+      return '${doc.id}:$version';
+    }).join('|');
+    if (_publicGroupEntriesCacheKey == cacheKey &&
+        _publicGroupEntriesFuture != null) {
+      return _publicGroupEntriesFuture!;
     }
 
-    return resolved;
+    _publicGroupEntriesCacheKey = cacheKey;
+    _publicGroupEntriesFuture = Future.value(
+      docs.map((doc) {
+        final data = doc.data();
+        return <String, dynamic>{
+          ...data,
+          '_targetGroupId': doc.id,
+          '_participants': (data['membersList'] as List<dynamic>?) ??
+              (data['members'] as List<dynamic>?) ??
+              (data['participants'] as List<dynamic>?) ??
+              const <dynamic>[],
+        };
+      }).toList(growable: false),
+    );
+    return _publicGroupEntriesFuture!;
   }
 
   DateTime? _publicGroupDate(Map<String, dynamic> data) {
@@ -3897,7 +3979,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
 
       Set<String> blockedUids = const <String>{};
       try {
-        blockedUids = await _blockUserService.fetchBlockedConnections();
+        blockedUids = await _blockedByMeForChats(currentUid);
       } catch (error, stackTrace) {
         debugPrint(
           '[ChatsScreen][globalSearch] blocked connections lookup failed: $error\n$stackTrace',
@@ -4053,13 +4135,13 @@ class _ChatsScreenState extends State<ChatsScreen> {
           continue;
         }
 
-        final isBlockedRelation =
-            await _blockUserService.isEitherUserBlocked(uid);
-        if (isBlockedRelation) {
+        final data = entry.value;
+        final searchHaystack = buildGlobalSearchText(data, isGroup: false);
+        final matches = _matchesSearchQuery(searchHaystack, normalizedQuery);
+        if (!matches) {
           continue;
         }
 
-        final data = entry.value;
         final displayName = ((data['displayName'] as String?) ?? '').trim();
         final username = ((data['usernameLowercase'] as String?) ??
                 (data['username'] as String?) ??
@@ -4074,14 +4156,6 @@ class _ChatsScreenState extends State<ChatsScreen> {
         final subtitleUser = username.isNotEmpty
             ? (username.startsWith('@') ? username : '@$username')
             : (uid.isNotEmpty ? uid : 'משתמש');
-        final searchHaystack = buildGlobalSearchText(data, isGroup: false);
-        final matches = _matchesSearchQuery(searchHaystack, normalizedQuery);
-        if (!matches) {
-          debugPrint(
-            '[ChatsScreen] user filter failed: uid=$uid, query="$normalizedQuery", displayName="$displayName", usernameLowercase="${(data['usernameLowercase'] as String?) ?? ''}", username="${(data['username'] as String?) ?? ''}", haystack="$searchHaystack"',
-          );
-          continue;
-        }
 
         userResults.add(
           _GlobalSearchResult(
@@ -4201,7 +4275,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
         ...userResults.take(12),
         ...groupResults.take(12),
       ];
-    });
+    }).timeout(const Duration(seconds: 15));
   }
 
   Widget _buildGlobalSearchResultsPanel() {

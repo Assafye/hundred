@@ -9,6 +9,17 @@ import 'package:hundred_version1/services/block_user_service.dart';
 import 'package:hundred_version1/stars_screen.dart';
 
 void main() {
+  test('seen feed history storage is scoped by normalized user id', () {
+    expect(
+      feedSeenHistoryStorageKeyForUid('  user-1  '),
+      'feed_seen_history_v1_user-1',
+    );
+    expect(
+      feedSeenHistoryStorageKeyForUid(''),
+      'feed_seen_history_v1',
+    );
+  });
+
   test('filters out stale and already-seen feed posts only', () {
     final now = DateTime(2026, 8, 24, 12, 0, 0);
 

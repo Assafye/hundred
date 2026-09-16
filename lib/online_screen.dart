@@ -3926,7 +3926,14 @@ class _OnlineScreenState extends State<OnlineScreen>
           ),
           child: SizedBox(
             height: 236,
-            child: snapshot.connectionState == ConnectionState.waiting &&
+            child: snapshot.hasError
+                ? const Center(
+                    child: Text(
+                      'לא ניתן לטעון קבוצות כרגע',
+                      textAlign: TextAlign.center,
+                    ),
+                  )
+                : snapshot.connectionState == ConnectionState.waiting &&
                     !snapshot.hasData
                 ? const Center(child: CircularProgressIndicator())
                 : groups.isNotEmpty
