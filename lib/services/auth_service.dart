@@ -487,11 +487,22 @@ class AuthService {
     final hasPasswordProvider = user.providerData.any(
       (provider) => provider.providerId == 'password',
     );
-    if (hasPasswordProvider) return;
+    if (hasPasswordProvider) {
+      await _auth.signOut();
+      return;
+    }
 
     final uid = user.uid;
     final phone = normalizePhoneNumber(user.phoneNumber ?? '');
     try {
+      final privateProfile = await _db.collection('users').doc(uid).get();
+      final onboardingStep = OnboardingStep.fromFirestore(
+        privateProfile.data()?[onboardingStepField] as String?,
+      );
+      if (onboardingStep == OnboardingStep.active) {
+        await _auth.signOut();
+        return;
+      }
       if (phone.isNotEmpty) {
         final phoneRef = _db.collection('registered_phones').doc(phone);
         final phoneSnapshot = await phoneRef.get();
@@ -1135,7 +1146,7 @@ class AuthService {
   }
 
   Future<User> finishPhoneVerificationAndCreateAuthAccount({
-    required AuthCredential phoneCredential,
+    AuthCredential? phoneCredential,
     required String phone,
     required String password,
     required String firstName,
@@ -1151,7 +1162,7 @@ class AuthService {
     }
 
     User? user = _auth.currentUser;
-    if (user == null) {
+    if (user == null && phoneCredential != null) {
       final phoneResult = await _auth.signInWithCredential(phoneCredential);
       user = phoneResult.user;
     }
@@ -1159,6 +1170,13 @@ class AuthService {
       throw FirebaseAuthException(
         code: 'user-not-found',
         message: 'לא הצלחנו ליצור חשבון למספר הטלפון הזה.',
+      );
+    }
+    final verifiedPhone = normalizePhoneNumber(user.phoneNumber ?? '');
+    if (verifiedPhone != normalizedPhone) {
+      throw FirebaseAuthException(
+        code: 'account-exists-with-different-credential',
+        message: 'מספר הטלפון המאומת אינו תואם לתהליך ההרשמה.',
       );
     }
 

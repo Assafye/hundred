@@ -15,6 +15,9 @@ import '../services/auth_service.dart';
 import '../services/phone_auth_diagnostics.dart';
 import '../services/phone_auth_error_messages.dart';
 import '../services/phone_auth_verification_service.dart';
+import '../services/phone_otp_error_messages.dart';
+import '../services/phone_otp_provider_policy.dart';
+import '../services/phone_otp_service.dart';
 
 enum _RecoveryMethod { phone, email }
 
@@ -74,6 +77,8 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
   static const _muted = Color(0xFFAAB7E8);
 
   _RecoveryMethod _method = _RecoveryMethod.phone;
+  final PhoneOtpService _phoneOtpService = PhoneOtpService();
+  static const _phoneOtpPolicy = PhoneOtpProviderPolicy();
 
   // Phone flow.
   final _countryCodeController = TextEditingController(text: '+972');
@@ -83,6 +88,8 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
   int _phoneStep = 0;
   String? _verificationId;
   int? _resendToken;
+  PhoneOtpChallenge? _phoneOtpChallenge;
+  PhoneOtpProvider _phoneOtpProvider = PhoneOtpProvider.firebase;
   String? _lastAutoSubmittedCode;
   Timer? _retryCooldownTimer;
   int _retryCooldownSeconds = 0;
@@ -99,7 +106,33 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
   @override
   void initState() {
     super.initState();
-    unawaited(_primeApnsReadiness());
+    unawaited(_restorePhoneOtpFlow());
+  }
+
+  Future<void> _restorePhoneOtpFlow() async {
+    final challenge = await _phoneOtpService.restoreChallenge(
+      PhoneOtpPurpose.recovery,
+    );
+    final provider = _phoneOtpPolicy.select(restoredChallenge: challenge);
+    if (!mounted) return;
+    if (challenge == null) {
+      _phoneOtpProvider = provider;
+      if (provider == PhoneOtpProvider.firebase) {
+        await _primeApnsReadiness();
+      }
+      return;
+    }
+    final remaining = challenge.retryAvailableAt.difference(DateTime.now());
+    setState(() {
+      _phoneOtpProvider = provider;
+      _phoneOtpChallenge = challenge;
+      _phoneStep = 1;
+      _lastAutoSubmittedCode = null;
+    });
+    _startRetryCooldown(remaining.inSeconds.clamp(0, 60));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _codeFocusNode.requestFocus();
+    });
   }
 
   /// Soft-locks the phone send button briefly on entry only if the APNs
@@ -129,9 +162,11 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
     super.dispose();
   }
 
-  void _startRetryCooldown() {
+  void _startRetryCooldown([int seconds = 60]) {
     _retryCooldownTimer?.cancel();
-    setState(() => _retryCooldownSeconds = 60);
+    if (!mounted) return;
+    setState(() => _retryCooldownSeconds = seconds);
+    if (seconds <= 0) return;
     _retryCooldownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) {
         timer.cancel();
@@ -178,6 +213,13 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
       _method = method;
       _error = null;
     });
+  }
+
+  Future<void> _close() async {
+    if (_phoneOtpProvider == PhoneOtpProvider.micropay) {
+      await _phoneOtpService.clearChallenge(PhoneOtpPurpose.recovery);
+    }
+    if (mounted) Navigator.of(context).pop();
   }
 
   Future<void> _reportPhoneVerifyError({
@@ -252,6 +294,14 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
         _busy = false;
         _error = 'לא ניתן לבדוק את החשבון כרגע. נסה שוב.';
       });
+      return;
+    }
+
+    _phoneOtpProvider = _phoneOtpPolicy.select(
+      restoredChallenge: _phoneOtpChallenge,
+    );
+    if (_phoneOtpProvider == PhoneOtpProvider.micropay) {
+      await _sendMicroPayCode(phone);
       return;
     }
 
@@ -373,11 +423,53 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
     }
   }
 
+  Future<void> _sendMicroPayCode(String phone) async {
+    try {
+      final challenge = await _phoneOtpService.requestPhoneOtp(
+        phone: phone,
+        purpose: PhoneOtpPurpose.recovery,
+      );
+      if (!mounted) return;
+      setState(() {
+        _phoneOtpChallenge = challenge;
+        _phoneStep = 1;
+        _busy = false;
+        _lastAutoSubmittedCode = null;
+        _codeController.clear();
+      });
+      final remaining = challenge.retryAvailableAt.difference(DateTime.now());
+      _startRetryCooldown(remaining.inSeconds.clamp(0, 60));
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _codeFocusNode.requestFocus();
+      });
+    } on PhoneOtpException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _error = friendlyPhoneOtpErrorMessage(
+          error,
+          fallback: 'לא הצלחנו לשלוח קוד אימות.',
+        );
+      });
+      _startRetryCooldown();
+    }
+  }
+
   Future<void> _verifyPhoneCode() async {
-    final verificationId = _verificationId;
     final code = _codeController.text.trim();
-    if (verificationId == null || code.length != 6) {
+    final challenge = _phoneOtpChallenge;
+    if (code.length != 6 ||
+        (_phoneOtpProvider == PhoneOtpProvider.micropay && challenge == null)) {
       setState(() => _error = 'יש להזין קוד אימות בן 6 ספרות.');
+      return;
+    }
+    if (_phoneOtpProvider == PhoneOtpProvider.micropay) {
+      await _verifyMicroPayCode(challenge!, code);
+      return;
+    }
+    final verificationId = _verificationId;
+    if (verificationId == null) {
+      setState(() => _error = 'פג תוקף הקוד. יש לבקש קוד חדש.');
       return;
     }
     await _signInWithPhoneCredential(
@@ -386,6 +478,33 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
         smsCode: code,
       ),
     );
+  }
+
+  Future<void> _verifyMicroPayCode(
+    PhoneOtpChallenge challenge,
+    String code,
+  ) async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final result = await _phoneOtpService.verifyPhoneOtp(
+        challenge: challenge,
+        code: code,
+      );
+      if (!mounted) return;
+      Navigator.of(context).pop(result.user);
+    } on PhoneOtpException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _error = friendlyPhoneOtpErrorMessage(
+          error,
+          fallback: 'קוד האימות אינו נכון.',
+        );
+      });
+    }
   }
 
   void _onVerificationCodeChanged(String code) {
@@ -881,7 +1000,7 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
               height: 1.4),
         ),
         const SizedBox(height: 22),
-        _primaryButton('סגירה', () => Navigator.of(context).pop()),
+        _primaryButton('סגירה', () => unawaited(_close())),
       ],
     );
   }
@@ -968,7 +1087,7 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
                       child: IconButton(
                         padding: EdgeInsets.zero,
                         constraints: const BoxConstraints(),
-                        onPressed: () => Navigator.of(context).pop(),
+                        onPressed: () => unawaited(_close()),
                         icon: Icon(
                           Icons.close_rounded,
                           color: _muted.withValues(alpha: .8),
@@ -1057,7 +1176,7 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
             if (isPhoneCodeStep) {
               FocusScope.of(context).unfocus();
             } else {
-              Navigator.of(context).maybePop();
+              unawaited(_close());
             }
           },
           child: BackdropFilter(

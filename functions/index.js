@@ -1,10 +1,14 @@
 const { initializeApp } = require('firebase-admin/app');
+const { getAuth } = require('firebase-admin/auth');
 const { FieldValue, Timestamp, getFirestore } = require('firebase-admin/firestore');
 const { getMessaging } = require('firebase-admin/messaging');
 const { getStorage } = require('firebase-admin/storage');
 const { HttpsError, onCall } = require('firebase-functions/v2/https');
 const { onDocumentCreated, onDocumentWritten } = require('firebase-functions/v2/firestore');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
+const { defineSecret } = require('firebase-functions/params');
+const crypto = require('node:crypto');
+const { createPhoneOtpHandlers } = require('./phone_otp/handlers');
 const {
   processPendingSecureActions: runPendingSecureActions,
   processSingleAction,
@@ -14,7 +18,19 @@ initializeApp();
 const db = getFirestore();
 const messaging = getMessaging();
 const storage = getStorage();
+const auth = getAuth();
 const REGION = 'europe-west3';
+const micropayOtpToken = defineSecret('MICROPAY_OTP_TOKEN');
+const phoneOtpHmacKey = defineSecret('PHONE_OTP_HMAC_KEY');
+const phoneOtpEncryptionKey = defineSecret('PHONE_OTP_ENCRYPTION_KEY');
+const phoneOtpHandlers = createPhoneOtpHandlers({
+  db,
+  auth,
+  micropayToken: micropayOtpToken,
+  hmacSecret: phoneOtpHmacKey,
+  encryptionSecret: phoneOtpEncryptionKey,
+  randomId: () => crypto.randomUUID(),
+});
 const MAX_RESULTS = 360;
 const POST_LIFETIME_MS = 24 * 60 * 60 * 1000;
 const RATE_LIMIT_MS = 10 * 1000;
@@ -30,6 +46,24 @@ const ALLOWED_CREATOR_TAGS_BY_USER_TAG = {
   7: [5, 6, 7, 8],
   8: [6, 7, 8],
 };
+
+exports.requestPhoneOtp = onCall(
+  {
+    region: REGION,
+    enforceAppCheck: true,
+    secrets: [micropayOtpToken, phoneOtpHmacKey, phoneOtpEncryptionKey],
+  },
+  phoneOtpHandlers.requestPhoneOtp,
+);
+
+exports.verifyPhoneOtp = onCall(
+  {
+    region: REGION,
+    enforceAppCheck: true,
+    secrets: [micropayOtpToken, phoneOtpHmacKey, phoneOtpEncryptionKey],
+  },
+  phoneOtpHandlers.verifyPhoneOtp,
+);
 
 function parseBirthDate(value) {
   const normalized = String(value ?? '').trim();
