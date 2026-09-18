@@ -8,6 +8,7 @@ import '../models/public_user_profile.dart';
 import '../services/report_service.dart';
 import '../services/firestore_rule_feedback.dart';
 import '../services/block_user_service.dart';
+import '../services/keyboard_dismiss_controller.dart';
 import '../services/post_service.dart';
 import '../services/post_interaction_overlay_service.dart';
 import '../services/public_user_profile_service.dart';
@@ -56,6 +57,12 @@ class _PostCommentsSheetState extends State<PostCommentsSheet> {
   String _replyToHandle = '';
   bool _isSubmitting = false;
   bool _initialCommentApplied = false;
+
+  @override
+  void initState() {
+    super.initState();
+    KeyboardDismissController.suspend();
+  }
 
   bool _isLightMode(BuildContext context) {
     return Theme.of(context).brightness == Brightness.light;
@@ -119,6 +126,7 @@ class _PostCommentsSheetState extends State<PostCommentsSheet> {
 
   @override
   void dispose() {
+    KeyboardDismissController.resume();
     _commentController.dispose();
     _commentFocusNode.dispose();
     super.dispose();

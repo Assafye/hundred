@@ -12,6 +12,7 @@ import 'package:flutter/rendering.dart';
 import 'app_categories.dart';
 import 'chat_room_screen.dart';
 import 'chats_screen.dart';
+import 'login_screen.dart';
 import 'main_bottom_nav.dart';
 import 'post_media_utils.dart';
 import 'post_score_calculator.dart';
@@ -19,6 +20,7 @@ import 'profile_post_grouping.dart';
 import 'models/public_user_profile.dart';
 import 'post_detail_view.dart';
 import 'services/chat_service.dart';
+import 'services/auth_service.dart';
 import 'services/block_user_service.dart';
 import 'services/group_service.dart';
 import 'services/keyboard_dismiss_controller.dart';
@@ -115,6 +117,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   ];
 
   final FirebaseFirestore _db = FirebaseFirestore.instance;
+  final AuthService _authService = AuthService();
   final SocialService _socialService = SocialService();
   final BlockUserService _blockUserService = BlockUserService();
   final ChatService _chatService = ChatService();
@@ -148,6 +151,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   StreamSubscription<String>? _postOverlaySubscription;
   DateTime? _lastProfileRefreshAt;
   bool _isRefreshingProfile = false;
+  bool _isSigningOutDeletedAccount = false;
 
   static const Duration _minimumRefreshInterval = Duration(seconds: 3);
 
@@ -247,6 +251,26 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       return;
     }
     FocusManager.instance.primaryFocus?.unfocus();
+  }
+
+  Future<void> _signOutDeletedAccount() async {
+    if (_isSigningOutDeletedAccount) return;
+    setState(() => _isSigningOutDeletedAccount = true);
+
+    try {
+      await _authService.signOut();
+      if (!mounted) return;
+      Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+        (route) => false,
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('ההתנתקות נכשלה: $error')),
+      );
+      setState(() => _isSigningOutDeletedAccount = false);
+    }
   }
 
   void _logQuickMessage(String message) {
@@ -6973,6 +6997,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                   final currentUid =
                       FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
                   if (profile.isDeleted) {
+                    final isCurrentUserDeleted = currentUid.isNotEmpty &&
+                        currentUid == widget.uid.trim();
                     return Center(
                       child: Container(
                         margin: const EdgeInsets.symmetric(horizontal: 24),
@@ -6989,13 +7015,42 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                                     .withValues(alpha: 0.22),
                           ),
                         ),
-                        child: Text(
-                          'משתמש מחוק',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: isLight ? Colors.black87 : Colors.white70,
-                            fontSize: 16,
-                          ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Text(
+                              'משתמש מחוק',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color:
+                                    isLight ? Colors.black87 : Colors.white70,
+                                fontSize: 16,
+                              ),
+                            ),
+                            if (isCurrentUserDeleted) ...[
+                              const SizedBox(height: 16),
+                              ElevatedButton.icon(
+                                onPressed: _isSigningOutDeletedAccount
+                                    ? null
+                                    : _signOutDeletedAccount,
+                                icon: _isSigningOutDeletedAccount
+                                    ? const SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : const Icon(Icons.logout_rounded),
+                                label: Text(
+                                  _isSigningOutDeletedAccount
+                                      ? 'מתנתק...'
+                                      : 'התנתקות',
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
                       ),
                     );

@@ -12,12 +12,17 @@ import 'category_points.dart';
 import 'chat_room_screen.dart';
 import 'create_group_screen.dart';
 import 'main_bottom_nav.dart';
+import 'search_index_utils.dart';
 import 'services/chat_service.dart';
 import 'services/block_user_service.dart';
 import 'services/group_service.dart';
 import 'services/keyboard_dismiss_controller.dart';
 import 'user_profile_screen.dart';
 import 'widgets/group_avatar.dart';
+
+bool isSearchablePublicUser(Map<String, dynamic> data) {
+  return data['isSearchable'] == true && data['isDeleted'] != true;
+}
 
 class _GlobalSearchResult {
   final String id;
@@ -2041,360 +2046,352 @@ class _ChatsScreenState extends State<ChatsScreen> {
     required List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
   }) {
     return FutureBuilder<List<Map<String, dynamic>>>(
-          future: _resolvePublicGroupEntries(docs),
-          builder: (context, resolvedSnapshot) {
-            if (resolvedSnapshot.connectionState != ConnectionState.done &&
-                !resolvedSnapshot.hasData) {
-              return Column(
-                children: [
-                  _buildPublicGroupsFiltersBar(),
-                  _buildChatsLoadingSkeleton(),
-                ],
-              );
-            }
+      future: _resolvePublicGroupEntries(docs),
+      builder: (context, resolvedSnapshot) {
+        if (resolvedSnapshot.connectionState != ConnectionState.done &&
+            !resolvedSnapshot.hasData) {
+          return Column(
+            children: [
+              _buildPublicGroupsFiltersBar(),
+              _buildChatsLoadingSkeleton(),
+            ],
+          );
+        }
 
-            if (resolvedSnapshot.hasError) {
-              return _buildErrorState(
-                'שגיאה בטעינת קבוצות ציבוריות: ${resolvedSnapshot.error}',
-              );
-            }
+        if (resolvedSnapshot.hasError) {
+          return _buildErrorState(
+            'שגיאה בטעינת קבוצות ציבוריות: ${resolvedSnapshot.error}',
+          );
+        }
 
-            final resolvedEntries =
-                resolvedSnapshot.data ?? const <Map<String, dynamic>>[];
-            final visibleEntries = _applyPublicGroupsFilters(resolvedEntries);
+        final resolvedEntries =
+            resolvedSnapshot.data ?? const <Map<String, dynamic>>[];
+        final visibleEntries = _applyPublicGroupsFilters(resolvedEntries);
 
-            return Column(
-              children: [
-                _buildPublicGroupsFiltersBar(),
-                if (visibleEntries.isEmpty)
-                  _buildCenteredMessage('לא נמצאו קבוצות לפי הסינון שבחרת')
-                else
-                  ListView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: visibleEntries.length,
-                    itemBuilder: (context, index) {
-                      final entry = visibleEntries[index];
-                      final groupName = ((entry['groupName'] as String?) ??
-                              (entry['name'] as String?) ??
-                              'Chat')
-                          .trim();
-                      final groupDescription =
-                          ((entry['description'] as String?) ?? '').trim();
-                      final groupImageUrl =
-                          ((entry['groupImageUrl'] as String?) ?? '').trim();
-                      final participants =
-                          (entry['_participants'] as List<dynamic>? ??
-                              const <dynamic>[]);
-                      final membersCountRaw = entry['membersCount'];
-                      final memberCount = membersCountRaw is num
-                          ? membersCountRaw.toInt()
-                          : participants.length;
-                      final targetGroupId =
-                          (entry['_targetGroupId'] as String?) ?? '';
-                      final minScore = _publicGroupMinScore(entry);
-                      final mainCategory = _publicGroupCategory(entry);
-                      final subCategory = _publicGroupSubCategory(entry);
-                      final categoryLabel = mainCategory.isEmpty
-                          ? kGeneralCategory
-                          : mainCategory;
-                      final categoryAndSubCategory = subCategory.isEmpty
-                          ? '$categoryLabel • ללא תת קטגוריה'
-                          : '$categoryLabel • $subCategory';
+        return Column(
+          children: [
+            _buildPublicGroupsFiltersBar(),
+            if (visibleEntries.isEmpty)
+              _buildCenteredMessage('לא נמצאו קבוצות לפי הסינון שבחרת')
+            else
+              ListView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: visibleEntries.length,
+                itemBuilder: (context, index) {
+                  final entry = visibleEntries[index];
+                  final groupName = ((entry['groupName'] as String?) ??
+                          (entry['name'] as String?) ??
+                          'Chat')
+                      .trim();
+                  final groupDescription =
+                      ((entry['description'] as String?) ?? '').trim();
+                  final groupImageUrl =
+                      ((entry['groupImageUrl'] as String?) ?? '').trim();
+                  final participants =
+                      (entry['_participants'] as List<dynamic>? ??
+                          const <dynamic>[]);
+                  final membersCountRaw = entry['membersCount'];
+                  final memberCount = membersCountRaw is num
+                      ? membersCountRaw.toInt()
+                      : participants.length;
+                  final targetGroupId =
+                      (entry['_targetGroupId'] as String?) ?? '';
+                  final minScore = _publicGroupMinScore(entry);
+                  final mainCategory = _publicGroupCategory(entry);
+                  final subCategory = _publicGroupSubCategory(entry);
+                  final categoryLabel =
+                      mainCategory.isEmpty ? kGeneralCategory : mainCategory;
+                  final categoryAndSubCategory = subCategory.isEmpty
+                      ? '$categoryLabel • ללא תת קטגוריה'
+                      : '$categoryLabel • $subCategory';
 
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 8),
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: isLight
-                                ? Colors.white.withValues(alpha: 0.62)
-                                : const Color(0xFF1E2632),
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                              color: isLight
-                                  ? const Color(0xFFA9C3FF)
-                                  : const Color(0xFF53C1F9)
-                                      .withValues(alpha: 0.22),
-                            ),
-                          ),
-                          padding: const EdgeInsets.all(12),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                  return Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: isLight
+                            ? Colors.white.withValues(alpha: 0.62)
+                            : const Color(0xFF1E2632),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: isLight
+                              ? const Color(0xFFA9C3FF)
+                              : const Color(0xFF53C1F9).withValues(alpha: 0.22),
+                        ),
+                      ),
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
                             children: [
-                              Row(
-                                children: [
-                                  _buildLiveGroupAvatar(
-                                    groupId: targetGroupId,
-                                    fallbackImageUrl: groupImageUrl,
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
+                              _buildLiveGroupAvatar(
+                                groupId: targetGroupId,
+                                fallbackImageUrl: groupImageUrl,
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
                                       children: [
-                                        Row(
-                                          children: [
-                                            Expanded(
-                                              child: Text(
-                                                groupName,
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: TextStyle(
-                                                  fontFamily: 'Segoe UI',
-                                                  color: isLight
-                                                      ? Colors.black
-                                                      : Colors.white,
-                                                  fontWeight: FontWeight.bold,
-                                                  fontSize: 16,
-                                                ),
-                                              ),
+                                        Expanded(
+                                          child: Text(
+                                            groupName,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              fontFamily: 'Segoe UI',
+                                              color: isLight
+                                                  ? Colors.black
+                                                  : Colors.white,
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 16,
                                             ),
-                                            const SizedBox(width: 8),
-                                            Column(
-                                              crossAxisAlignment:
-                                                  CrossAxisAlignment.end,
-                                              children: [
-                                                _buildPublicGroupBadge(),
-                                                const SizedBox(height: 6),
-                                                _buildMinScoreBadge(minScore),
-                                              ],
-                                            ),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          groupDescription,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: TextStyle(
-                                            fontFamily: 'Segoe UI',
-                                            color: isLight
-                                                ? Colors.black87
-                                                : Colors.grey[400],
-                                            fontSize: 12,
                                           ),
                                         ),
-                                        const SizedBox(height: 7),
-                                        Row(
+                                        const SizedBox(width: 8),
+                                        Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.end,
                                           children: [
-                                            Container(
-                                              width: 22,
-                                              height: 22,
-                                              decoration: const BoxDecoration(
-                                                shape: BoxShape.circle,
-                                                gradient: LinearGradient(
-                                                  colors: [
-                                                    Color(0xFF53C1F9),
-                                                    Color(0xFF9E7CFF)
-                                                  ],
-                                                ),
-                                              ),
-                                              child: Icon(
-                                                categoryIconFor(categoryLabel),
-                                                size: 14,
-                                                color: Colors.white,
-                                              ),
-                                            ),
-                                            const SizedBox(width: 6),
-                                            Expanded(
-                                              child: Text(
-                                                categoryAndSubCategory,
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: TextStyle(
-                                                  color: isLight
-                                                      ? Colors.black87
-                                                      : const Color(0xFFD1D7E4),
-                                                  fontSize: 12,
-                                                  fontWeight: FontWeight.w600,
-                                                ),
-                                              ),
-                                            ),
+                                            _buildPublicGroupBadge(),
+                                            const SizedBox(height: 6),
+                                            _buildMinScoreBadge(minScore),
                                           ],
                                         ),
                                       ],
                                     ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 12),
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  Align(
-                                    alignment: Alignment.centerRight,
-                                    child: Wrap(
-                                      spacing: 8,
-                                      runSpacing: 8,
-                                      crossAxisAlignment:
-                                          WrapCrossAlignment.center,
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      groupDescription,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontFamily: 'Segoe UI',
+                                        color: isLight
+                                            ? Colors.black87
+                                            : Colors.grey[400],
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 7),
+                                    Row(
                                       children: [
                                         Container(
-                                          padding: const EdgeInsets.symmetric(
-                                              horizontal: 10, vertical: 6),
-                                          decoration: BoxDecoration(
-                                            color: isLight
-                                                ? Colors.white
-                                                    .withValues(alpha: 0.72)
-                                                : const Color(0xFF0F1522),
-                                            borderRadius:
-                                                BorderRadius.circular(999),
-                                            border: Border.all(
-                                              color: isLight
-                                                  ? const Color(0xFFA9C3FF)
-                                                  : const Color(0xFF53C1F9)
-                                                      .withValues(alpha: 0.28),
+                                          width: 22,
+                                          height: 22,
+                                          decoration: const BoxDecoration(
+                                            shape: BoxShape.circle,
+                                            gradient: LinearGradient(
+                                              colors: [
+                                                Color(0xFF53C1F9),
+                                                Color(0xFF9E7CFF)
+                                              ],
                                             ),
                                           ),
+                                          child: Icon(
+                                            categoryIconFor(categoryLabel),
+                                            size: 14,
+                                            color: Colors.white,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Expanded(
                                           child: Text(
-                                            '$memberCount חברים',
+                                            categoryAndSubCategory,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
                                             style: TextStyle(
-                                              fontFamily: 'Segoe UI',
                                               color: isLight
                                                   ? Colors.black87
-                                                  : Colors.grey[300],
+                                                  : const Color(0xFFD1D7E4),
                                               fontSize: 12,
                                               fontWeight: FontWeight.w600,
                                             ),
                                           ),
                                         ),
-                                        OutlinedButton.icon(
-                                          onPressed: () =>
-                                              _showGroupDetailsDialog(
-                                            targetGroupId: targetGroupId,
-                                            groupName: groupName,
-                                            chatParticipants: participants,
-                                          ),
-                                          style: OutlinedButton.styleFrom(
-                                            foregroundColor:
-                                                const Color(0xFF53C1F9),
-                                            side: BorderSide(
-                                              color: const Color(0xFF53C1F9)
-                                                  .withValues(alpha: 0.7),
-                                            ),
-                                            padding: const EdgeInsets.symmetric(
-                                                horizontal: 10, vertical: 10),
-                                            shape: RoundedRectangleBorder(
-                                              borderRadius:
-                                                  BorderRadius.circular(12),
-                                            ),
-                                          ),
-                                          icon: const Icon(
-                                              Icons.info_outline_rounded,
-                                              size: 16),
-                                          label: const Text(
-                                            'פרטים',
-                                            style: TextStyle(
-                                                fontSize: 12,
-                                                fontWeight: FontWeight.w700),
-                                          ),
-                                        ),
-                                        OutlinedButton.icon(
-                                          onPressed: () =>
-                                              _showParticipantFriendsDialog(
-                                            targetGroupId: targetGroupId,
-                                            chatParticipants: participants,
-                                          ),
-                                          style: OutlinedButton.styleFrom(
-                                            foregroundColor:
-                                                const Color(0xFFB6A3FF),
-                                            side: BorderSide(
-                                              color: const Color(0xFF9E7CFF)
-                                                  .withValues(alpha: 0.7),
-                                            ),
-                                            padding: const EdgeInsets.symmetric(
-                                                horizontal: 10, vertical: 10),
-                                            shape: RoundedRectangleBorder(
-                                              borderRadius:
-                                                  BorderRadius.circular(12),
-                                            ),
-                                          ),
-                                          icon: const Icon(
-                                              Icons.people_alt_outlined,
-                                              size: 16),
-                                          label: const Text(
-                                            'חברים משתתפים',
-                                            style: TextStyle(
-                                                fontSize: 12,
-                                                fontWeight: FontWeight.w700),
-                                          ),
-                                        ),
                                       ],
                                     ),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  StreamBuilder<String?>(
-                                    stream: _groupService
-                                        .myMembershipStatus(targetGroupId),
-                                    builder: (context, statusSnapshot) {
-                                      final status = statusSnapshot.data;
-                                      final isPending = status == 'pending';
-                                      final isApproved = status == 'approved';
-
-                                      Color backgroundColor =
-                                          const Color(0xFF9E7CFF);
-                                      String label = 'הצטרף';
-                                      VoidCallback? onPressed =
-                                          () => _joinPublicGroup(targetGroupId);
-
-                                      if (isPending) {
-                                        backgroundColor =
-                                            const Color(0xFF3F97D6);
-                                        label = 'בקשתך נשלחה';
-                                        onPressed = () =>
-                                            _confirmCancelJoinRequest(
-                                                targetGroupId);
-                                      } else if (isApproved) {
-                                        backgroundColor = Colors.grey;
-                                        label = 'כבר חבר';
-                                        onPressed = null;
-                                      }
-
-                                      return ElevatedButton(
-                                        onPressed: onPressed,
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: backgroundColor,
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 23,
-                                            vertical: 10,
-                                          ),
-                                          minimumSize:
-                                              const Size(double.infinity, 40),
-                                          tapTargetSize:
-                                              MaterialTapTargetSize.shrinkWrap,
-                                          shape: RoundedRectangleBorder(
-                                            borderRadius:
-                                                BorderRadius.circular(12),
-                                          ),
-                                        ),
-                                        child: Text(
-                                          label,
-                                          maxLines: 1,
-                                          softWrap: false,
-                                          overflow: TextOverflow.fade,
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 13,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      );
-                                    },
-                                  ),
-                                ],
+                                  ],
+                                ),
                               ),
                             ],
                           ),
-                        ),
-                      );
-                    },
-                  ),
-              ],
-            );
-          },
+                          const SizedBox(height: 12),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  crossAxisAlignment: WrapCrossAlignment.center,
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 10, vertical: 6),
+                                      decoration: BoxDecoration(
+                                        color: isLight
+                                            ? Colors.white
+                                                .withValues(alpha: 0.72)
+                                            : const Color(0xFF0F1522),
+                                        borderRadius:
+                                            BorderRadius.circular(999),
+                                        border: Border.all(
+                                          color: isLight
+                                              ? const Color(0xFFA9C3FF)
+                                              : const Color(0xFF53C1F9)
+                                                  .withValues(alpha: 0.28),
+                                        ),
+                                      ),
+                                      child: Text(
+                                        '$memberCount חברים',
+                                        style: TextStyle(
+                                          fontFamily: 'Segoe UI',
+                                          color: isLight
+                                              ? Colors.black87
+                                              : Colors.grey[300],
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                    OutlinedButton.icon(
+                                      onPressed: () => _showGroupDetailsDialog(
+                                        targetGroupId: targetGroupId,
+                                        groupName: groupName,
+                                        chatParticipants: participants,
+                                      ),
+                                      style: OutlinedButton.styleFrom(
+                                        foregroundColor:
+                                            const Color(0xFF53C1F9),
+                                        side: BorderSide(
+                                          color: const Color(0xFF53C1F9)
+                                              .withValues(alpha: 0.7),
+                                        ),
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 10, vertical: 10),
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(12),
+                                        ),
+                                      ),
+                                      icon: const Icon(
+                                          Icons.info_outline_rounded,
+                                          size: 16),
+                                      label: const Text(
+                                        'פרטים',
+                                        style: TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w700),
+                                      ),
+                                    ),
+                                    OutlinedButton.icon(
+                                      onPressed: () =>
+                                          _showParticipantFriendsDialog(
+                                        targetGroupId: targetGroupId,
+                                        chatParticipants: participants,
+                                      ),
+                                      style: OutlinedButton.styleFrom(
+                                        foregroundColor:
+                                            const Color(0xFFB6A3FF),
+                                        side: BorderSide(
+                                          color: const Color(0xFF9E7CFF)
+                                              .withValues(alpha: 0.7),
+                                        ),
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 10, vertical: 10),
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(12),
+                                        ),
+                                      ),
+                                      icon: const Icon(
+                                          Icons.people_alt_outlined,
+                                          size: 16),
+                                      label: const Text(
+                                        'חברים משתתפים',
+                                        style: TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w700),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              StreamBuilder<String?>(
+                                stream: _groupService
+                                    .myMembershipStatus(targetGroupId),
+                                builder: (context, statusSnapshot) {
+                                  final status = statusSnapshot.data;
+                                  final isPending = status == 'pending';
+                                  final isApproved = status == 'approved';
+
+                                  Color backgroundColor =
+                                      const Color(0xFF9E7CFF);
+                                  String label = 'הצטרף';
+                                  VoidCallback? onPressed =
+                                      () => _joinPublicGroup(targetGroupId);
+
+                                  if (isPending) {
+                                    backgroundColor = const Color(0xFF3F97D6);
+                                    label = 'בקשתך נשלחה';
+                                    onPressed = () => _confirmCancelJoinRequest(
+                                        targetGroupId);
+                                  } else if (isApproved) {
+                                    backgroundColor = Colors.grey;
+                                    label = 'כבר חבר';
+                                    onPressed = null;
+                                  }
+
+                                  return ElevatedButton(
+                                    onPressed: onPressed,
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: backgroundColor,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 23,
+                                        vertical: 10,
+                                      ),
+                                      minimumSize:
+                                          const Size(double.infinity, 40),
+                                      tapTargetSize:
+                                          MaterialTapTargetSize.shrinkWrap,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                    ),
+                                    child: Text(
+                                      label,
+                                      maxLines: 1,
+                                      softWrap: false,
+                                      overflow: TextOverflow.fade,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+          ],
         );
+      },
+    );
   }
 
   Future<void> _joinPublicGroup(String groupId) async {
@@ -3956,7 +3953,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
   }
 
   Future<List<_GlobalSearchResult>> _globalSearchResults(String query) {
-    final normalizedQuery = query.trim();
+    final normalizedQuery = normalizeDirectorySearchText(query);
     if (normalizedQuery.isEmpty) {
       return Future.value(const <_GlobalSearchResult>[]);
     }
@@ -3991,9 +3988,15 @@ class _ChatsScreenState extends State<ChatsScreen> {
       final groupSnapshots = <QuerySnapshot<Map<String, dynamic>>>[];
 
       try {
-        debugPrint('[ChatsScreen][globalSearch] path=users_public get()');
-        publicUsersSnapshot =
-            await FirebaseFirestore.instance.collection('users_public').get();
+        debugPrint(
+          '[ChatsScreen][globalSearch] path=users_public where(isSearchable==true)',
+        );
+        publicUsersSnapshot = await FirebaseFirestore.instance
+            .collection('users_public')
+            .where('isSearchable', isEqualTo: true)
+            .where('searchPrefixes', arrayContains: normalizedQuery)
+            .limit(12)
+            .get();
       } catch (error, stackTrace) {
         debugPrint(
           '[ChatsScreen][globalSearch] users_public denied: $error\n$stackTrace',
@@ -4117,6 +4120,9 @@ class _ChatsScreenState extends State<ChatsScreen> {
         }
 
         final data = doc.data();
+        if (!isSearchablePublicUser(data)) {
+          continue;
+        }
         final isPrivateProfile = (data['isPrivate'] as bool?) ?? false;
         if (isPrivateProfile) {
           continue;

@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../age_restrictions.dart';
+import '../search_index_utils.dart';
 
 import 'notification_service.dart';
 import 'notification_runtime_service.dart';
@@ -252,7 +253,16 @@ class AuthService {
     int followersCount = 0,
     int followingCount = 0,
     int friendsCount = 0,
+    bool isDeleted = false,
   }) {
+    final searchPrefixes = isDeleted
+        ? const <String>[]
+        : buildDirectorySearchPrefixes([
+            displayName,
+            firstName,
+            lastName,
+            username,
+          ]);
     return {
       'uid': uid,
       'username': username,
@@ -265,6 +275,9 @@ class AuthService {
       'profilePictureUrl': profilePictureUrl.trim(),
       'profileImageUrls': profileImageUrls,
       'isPrivate': isPrivate,
+      'isDeleted': isDeleted,
+      'isSearchable': !isDeleted && !isPrivate && searchPrefixes.isNotEmpty,
+      'searchPrefixes': searchPrefixes,
       'followersCount': followersCount,
       'followingCount': followingCount,
       'friendsCount': friendsCount,
@@ -302,6 +315,7 @@ class AuthService {
     final lifeMotto = (privateProfile['lifeMotto'] as String? ?? '').trim();
     final bio = (privateProfile['bio'] as String? ?? '').trim();
     final isPrivate = (privateProfile['isPrivate'] as bool?) ?? false;
+    final isDeleted = (privateProfile['isDeleted'] as bool?) ?? false;
     final followersCount =
         (privateProfile['followersCount'] as num?)?.toInt() ?? 0;
     final followingCount =
@@ -320,6 +334,7 @@ class AuthService {
         profileImageUrls: profileImageUrls,
         bio: bio,
         isPrivate: isPrivate,
+        isDeleted: isDeleted,
         followersCount: followersCount,
         followingCount: followingCount,
         friendsCount: friendsCount,
@@ -2161,6 +2176,8 @@ class AuthService {
 
     final userRef = _db.collection('users').doc(uid);
     final userPublicRef = _db.collection('users_public').doc(uid);
+    final userSnapshot = await userRef.get();
+    final userData = userSnapshot.data() ?? const <String, dynamic>{};
     final batch = _db.batch();
     batch.update(userRef, {
       'username': normalizedUsername,
@@ -2172,6 +2189,12 @@ class AuthService {
       {
         'username': normalizedUsername,
         'usernameLowercase': normalizedUsername,
+        'searchPrefixes': buildDirectorySearchPrefixes([
+          (userData['displayName'] as String?) ?? '',
+          (userData['firstName'] as String?) ?? '',
+          (userData['lastName'] as String?) ?? '',
+          normalizedUsername,
+        ]),
         'updatedAt': FieldValue.serverTimestamp(),
       },
       SetOptions(merge: true),
@@ -2385,7 +2408,11 @@ class AuthService {
       SetOptions(merge: true),
     );
     await _db.collection('users_public').doc(uid).set(
-      {'isPrivate': isPrivate, 'updatedAt': FieldValue.serverTimestamp()},
+      {
+        'isPrivate': isPrivate,
+        'isSearchable': !isPrivate,
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
       SetOptions(merge: true),
     );
   }
@@ -2505,6 +2532,8 @@ class AuthService {
     await userPublicRef.set(
       {
         'isDeleted': true,
+        'isSearchable': false,
+        'searchPrefixes': <String>[],
         'displayName': 'משתמש מחוק',
         'username': '',
         'bio': '',

@@ -15,6 +15,7 @@ import 'feed_screen.dart';
 import 'login_screen.dart';
 import 'services/auth_service.dart';
 import 'services/face_verification_service.dart';
+import 'services/fresh_install_session_guard.dart';
 import 'services/share_flow_log_service.dart';
 import 'services/theme_mode_service.dart';
 import 'services/location_service.dart';
@@ -141,6 +142,14 @@ Future<void> main() async {
     FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
     await _configureAuthConnection();
     await ShareFlowLogService.log('AUTH_CONNECTION_CONFIGURED');
+    final didSignOutRestoredSession =
+        await FreshInstallSessionGuard().enforce();
+    await ShareFlowLogService.log(
+      'FRESH_INSTALL_SESSION_GUARD_COMPLETED',
+      data: <String, Object?>{
+        'didSignOutRestoredSession': didSignOutRestoredSession,
+      },
+    );
     await NotificationRuntimeService.instance.initialize();
     await ShareFlowLogService.log('NOTIFICATION_RUNTIME_INITIALIZED');
     await ThemeModeService.instance.load();

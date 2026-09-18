@@ -1,9 +1,12 @@
+import 'dart:convert';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hundred_version1/chats_screen.dart';
 import 'package:hundred_version1/feed_screen.dart';
 import 'package:hundred_version1/post_model.dart';
+import 'package:hundred_version1/search_index_utils.dart';
 import 'package:hundred_version1/services/app_home_service.dart';
 import 'package:hundred_version1/services/block_user_service.dart';
 import 'package:hundred_version1/stars_screen.dart';
@@ -207,6 +210,41 @@ void main() {
     expect(
       buildGlobalSearchText(groupData, isGroup: true),
       contains('שלום לכם'),
+    );
+  });
+
+  test('chat search excludes deleted and non-indexed public users', () {
+    expect(
+      isSearchablePublicUser({
+        'isSearchable': true,
+        'isDeleted': false,
+      }),
+      isTrue,
+    );
+    expect(
+      isSearchablePublicUser({
+        'isSearchable': true,
+        'isDeleted': true,
+      }),
+      isFalse,
+    );
+    expect(isSearchablePublicUser(<String, dynamic>{}), isFalse);
+  });
+
+  test('directory search builds normalized prefixes for names and handles', () {
+    final prefixes = buildDirectorySearchPrefixes([
+      'אסף יהושע',
+      '@AssafY',
+      '😀Test',
+    ]);
+
+    expect(
+      prefixes,
+      containsAll(['א', 'אסף', 'י', 'יהוש', 'a', 'assafy', '😀', '😀t']),
+    );
+    expect(
+      () => prefixes.map(utf8.encode).toList(growable: false),
+      returnsNormally,
     );
   });
 

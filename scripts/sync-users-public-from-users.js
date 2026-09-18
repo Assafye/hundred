@@ -68,6 +68,35 @@ function normalizeAvatar(userDoc) {
   ).trim();
 }
 
+function normalizeSearchText(raw) {
+  return String(raw ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\u200e\u200f]/g, '')
+    .replace(/^@+/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function buildSearchPrefixes(values) {
+  const searchableValues = new Set();
+  for (const raw of values) {
+    const normalized = normalizeSearchText(raw);
+    if (!normalized) continue;
+    searchableValues.add(normalized);
+    normalized.split(' ').filter(Boolean).forEach((part) => searchableValues.add(part));
+  }
+
+  const prefixes = new Set();
+  for (const value of searchableValues) {
+    const codePoints = Array.from(value);
+    for (let length = 1; length <= codePoints.length; length += 1) {
+      prefixes.add(codePoints.slice(0, length).join(''));
+    }
+  }
+  return [...prefixes].sort();
+}
+
 function buildPublicPayload(uid, userDoc) {
   const firstName = String(userDoc.firstName ?? '').trim();
   const lastName = String(userDoc.lastName ?? '').trim();
@@ -82,6 +111,15 @@ function buildPublicPayload(uid, userDoc) {
   const following = Array.isArray(userDoc.following)
     ? [...new Set(userDoc.following.map((v) => String(v || '').trim()).filter(Boolean))].sort()
     : [];
+  const isDeleted = userDoc.isDeleted === true;
+  const isPrivate = userDoc.isPrivate === true;
+  const displayName = String(userDoc.displayName ?? '').trim();
+  const searchPrefixes = buildSearchPrefixes([
+    displayName,
+    firstName,
+    lastName,
+    username,
+  ]);
 
   return {
     uid,
@@ -96,6 +134,9 @@ function buildPublicPayload(uid, userDoc) {
     following,
     followersCount,
     followingCount,
+    isDeleted,
+    isSearchable: !isDeleted && !isPrivate && searchPrefixes.length > 0,
+    searchPrefixes,
     updatedAt: FieldValue.serverTimestamp(),
   };
 }
@@ -114,6 +155,9 @@ function differs(existing = {}, next = {}) {
     'following',
     'followersCount',
     'followingCount',
+    'isDeleted',
+    'isSearchable',
+    'searchPrefixes',
   ];
 
   return keys.some((key) => {

@@ -1,6 +1,25 @@
 {
   "indexes": [
     {
+      "collectionGroup": "users_public",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "isSearchable",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "searchPrefixes",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "ASCENDING"
+        }
+      ],
+      "density": "SPARSE_ALL"
+    },
+    {
       "collectionGroup": "chats",
       "queryScope": "COLLECTION",
       "fields": [
