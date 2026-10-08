@@ -7,7 +7,7 @@ bool isVideoMediaUrl(String url) {
   }
 
   final withoutQuery = normalized.split('?').first.split('#').first;
-    return withoutQuery.endsWith('.mp4') ||
+  return withoutQuery.endsWith('.mp4') ||
       withoutQuery.endsWith('.mov') ||
       withoutQuery.endsWith('.m4v') ||
       withoutQuery.endsWith('.webm') ||
@@ -16,6 +16,20 @@ bool isVideoMediaUrl(String url) {
 }
 
 List<PostMediaItem> postMediaItemsFromData(Map<String, dynamic> data) {
+  List<PostMediaItem> withRootThumbnail(List<PostMediaItem> items) {
+    final thumbnailUrl = (data['thumbnailUrl'] as String? ??
+            data['videoThumbnailUrl'] as String? ??
+            '')
+        .trim();
+    if (thumbnailUrl.isEmpty || items.isEmpty) return items;
+    final first = items.first;
+    if (!first.isVideo || first.thumbnailUrl.trim().isNotEmpty) return items;
+    return <PostMediaItem>[
+      first.copyWith(thumbnailUrl: thumbnailUrl),
+      ...items.skip(1),
+    ];
+  }
+
   final rawMediaItems =
       (data['mediaItems'] as List<dynamic>? ?? const <dynamic>[]);
   final parsedMediaItems = rawMediaItems
@@ -26,8 +40,7 @@ List<PostMediaItem> postMediaItemsFromData(Map<String, dynamic> data) {
             (key, value) => MapEntry(key.toString(), value),
           );
 
-          final normalizedUrl =
-              (normalized['url'] as String? ?? '').trim();
+          final normalizedUrl = (normalized['url'] as String? ?? '').trim();
           final normalizedStoragePath =
               (normalized['storagePath'] as String? ?? '').trim();
 
@@ -44,7 +57,7 @@ List<PostMediaItem> postMediaItemsFromData(Map<String, dynamic> data) {
       .where((item) => item.url.trim().isNotEmpty)
       .toList(growable: false);
   if (parsedMediaItems.isNotEmpty) {
-    return parsedMediaItems;
+    return withRootThumbnail(parsedMediaItems);
   }
 
   final mediaUrls = (data['mediaUrls'] as List<dynamic>? ?? const <dynamic>[])
@@ -59,7 +72,7 @@ List<PostMediaItem> postMediaItemsFromData(Map<String, dynamic> data) {
       )
       .toList(growable: false);
   if (mediaUrls.isNotEmpty) {
-    return mediaUrls;
+    return withRootThumbnail(mediaUrls);
   }
 
   final singleUrl =
@@ -69,13 +82,13 @@ List<PostMediaItem> postMediaItemsFromData(Map<String, dynamic> data) {
     return const <PostMediaItem>[];
   }
 
-  return <PostMediaItem>[
+  return withRootThumbnail(<PostMediaItem>[
     PostMediaItem(
       url: singleUrl,
       storagePath: (data['storagePath'] as String? ?? '').trim(),
       type: isVideoMediaUrl(singleUrl) ? 'video' : 'image',
     ),
-  ];
+  ]);
 }
 
 String postPrimaryMediaUrl(Map<String, dynamic> data) {

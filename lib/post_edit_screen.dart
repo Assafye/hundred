@@ -2442,6 +2442,7 @@ class _PostEditScreenState extends State<PostEditScreen> {
                   'type': existing.type,
                   'url': existing.url,
                   'storagePath': existing.storagePath,
+                  'thumbnailUrl': existing.thumbnailUrl,
                   'cropScale': existing.cropScale,
                   'cropAlignmentX': existing.cropAlignmentX,
                   'cropAlignmentY': existing.cropAlignmentY,

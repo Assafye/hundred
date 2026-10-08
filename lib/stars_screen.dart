@@ -16,7 +16,6 @@ import 'post_score_calculator.dart';
 import 'app_categories.dart';
 import 'services/app_home_service.dart';
 import 'services/block_user_service.dart';
-import 'services/social_service.dart';
 import 'services/spontaneous_challenge_service.dart';
 import 'services/weekly_challenge_service.dart';
 import 'widgets/swipe_back_wrapper.dart';
@@ -195,6 +194,10 @@ class _StarsScreenState extends State<StarsScreen> with WidgetsBindingObserver {
     _blockedUsersSub =
         _blockUserService.streamBlockedConnections().listen((ids) {
       if (!mounted) {
+        return;
+      }
+      if (ids.length == _blockedUserIds.length &&
+          _blockedUserIds.containsAll(ids)) {
         return;
       }
       setState(() {
@@ -394,6 +397,17 @@ class _StarsScreenState extends State<StarsScreen> with WidgetsBindingObserver {
         .trim();
   }
 
+  Set<String> _uidSetFromUserData(Map<String, dynamic>? data, String key) {
+    final raw = data?[key];
+    if (raw is! List) {
+      return <String>{};
+    }
+    return raw
+        .map((value) => value.toString().trim())
+        .where((value) => value.isNotEmpty)
+        .toSet();
+  }
+
   Map<String, dynamic> _toPostMap(
       QueryDocumentSnapshot<Map<String, dynamic>> doc) {
     final data = Map<String, dynamic>.from(doc.data());
@@ -487,28 +501,30 @@ class _StarsScreenState extends State<StarsScreen> with WidgetsBindingObserver {
           .toList(growable: false);
     }
 
-    final socialService = SocialService();
-    final visible = <Map<String, dynamic>>[];
-    for (final post in baseVisible) {
-      final audience = _postAudience(post);
-      if (audience != 'friends') {
-        visible.add(post);
-        continue;
+    final hasFriendPosts = baseVisible.any(
+      (post) => _postAudience(post) == 'friends',
+    );
+    final currentUserData = hasFriendPosts
+        ? (await FirebaseFirestore.instance
+                .collection('users')
+                .doc(currentUid)
+                .get())
+            .data()
+        : null;
+    final followingIds = _uidSetFromUserData(currentUserData, 'following');
+    final followerIds = _uidSetFromUserData(currentUserData, 'followers');
+
+    final visible = baseVisible.where((post) {
+      if (_postAudience(post) != 'friends') {
+        return true;
       }
 
       final authorId = _authorIdFromPost(post);
-      if (authorId.isEmpty || authorId == currentUid) {
-        if (authorId == currentUid) {
-          visible.add(post);
-        }
-        continue;
-      }
-
-      final isMutual = await socialService.isMutualFollow(authorId);
-      if (isMutual) {
-        visible.add(post);
-      }
-    }
+      return authorId == currentUid ||
+          (!effectiveBlockedUserIds.contains(authorId) &&
+              followingIds.contains(authorId) &&
+              followerIds.contains(authorId));
+    }).toList(growable: false);
     return filterBlockedUserPostsForViewer(
       visible,
       blockedUserIds: effectiveBlockedUserIds,
@@ -537,12 +553,16 @@ class _StarsScreenState extends State<StarsScreen> with WidgetsBindingObserver {
     Set<String> blockedUserIds = const <String>{},
   }) async {
     final now = DateTime.now().toUtc();
+    final weekStart = Timestamp.fromDate(now.subtract(const Duration(days: 7)));
+    final nowTimestamp = Timestamp.fromDate(now);
     final challenge = _challenge;
 
     final weeklyCategoryDocsFuture = FirebaseFirestore.instance
         .collection('posts')
         .where('status', isEqualTo: 'published')
         .where('category', isEqualTo: challenge.mainCategory)
+        .where('createdAt', isGreaterThanOrEqualTo: weekStart)
+        .where('createdAt', isLessThanOrEqualTo: nowTimestamp)
         .orderBy('createdAt', descending: true)
         .limit(800)
         .get();
@@ -550,6 +570,8 @@ class _StarsScreenState extends State<StarsScreen> with WidgetsBindingObserver {
     final weeklyAllDocsFuture = FirebaseFirestore.instance
         .collection('posts')
         .where('status', isEqualTo: 'published')
+        .where('createdAt', isGreaterThanOrEqualTo: weekStart)
+        .where('createdAt', isLessThanOrEqualTo: nowTimestamp)
         .orderBy('createdAt', descending: true)
         .limit(1200)
         .get();

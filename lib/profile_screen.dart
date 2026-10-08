@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -30,7 +29,6 @@ import 'settings_screen.dart';
 import 'user_profile_screen.dart';
 import 'widgets/profile_images_viewer_dialog.dart';
 import 'widgets/post_media_viewer.dart';
-import 'video_preview_utils.dart';
 
 class _ProfileCategoryNavItem {
   final String key;
@@ -109,6 +107,11 @@ class MyProfileScreen extends MainUserProfileScreen {
 
 class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
   static const int _subCategoryGoal = 100;
+  static final Map<String, Map<String, dynamic>> _sessionProfileDataByUid =
+      <String, Map<String, dynamic>>{};
+  static final Map<String, List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+      _sessionPostsByUid =
+      <String, List<QueryDocumentSnapshot<Map<String, dynamic>>>>{};
   late final String _uid;
   late final ScrollController _profileScrollController;
   late final ScrollController _sidebarScrollController;
@@ -120,7 +123,6 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
   Map<String, dynamic>? _lastGoodProfileData;
   String _selectedCategoryKey = 'general';
   final Map<String, Future<String?>> _resolvedMediaFutureByPostKey = {};
-  final Map<String, Future<Uint8List?>> _videoPreviewFutureByUrl = {};
   final Map<String, Future<_ProfileRelationLists>>
       _filteredRelationListsFutureBySignature = {};
   final SocialService _socialService = SocialService();
@@ -156,6 +158,10 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
     super.initState();
     KeyboardDismissController.suspend();
     _uid = FirebaseAuth.instance.currentUser!.uid;
+    final cachedProfileData = _sessionProfileDataByUid[_uid];
+    if (cachedProfileData != null) {
+      _lastGoodProfileData = Map<String, dynamic>.from(cachedProfileData);
+    }
     _selectedCategoryKey = _categoryItems
             .any((item) => item.key == widget.initialCategoryKey.trim())
         ? widget.initialCategoryKey.trim()
@@ -561,33 +567,52 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
     final authoredStream = FirebaseFirestore.instance
         .collection('posts')
         .where('authorId', isEqualTo: _uid)
-        .snapshots();
+        .snapshots(includeMetadataChanges: true);
     final taggedStream = FirebaseFirestore.instance
         .collection('posts')
         .where('members', arrayContains: _uid)
-        .snapshots();
+        .snapshots(includeMetadataChanges: true);
 
     return Stream.multi((controller) {
       QuerySnapshot<Map<String, dynamic>>? authoredSnapshot;
       QuerySnapshot<Map<String, dynamic>>? taggedSnapshot;
 
+      final cachedPosts = _sessionPostsByUid[_uid];
+      if (cachedPosts != null && cachedPosts.isNotEmpty) {
+        controller.add(cachedPosts);
+      }
+
       void emitMerged() {
-        if (authoredSnapshot == null || taggedSnapshot == null) {
+        if (authoredSnapshot == null && taggedSnapshot == null) {
           return;
         }
 
         final mergedById =
             <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
-        for (final doc in authoredSnapshot!.docs) {
+        for (final doc in authoredSnapshot?.docs ?? const []) {
           mergedById[doc.id] = doc;
         }
-        for (final doc in taggedSnapshot!.docs) {
+        for (final doc in taggedSnapshot?.docs ?? const []) {
           mergedById[doc.id] = doc;
+        }
+
+        final hasConfirmedEmptyResults = authoredSnapshot != null &&
+            taggedSnapshot != null &&
+            !authoredSnapshot!.metadata.isFromCache &&
+            !taggedSnapshot!.metadata.isFromCache;
+        if (mergedById.isEmpty && !hasConfirmedEmptyResults) {
+          return;
         }
 
         final merged = mergedById.values.toList(growable: false)
           ..sort((a, b) =>
               _createdAtFrom(b.data()).compareTo(_createdAtFrom(a.data())));
+
+        if (merged.isNotEmpty || hasConfirmedEmptyResults) {
+          _sessionPostsByUid[_uid] = merged
+              .where((doc) => _postAuthorId(doc.data()) == _uid)
+              .toList(growable: false);
+        }
 
         controller.add(merged);
       }
@@ -2903,6 +2928,10 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
         aspectRatio: null,
         showIndicators: false,
         isActive: false,
+        showVideoPreviews: true,
+        postId:
+            (data['postId'] as String? ?? data['id'] as String? ?? '').trim(),
+        postAuthorId: _postAuthorId(data),
       ),
     );
   }
@@ -3380,7 +3409,11 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
         mainAxisSpacing: 6,
       ),
       itemBuilder: (context, index) {
-        final data = visiblePreviewDocs[index].data();
+        final previewDoc = visiblePreviewDocs[index];
+        final data = Map<String, dynamic>.from(previewDoc.data())
+          ..['id'] = previewDoc.id
+          ..['postId'] =
+              (previewDoc.data()['postId'] as String? ?? previewDoc.id).trim();
         return ClipRRect(
           borderRadius: BorderRadius.circular(10),
           child: _buildFolderPreviewTile(data),
@@ -3390,75 +3423,27 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
   }
 
   Widget _buildFolderPreviewTile(Map<String, dynamic> data) {
-    final rawMedia = _rawMediaField(data);
-    final isVideo = isVideoMediaUrl(rawMedia);
+    final mediaItems = postMediaItemsFromData(data);
+    if (mediaItems.isEmpty) {
+      return Container(
+        color: const Color(0xFF0F1522),
+        alignment: Alignment.center,
+        child: const Icon(
+          Icons.image_not_supported_rounded,
+          color: Colors.white38,
+          size: 30,
+        ),
+      );
+    }
 
-    return FutureBuilder<String?>(
-      future: _resolveMediaUrl(data),
-      builder: (context, snapshot) {
-        final url = (snapshot.data ?? '').trim();
-        if (url.isEmpty) {
-          return Stack(
-            fit: StackFit.expand,
-            children: [
-              Container(color: const Color(0xFF0F1522)),
-              const Center(
-                child: Icon(
-                  Icons.image_not_supported_rounded,
-                  color: Colors.white38,
-                  size: 30,
-                ),
-              ),
-            ],
-          );
-        }
-
-        if (!isVideo) {
-          return Image.network(
-            url,
-            fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) => Container(
-              color: const Color(0xFF0F1522),
-              child: const Center(
-                child: Icon(
-                  Icons.broken_image_outlined,
-                  color: Colors.white38,
-                  size: 30,
-                ),
-              ),
-            ),
-          );
-        }
-
-        final previewFuture = _videoPreviewFutureByUrl.putIfAbsent(
-          url,
-          () => buildVideoPreviewBytesFromSource(url),
-        );
-
-        return FutureBuilder<Uint8List?>(
-          future: previewFuture,
-          builder: (context, bytesSnapshot) {
-            final bytes = bytesSnapshot.data;
-            if (bytes != null && bytes.isNotEmpty) {
-              return Image.memory(bytes, fit: BoxFit.cover);
-            }
-
-            return Stack(
-              fit: StackFit.expand,
-              children: [
-                Container(color: const Color(0xFF0F1522)),
-                const Center(
-                  child: Icon(
-                    Icons.play_circle_fill_rounded,
-                    color: Colors.white,
-                    size: 30,
-                  ),
-                ),
-              ],
-            );
-          },
-        );
-      },
+    return PostMediaViewer(
+      mediaItems: mediaItems,
+      aspectRatio: null,
+      showIndicators: false,
+      isActive: false,
+      showVideoPreviews: true,
+      postId: (data['postId'] as String? ?? data['id'] as String? ?? '').trim(),
+      postAuthorId: _postAuthorId(data),
     );
   }
 
@@ -3817,7 +3802,10 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
   }
 
   Widget _buildPostsGrid(
-      List<QueryDocumentSnapshot<Map<String, dynamic>>> docs) {
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs, {
+    bool isLoading = false,
+    bool hasError = false,
+  }) {
     if (docs.isEmpty) {
       final isDraftFilter = _selectedCategoryKey == 'drafts';
       return CustomScrollView(
@@ -3832,13 +3820,27 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
               alignment: const Alignment(0, -0.18),
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 28),
-                child: Text(
-                  isDraftFilter
-                      ? 'אין טיוטות שמורות להצגה'
-                      : 'אין פוסטים להצגה בקטגוריה הזו',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.grey[400], fontSize: 14),
-                ),
+                child: isLoading
+                    ? const CircularProgressIndicator()
+                    : hasError
+                        ? Text(
+                            'לא ניתן לטעון את הפוסטים כרגע',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: Colors.grey[400],
+                              fontSize: 14,
+                            ),
+                          )
+                        : Text(
+                            isDraftFilter
+                                ? 'אין טיוטות שמורות להצגה'
+                                : 'אין פוסטים להצגה בקטגוריה הזו',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: Colors.grey[400],
+                              fontSize: 14,
+                            ),
+                          ),
               ),
             ),
           ),
@@ -3889,6 +3891,9 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
           final entryPostId = (entry.primaryDoc.data()['postId'] as String? ??
                   entry.primaryDoc.id)
               .trim();
+          final postData = Map<String, dynamic>.from(entry.primaryDoc.data())
+            ..['id'] = entry.primaryDoc.id
+            ..['postId'] = entryPostId;
           final detailIndex = visiblePostIndexById[entryPostId] ?? 0;
 
           return GestureDetector(
@@ -3912,7 +3917,7 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
             },
             child: entry.isFolder
                 ? _buildEventFolderCard(entry)
-                : _buildPostCard(entry.primaryDoc.data()),
+                : _buildPostCard(postData),
           );
         } catch (e, stackTrace) {
           debugPrint('Error building profile post card: $e');
@@ -4190,10 +4195,10 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                               _filteredRelationListsForProfileData(profileData),
                           builder: (context, relationSnapshot) {
                             final relationLists =
-                              relationSnapshot.connectionState ==
-                                  ConnectionState.done
-                                ? relationSnapshot.data
-                                : null;
+                                relationSnapshot.connectionState ==
+                                        ConnectionState.done
+                                    ? relationSnapshot.data
+                                    : null;
                             final followers = relationLists?.followers ??
                                 rawFollowers.toList(growable: false);
                             final following = relationLists?.following ??
@@ -4828,13 +4833,35 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                         privateData: privateData,
                         publicData: publicData,
                       );
-                      if (mergedProfileData.isNotEmpty) {
-                        _lastGoodProfileData = mergedProfileData;
+                      final hasProfileDocument =
+                          profileSnapshot.data?.exists == true ||
+                              publicProfileSnapshot.data?.exists == true;
+                      final hasProfileIdentity = <String>[
+                        'firstName',
+                        'lastName',
+                        'username',
+                        'displayName',
+                        'profilePictureUrl',
+                        'bio',
+                      ].any(
+                        (key) => (mergedProfileData[key] as String? ?? '')
+                            .trim()
+                            .isNotEmpty,
+                      );
+                      final hasCurrentProfileData = hasProfileDocument &&
+                          (hasProfileIdentity ||
+                              (mergedProfileData['isDeleted'] as bool? ??
+                                  false));
+                      if (hasCurrentProfileData) {
+                        _lastGoodProfileData =
+                            Map<String, dynamic>.from(mergedProfileData);
+                        _sessionProfileDataByUid[_uid] =
+                            Map<String, dynamic>.from(mergedProfileData);
                       }
                       // Prefer the last known-good snapshot over the generic
                       // placeholder so a momentary listener reconnect (e.g.
                       // after a silent re-auth) doesn't flash wrong info.
-                      final profileData = mergedProfileData.isNotEmpty
+                      final profileData = hasCurrentProfileData
                           ? mergedProfileData
                           : (_lastGoodProfileData ?? fallbackProfile);
                       final unreadCount = _intValue(
@@ -4894,6 +4921,8 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                               _livePostedSubCategoryCount(allDocs);
 
                           final filteredDocs = _filteredPosts(allDocs);
+                          final isPostsLoading =
+                              !postsSnapshot.hasData && !postsSnapshot.hasError;
 
                           return RefreshIndicator(
                             onRefresh: _refreshProfileData,
@@ -4949,7 +4978,11 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                                           ),
                                         ),
                                         Expanded(
-                                          child: _buildPostsGrid(filteredDocs),
+                                          child: _buildPostsGrid(
+                                            filteredDocs,
+                                            isLoading: isPostsLoading,
+                                            hasError: postsSnapshot.hasError,
+                                          ),
                                         ),
                                       ],
                                     ),

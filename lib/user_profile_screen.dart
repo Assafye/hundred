@@ -33,7 +33,6 @@ import 'widgets/profile_images_viewer_dialog.dart';
 import 'widgets/post_media_viewer.dart';
 import 'widgets/report_dialogs.dart';
 import 'widgets/swipe_back_wrapper.dart';
-import 'video_preview_utils.dart';
 
 class _ProfileCategoryNavItem {
   final String key;
@@ -126,7 +125,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       PublicUserProfileService();
   final ReportService _reportService = ReportService();
   final Map<String, Future<String?>> _resolvedMediaFutureByPostKey = {};
-  final Map<String, Future<Uint8List?>> _videoPreviewFutureByUrl = {};
 
   String _selectedCategoryKey = 'general';
   bool _isFollowActionInFlight = false;
@@ -2124,6 +2122,10 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         aspectRatio: null,
         showIndicators: false,
         isActive: false,
+        showVideoPreviews: true,
+        postId:
+            (data['postId'] as String? ?? data['id'] as String? ?? '').trim(),
+        postAuthorId: _postAuthorId(data),
       ),
     );
   }
@@ -2502,7 +2504,11 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         mainAxisSpacing: 6,
       ),
       itemBuilder: (context, index) {
-        final data = visiblePreviewDocs[index].data();
+        final previewDoc = visiblePreviewDocs[index];
+        final data = Map<String, dynamic>.from(previewDoc.data())
+          ..['id'] = previewDoc.id
+          ..['postId'] =
+              (previewDoc.data()['postId'] as String? ?? previewDoc.id).trim();
         return ClipRRect(
           borderRadius: BorderRadius.circular(10),
           child: _buildFolderPreviewTile(data),
@@ -2512,75 +2518,27 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   }
 
   Widget _buildFolderPreviewTile(Map<String, dynamic> data) {
-    final rawMedia = _rawMediaField(data);
-    final isVideo = isVideoMediaUrl(rawMedia);
+    final mediaItems = postMediaItemsFromData(data);
+    if (mediaItems.isEmpty) {
+      return Container(
+        color: const Color(0xFF0F1522),
+        alignment: Alignment.center,
+        child: const Icon(
+          Icons.image_not_supported_rounded,
+          color: Colors.white38,
+          size: 30,
+        ),
+      );
+    }
 
-    return FutureBuilder<String?>(
-      future: _resolveMediaUrl(data),
-      builder: (context, snapshot) {
-        final url = (snapshot.data ?? '').trim();
-        if (url.isEmpty) {
-          return Stack(
-            fit: StackFit.expand,
-            children: [
-              Container(color: const Color(0xFF0F1522)),
-              const Center(
-                child: Icon(
-                  Icons.image_not_supported_rounded,
-                  color: Colors.white38,
-                  size: 30,
-                ),
-              ),
-            ],
-          );
-        }
-
-        if (!isVideo) {
-          return Image.network(
-            url,
-            fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) => Container(
-              color: const Color(0xFF0F1522),
-              child: const Center(
-                child: Icon(
-                  Icons.broken_image_outlined,
-                  color: Colors.white38,
-                  size: 30,
-                ),
-              ),
-            ),
-          );
-        }
-
-        final previewFuture = _videoPreviewFutureByUrl.putIfAbsent(
-          url,
-          () => buildVideoPreviewBytesFromSource(url),
-        );
-
-        return FutureBuilder<Uint8List?>(
-          future: previewFuture,
-          builder: (context, bytesSnapshot) {
-            final bytes = bytesSnapshot.data;
-            if (bytes != null && bytes.isNotEmpty) {
-              return Image.memory(bytes, fit: BoxFit.cover);
-            }
-
-            return Stack(
-              fit: StackFit.expand,
-              children: [
-                Container(color: const Color(0xFF0F1522)),
-                const Center(
-                  child: Icon(
-                    Icons.play_circle_fill_rounded,
-                    color: Colors.white,
-                    size: 30,
-                  ),
-                ),
-              ],
-            );
-          },
-        );
-      },
+    return PostMediaViewer(
+      mediaItems: mediaItems,
+      aspectRatio: null,
+      showIndicators: false,
+      isActive: false,
+      showVideoPreviews: true,
+      postId: (data['postId'] as String? ?? data['id'] as String? ?? '').trim(),
+      postAuthorId: _postAuthorId(data),
     );
   }
 
@@ -2910,6 +2868,9 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         final entryPostId = (entry.primaryDoc.data()['postId'] as String? ??
                 entry.primaryDoc.id)
             .trim();
+        final postData = Map<String, dynamic>.from(entry.primaryDoc.data())
+          ..['id'] = entry.primaryDoc.id
+          ..['postId'] = entryPostId;
         final detailIndex = visiblePostIndexById[entryPostId] ?? 0;
         return GestureDetector(
           onTap: () {
@@ -2929,7 +2890,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
           },
           child: entry.isFolder
               ? _buildEventFolderCard(entry)
-              : _buildPostCard(entry.primaryDoc.data()),
+              : _buildPostCard(postData),
         );
       },
     );

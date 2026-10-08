@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:firebase_storage/firebase_storage.dart';
@@ -6,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
 import '../models/post_media_item.dart';
+import '../services/video_poster_service.dart';
 
 class PostMediaViewer extends StatefulWidget {
   final List<PostMediaItem> mediaItems;
@@ -14,6 +16,9 @@ class PostMediaViewer extends StatefulWidget {
   final bool showIndicators;
   final bool showDesktopNavigationArrows;
   final bool isActive;
+  final bool showVideoPreviews;
+  final String postId;
+  final String postAuthorId;
 
   const PostMediaViewer({
     super.key,
@@ -23,6 +28,9 @@ class PostMediaViewer extends StatefulWidget {
     this.showIndicators = true,
     this.showDesktopNavigationArrows = false,
     this.isActive = true,
+    this.showVideoPreviews = false,
+    this.postId = '',
+    this.postAuthorId = '',
   });
 
   @override
@@ -108,6 +116,77 @@ class _PostMediaViewerState extends State<PostMediaViewer> {
     );
   }
 
+  Widget _buildVideoPoster(
+    PostMediaItem item, {
+    required String postId,
+    required String postAuthorId,
+  }) {
+    final rawUrl = item.thumbnailUrl.trim();
+    if (rawUrl.isNotEmpty) {
+      if (_isHttpUrl(rawUrl)) {
+        return _buildNetworkImage(item, rawUrl);
+      }
+
+      return FutureBuilder<String?>(
+        future: _resolvedMediaUrlFuture(rawUrl),
+        builder: (context, snapshot) {
+          final resolvedUrl = (snapshot.data ?? '').trim();
+          if (resolvedUrl.isNotEmpty) {
+            return _buildNetworkImage(item, resolvedUrl);
+          }
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return Container(
+              color: const Color(0xFF1A2230),
+              alignment: Alignment.center,
+              child: const SizedBox(
+                width: 26,
+                height: 26,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.4,
+                  color: Colors.white70,
+                ),
+              ),
+            );
+          }
+          return _imageErrorWidget();
+        },
+      );
+    }
+
+    return FutureBuilder<Uint8List?>(
+      future: VideoPosterService.previewForLegacyVideo(
+        media: item,
+        postId: postId,
+        postAuthorId: postAuthorId,
+      ),
+      builder: (context, snapshot) {
+        final bytes = snapshot.data;
+        if (bytes != null && bytes.isNotEmpty) {
+          return Image.memory(
+            bytes,
+            fit: BoxFit.cover,
+            gaplessPlayback: true,
+          );
+        }
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return Container(
+            color: const Color(0xFF1A2230),
+            alignment: Alignment.center,
+            child: const SizedBox(
+              width: 26,
+              height: 26,
+              child: CircularProgressIndicator(
+                strokeWidth: 2.4,
+                color: Colors.white70,
+              ),
+            ),
+          );
+        }
+        return Container(color: const Color(0xFF1A2230));
+      },
+    );
+  }
+
   Future<void> _goToPage(int index) async {
     if (!_pageController.hasClients) {
       return;
@@ -157,9 +236,19 @@ class _PostMediaViewerState extends State<PostMediaViewer> {
             itemBuilder: (context, index) {
               final item = widget.mediaItems[index];
               if (item.isVideo) {
+                final showPreview =
+                    widget.showVideoPreviews && !widget.isActive;
                 return _InlineVideoPlayer(
                   url: item.url,
                   isActive: widget.isActive && index == _currentIndex,
+                  showPreview: showPreview,
+                  preview: showPreview
+                      ? _buildVideoPoster(
+                          item,
+                          postId: widget.postId,
+                          postAuthorId: widget.postAuthorId,
+                        )
+                      : null,
                 );
               }
               final rawUrl = item.url.trim();
@@ -350,10 +439,14 @@ class _MediaNavArrow extends StatelessWidget {
 class _InlineVideoPlayer extends StatefulWidget {
   final String url;
   final bool isActive;
+  final bool showPreview;
+  final Widget? preview;
 
   const _InlineVideoPlayer({
     required this.url,
     required this.isActive,
+    required this.showPreview,
+    required this.preview,
   });
 
   @override
@@ -543,6 +636,9 @@ class _InlineVideoPlayerState extends State<_InlineVideoPlayer> {
   Widget build(BuildContext context) {
     final controller = _controller;
     if (controller == null || !controller.value.isInitialized) {
+      if (widget.showPreview) {
+        return widget.preview ?? Container(color: const Color(0xFF121926));
+      }
       return Container(
         color: const Color(0xFF121926),
         alignment: Alignment.center,

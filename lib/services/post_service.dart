@@ -779,18 +779,25 @@ class PostService {
     final hydrated = <PostMediaItem>[];
 
     for (final item in items) {
+      var hydratedItem = item;
       final storagePath = item.storagePath.trim();
-      if (storagePath.isEmpty || _isHttpUrl(item.url)) {
-        hydrated.add(item);
-        continue;
+      if (storagePath.isNotEmpty && !_isHttpUrl(item.url)) {
+        try {
+          final resolvedUrl = await _storage.ref(storagePath).getDownloadURL();
+          hydratedItem = hydratedItem.copyWith(url: resolvedUrl);
+        } catch (_) {}
       }
 
-      try {
-        final resolvedUrl = await _storage.ref(storagePath).getDownloadURL();
-        hydrated.add(item.copyWith(url: resolvedUrl));
-      } catch (_) {
-        hydrated.add(item);
+      final thumbnailPath = item.thumbnailUrl.trim();
+      if (thumbnailPath.isNotEmpty && !_isHttpUrl(thumbnailPath)) {
+        try {
+          final thumbnailUrl =
+              await _storage.ref(thumbnailPath).getDownloadURL();
+          hydratedItem = hydratedItem.copyWith(thumbnailUrl: thumbnailUrl);
+        } catch (_) {}
       }
+
+      hydrated.add(hydratedItem);
     }
 
     return hydrated;
@@ -821,9 +828,32 @@ class PostService {
       Future<PostMediaItem> uploadToPath(String storagePath) async {
         final mediaRef = _storage.ref().child(storagePath);
         await mediaRef.putData(mediaBytes);
+        var thumbnailPath = '';
+        final previewBytes = media.previewBytes;
+        if (media.isVideo && previewBytes != null && previewBytes.isNotEmpty) {
+          final posterRef = _storage.ref().child('$storagePath.thumbnail.jpg');
+          try {
+            await posterRef.putData(
+              previewBytes,
+              SettableMetadata(contentType: 'image/jpeg'),
+            );
+            thumbnailPath = posterRef.fullPath;
+          } catch (error) {
+            if (kDebugMode) {
+              debugPrint(
+                '[PostService][uploadMediaItems] video preview upload failed; continuing without poster. '
+                'uid=$authorId postId=$postId error=$error',
+              );
+            }
+          }
+        }
         // The post doc is not created yet, so media read rules that depend on
         // post visibility may reject getDownloadURL at this stage.
-        return media.toUploaded(url: storagePath, storagePath: storagePath);
+        return media.toUploaded(
+          url: storagePath,
+          storagePath: storagePath,
+          thumbnailUrl: thumbnailPath,
+        );
       }
 
       try {
@@ -1471,7 +1501,9 @@ class PostService {
       query = query.where('subCategory', isEqualTo: normalizedSubCategory);
     }
 
-    return query.orderBy('createdAt', descending: true).snapshots();
+    return query
+        .orderBy('createdAt', descending: true)
+        .snapshots(includeMetadataChanges: true);
   }
 
   Stream<List<Map<String, dynamic>>> watchPublishedPostsWithAuthors({
@@ -1592,6 +1624,9 @@ class PostService {
               debugPrint(
                   '[FEED_QUERY] watchPublishedPosts emitted ${currentPosts.length} raw docs | category=$category | subCategory=$subCategory');
             }
+            if (currentPosts.isEmpty && snapshot.metadata.isFromCache) {
+              return;
+            }
             syncProfileSubscriptions();
             emitCurrentFeed();
           },
@@ -1605,7 +1640,7 @@ class PostService {
               }
               currentPosts =
                   const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-              if (!controller.isClosed) {
+              if (!controller.isClosed && lastGoodFeed.isNotEmpty) {
                 controller.add(lastGoodFeed);
               }
               return;

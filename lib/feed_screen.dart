@@ -149,7 +149,7 @@ class FeedScreen extends StatefulWidget {
 class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
   static const double _postTopOverlayOffset = 144;
   static const double _postOverlayClearanceFromNav = 12;
-  static const double _postTextBlockExtraOffset = 16;
+  static const double _postTextBlockExtraOffset = 50;
   static const bool _experimentalFeedPostLayout = true;
   static const String _spontaneousPromptShownKeyPrefix =
       'feed_spontaneous_prompt_last_shown_at';
@@ -202,6 +202,9 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
   final Map<String, Future<PublicUserProfile?>> _authorFutureCache = {};
   final Map<String, Future<List<PostModel>>> _audienceFilteredPostsCache =
       <String, Future<List<PostModel>>>{};
+  String _initialFeedWindowCacheKey = '';
+  Future<({List<PostModel> posts, Set<String> checkedPostIds})>?
+      _initialFeedWindowFuture;
   final Map<String, DateTime> _feedSeenHistory = <String, DateTime>{};
   Set<String> _feedSeenIds = <String>{};
   Set<String> _feedDisplayBatchSeenIds = <String>{};
@@ -232,6 +235,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
     categories = appMainCategories;
     _emptyFeedSuggestionOptions = _buildEmptyFeedSuggestionOptions();
     _activeFeedUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    _primeSeenFeedHistoryFromSession(_activeFeedUid);
     _authUidChangeSubscription =
         FirebaseAuth.instance.authStateChanges().listen((user) {
       final nextUid = user?.uid.trim() ?? '';
@@ -240,6 +244,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
       }
       _activeFeedUid = nextUid;
       _clearUserScopedFeedState();
+      _primeSeenFeedHistoryFromSession(nextUid);
       unawaited(_loadSeenFeedHistory());
       if (mounted) {
         setState(() {
@@ -265,6 +270,8 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
     _shareInFlightPostIds.clear();
     _authorFutureCache.clear();
     _audienceFilteredPostsCache.clear();
+    _initialFeedWindowCacheKey = '';
+    _initialFeedWindowFuture = null;
     _feedSeenHistory.clear();
     _feedSeenIds.clear();
     _feedDisplayBatchSeenIds.clear();
@@ -273,6 +280,19 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
     _randomizedFeedSignature = '';
     _feedDisplayBatchSignature = '';
     _lastPrecachedFeedSignature = '';
+  }
+
+  void _primeSeenFeedHistoryFromSession(String uid) {
+    if (uid.isEmpty) return;
+    final cachedHistory = _sessionSeenHistoryByUid[uid];
+    if (cachedHistory == null) return;
+
+    final retainedHistory = retainMostRecentFeedSeenHistory(cachedHistory);
+    _feedSeenHistory
+      ..clear()
+      ..addAll(retainedHistory);
+    _feedSeenIds = _feedSeenHistory.keys.toSet();
+    _hasLoadedSeenFeedHistory = true;
   }
 
   Future<void> _loadSeenFeedHistory() async {
@@ -326,6 +346,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
     }
 
     final limited = retainMostRecentFeedSeenHistory(pruned);
+    _sessionSeenHistoryByUid[requestedUid] = limited;
 
     if (!mounted) {
       return;
@@ -3610,14 +3631,19 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
             .map(
               (authorId) async => MapEntry(
                 authorId,
-                await _publicUserProfileService.fetchProfile(authorId),
+                await _authorFuture(authorId),
               ),
             ),
       ))
         entry.key: entry.value,
     };
 
-    final friendsOnlyAuthors = visiblePosts
+    final postsWithVisibleAuthors = visiblePosts.where((post) {
+      final profile = profilesByAuthorId[post.authorId.trim()];
+      return profile == null || !profile.isDeleted;
+    }).toList(growable: false);
+
+    final friendsOnlyAuthors = postsWithVisibleAuthors
         .where((post) {
           final audience = post.audience.trim().toLowerCase();
           return audience == 'friends';
@@ -3626,7 +3652,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
         .where((authorId) => authorId.isNotEmpty)
         .toSet();
 
-    final privateAuthors = visiblePosts
+    final privateAuthors = postsWithVisibleAuthors
         .where((post) {
           final authorId = post.authorId.trim();
           if (authorId.isEmpty) {
@@ -3646,7 +3672,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
         .toSet();
 
     if (friendsOnlyAuthors.isEmpty && privateAuthors.isEmpty) {
-      return visiblePosts;
+      return postsWithVisibleAuthors;
     }
 
     final mutualChecks = await Future.wait(
@@ -3676,7 +3702,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
         .map((entry) => entry.key)
         .toSet();
 
-    return visiblePosts.where((post) {
+    return postsWithVisibleAuthors.where((post) {
       final audience = post.audience.trim().toLowerCase();
       final authorId = post.authorId.trim();
       if (audience == 'friends') {
@@ -3725,6 +3751,56 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
         }
         return posts;
       }),
+    );
+  }
+
+  Future<({List<PostModel> posts, Set<String> checkedPostIds})>
+      _resolveInitialFeedWindow(
+    List<PostModel> posts, {
+    required Set<String> blockedUids,
+    required String feedBatchSignature,
+  }) {
+    final blockedSignature = blockedUids.toList(growable: false)..sort();
+    final signature = '$feedBatchSignature::${blockedSignature.join(',')}';
+    if (_initialFeedWindowCacheKey == signature &&
+        _initialFeedWindowFuture != null) {
+      return _initialFeedWindowFuture!;
+    }
+
+    _initialFeedWindowCacheKey = signature;
+    _initialFeedWindowFuture = _computeInitialFeedWindow(
+      posts,
+      blockedUids: blockedUids,
+    );
+    return _initialFeedWindowFuture!;
+  }
+
+  Future<({List<PostModel> posts, Set<String> checkedPostIds})>
+      _computeInitialFeedWindow(
+    List<PostModel> posts, {
+    required Set<String> blockedUids,
+  }) async {
+    const windowSize = 1;
+    final checkedPostIds = <String>{};
+    for (var start = 0; start < posts.length; start += windowSize) {
+      final end = min(start + windowSize, posts.length);
+      final candidateWindow = posts.sublist(start, end);
+      checkedPostIds.addAll(candidateWindow.map((post) => post.id.trim()));
+      final visiblePosts = await _resolveAudienceFilteredPosts(
+        candidateWindow,
+        blockedUids: blockedUids,
+      );
+      if (visiblePosts.isNotEmpty) {
+        return (
+          posts: visiblePosts,
+          checkedPostIds: Set<String>.unmodifiable(checkedPostIds),
+        );
+      }
+    }
+
+    return (
+      posts: const <PostModel>[],
+      checkedPostIds: Set<String>.unmodifiable(checkedPostIds),
     );
   }
 
@@ -3917,7 +3993,10 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
     return Scaffold(
       extendBody: true,
       backgroundColor: _feedBackgroundColor(context),
-      body: _buildFeedState(child: const SizedBox.expand()),
+      body: _buildFeedState(
+        child: const SizedBox.expand(),
+        showLoader: true,
+      ),
       bottomNavigationBar: const MainBottomNav(currentIndex: 0),
     );
   }
@@ -3941,7 +4020,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
 
     _cachedFeedStreamKey = streamKey;
     final source = usingBackendFeed
-        ? _feedBackendService.watchRecommendedFeedWithAuthors(
+        ? _feedBackendService.watchRecommendedFeedCandidates(
             isForYouFeed: isForYouFeed,
             category: categoryFilter,
             subCategory: subCategoryFilter,
@@ -3958,10 +4037,6 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
-    if (!_hasLoadedSeenFeedHistory) {
-      return _buildBlankFeedScaffold();
-    }
-
     final shouldFilterByCategory = !isGeneralCategory(selectedCategory);
     final shouldFilterBySubCategory = shouldFilterByCategory &&
         selectedSubCategory.isNotEmpty &&
@@ -4075,120 +4150,194 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                   );
                 }
 
-                return FutureBuilder<List<PostModel>>(
-                  future: _resolveAudienceFilteredPosts(
-                    scopedPosts,
+                final displaySeenIds = _hasLoadedSeenFeedHistory
+                    ? _seenIdsForFeedDisplayBatch(scopedPosts)
+                    : const <String>{};
+                final scopedBatchSignature =
+                    feedDisplayBatchSignature(scopedPosts);
+                final initialWindowCandidates =
+                    filterFeedPostsForFreshnessAndSeen(
+                  scopedPosts,
+                  seenPostIds: const <String>{},
+                );
+                final unseenScopedPosts = _hasLoadedSeenFeedHistory
+                    ? filterFeedPostsForFreshnessAndSeen(
+                        scopedPosts,
+                        seenPostIds: displaySeenIds,
+                      )
+                    : const <PostModel>[];
+                if (initialWindowCandidates.isEmpty) {
+                  return Scaffold(
+                    extendBody: true,
+                    backgroundColor: _feedBackgroundColor(context),
+                    body: _buildFeedState(
+                      activePostSubCategory: null,
+                      child: _buildEmptyFeedState(isForYouFeed: isForYouFeed),
+                    ),
+                    bottomNavigationBar: const MainBottomNav(currentIndex: 0),
+                  );
+                }
+
+                if (kDebugMode) {
+                  debugPrint(
+                    '[FEED_PIPELINE] initial candidates=${initialWindowCandidates.length} unseen=${unseenScopedPosts.length}',
+                  );
+                }
+
+                return FutureBuilder<
+                    ({List<PostModel> posts, Set<String> checkedPostIds})>(
+                  future: _resolveInitialFeedWindow(
+                    initialWindowCandidates,
                     blockedUids: blockedUids,
+                    feedBatchSignature: scopedBatchSignature,
                   ),
-                  builder: (context, audienceSnapshot) {
-                    if (audienceSnapshot.hasError && kDebugMode) {
-                      debugPrint(
-                          '[FEED_PIPELINE] audience filter future errored: ${audienceSnapshot.error}');
-                    }
-                    if (!audienceSnapshot.hasData &&
-                        audienceSnapshot.connectionState !=
+                  builder: (context, initialWindowSnapshot) {
+                    if (!initialWindowSnapshot.hasData &&
+                        initialWindowSnapshot.connectionState !=
                             ConnectionState.done) {
                       return _buildBlankFeedScaffold();
                     }
 
-                    final baseFeedPosts =
-                        audienceSnapshot.data ?? const <PostModel>[];
-                    final displaySeenIds =
-                        _seenIdsForFeedDisplayBatch(baseFeedPosts);
-                    final feedPosts = filterFeedPostsForFreshnessAndSeen(
-                      baseFeedPosts,
-                      seenPostIds: displaySeenIds,
-                    );
-                    if (kDebugMode) {
-                      debugPrint(
-                          '[FEED_PIPELINE] baseFeedPosts=${baseFeedPosts.length} seenIds=${displaySeenIds.length} feedPosts=${feedPosts.length}');
+                    final initialWindow = initialWindowSnapshot.data ??
+                        (
+                          posts: const <PostModel>[],
+                          checkedPostIds: const <String>{},
+                        );
+                    if (initialWindow.posts.isEmpty) {
+                      return Scaffold(
+                        extendBody: true,
+                        backgroundColor: _feedBackgroundColor(context),
+                        body: _buildFeedState(
+                          activePostSubCategory: null,
+                          child:
+                              _buildEmptyFeedState(isForYouFeed: isForYouFeed),
+                        ),
+                        bottomNavigationBar:
+                            const MainBottomNav(currentIndex: 0),
+                      );
                     }
-                    final activeFeedIndex = feedPosts.isEmpty
-                        ? 0
-                        : _currentFeedPageIndex.clamp(0, feedPosts.length - 1);
 
-                    _recordActiveFeedPostIfNeeded(
-                      feedPosts: feedPosts,
-                      activeFeedIndex: activeFeedIndex,
-                      baseFeedPosts: baseFeedPosts,
-                    );
-
-                    _scheduleFeedMediaPrecache(feedPosts, activeFeedIndex);
-                    final scrollControls =
-                        _buildScrollControls(feedPosts.length);
-
-                    final isFeedStillLoading =
-                        audienceSnapshot.connectionState ==
-                                ConnectionState.waiting &&
-                            !audienceSnapshot.hasData &&
-                            feedPosts.isNotEmpty;
-
-                    return Scaffold(
-                      extendBody: true,
-                      backgroundColor: _feedBackgroundColor(context),
-                      body: _buildFeedState(
-                        activePostSubCategory: feedPosts.isEmpty
-                            ? null
-                            : feedPosts[activeFeedIndex].subCategory,
-                        showLoader: isFeedStillLoading,
-                        child: feedPosts.isEmpty
-                            ? _buildEmptyFeedState(
-                                isForYouFeed: isForYouFeed,
-                              )
-                            : NotificationListener<OverscrollNotification>(
-                                onNotification: (notification) {
-                                  if (notification.metrics.axis !=
-                                      Axis.vertical) {
-                                    return false;
-                                  }
-
-                                  final safeIndex = activeFeedIndex.clamp(
-                                      0, feedPosts.length - 1);
-                                  _recordSeenFeedPost(feedPosts[safeIndex]);
-                                  final shouldShow =
-                                      shouldTriggerExhaustedFeedMessageAfterOverscroll(
-                                    activeFeedIndex: safeIndex,
-                                    feedPostCount: feedPosts.length,
-                                    hasMoreUnseenPosts:
-                                        _hasMoreUnseenPosts(baseFeedPosts),
-                                    overscroll: notification.overscroll,
-                                  );
-                                  if (shouldShow) {
-                                    unawaited(_showExhaustedFeedMessage());
-                                  }
-                                  return false;
-                                },
-                                child: PageView.builder(
-                                  controller: _pageController,
-                                  scrollDirection: Axis.vertical,
-                                  allowImplicitScrolling: true,
-                                  itemCount: feedPosts.length,
-                                  onPageChanged: (index) {
-                                    if (_currentFeedPageIndex == index) return;
-
-                                    final visiblePost = feedPosts[index];
-                                    _recordSeenFeedPost(visiblePost);
-
-                                    setState(() {
-                                      _currentFeedPageIndex = index;
-                                    });
-                                  },
-                                  itemBuilder: (context, index) {
-                                    final visiblePost = feedPosts[index];
-                                    return _buildPostBlock(
-                                      visiblePost,
-                                      isActive: _isFeedInForeground &&
-                                          index == activeFeedIndex,
-                                    );
-                                  },
-                                ),
-                              ),
+                    final remainingScopedPosts = _hasLoadedSeenFeedHistory
+                        ? unseenScopedPosts
+                            .where((post) => !initialWindow.checkedPostIds
+                                .contains(post.id.trim()))
+                            .toList(growable: false)
+                        : const <PostModel>[];
+                    return FutureBuilder<List<PostModel>>(
+                      future: _resolveAudienceFilteredPosts(
+                        remainingScopedPosts,
+                        blockedUids: blockedUids,
                       ),
-                      floatingActionButton:
-                          isFeedStillLoading ? null : scrollControls,
-                      floatingActionButtonLocation:
-                          FloatingActionButtonLocation.startFloat,
-                      bottomNavigationBar: const MainBottomNav(currentIndex: 0),
+                      initialData: const <PostModel>[],
+                      builder: (context, audienceSnapshot) {
+                        if (audienceSnapshot.hasError && kDebugMode) {
+                          debugPrint(
+                              '[FEED_PIPELINE] audience filter future errored: ${audienceSnapshot.error}');
+                        }
+
+                        final baseFeedPosts = <PostModel>[
+                          ...initialWindow.posts,
+                          ...?audienceSnapshot.data,
+                        ];
+                        final renderSeenIds = Set<String>.from(displaySeenIds)
+                          ..removeAll(
+                              initialWindow.posts.map((post) => post.id));
+                        final feedPosts = filterFeedPostsForFreshnessAndSeen(
+                          baseFeedPosts,
+                          seenPostIds: renderSeenIds,
+                        );
+                        if (kDebugMode) {
+                          debugPrint(
+                              '[FEED_PIPELINE] baseFeedPosts=${baseFeedPosts.length} seenIds=${displaySeenIds.length} feedPosts=${feedPosts.length}');
+                        }
+                        final activeFeedIndex = feedPosts.isEmpty
+                            ? 0
+                            : _currentFeedPageIndex.clamp(
+                                0, feedPosts.length - 1);
+
+                        _recordActiveFeedPostIfNeeded(
+                          feedPosts: feedPosts,
+                          activeFeedIndex: activeFeedIndex,
+                          baseFeedPosts: baseFeedPosts,
+                        );
+
+                        _scheduleFeedMediaPrecache(feedPosts, activeFeedIndex);
+                        final scrollControls =
+                            _buildScrollControls(feedPosts.length);
+
+                        return Scaffold(
+                          extendBody: true,
+                          backgroundColor: _feedBackgroundColor(context),
+                          body: _buildFeedState(
+                            activePostSubCategory: feedPosts.isEmpty
+                                ? null
+                                : feedPosts[activeFeedIndex].subCategory,
+                            showLoader: false,
+                            child: feedPosts.isEmpty
+                                ? _buildEmptyFeedState(
+                                    isForYouFeed: isForYouFeed,
+                                  )
+                                : NotificationListener<OverscrollNotification>(
+                                    onNotification: (notification) {
+                                      if (notification.metrics.axis !=
+                                          Axis.vertical) {
+                                        return false;
+                                      }
+
+                                      final safeIndex = activeFeedIndex.clamp(
+                                          0, feedPosts.length - 1);
+                                      _recordSeenFeedPost(feedPosts[safeIndex]);
+                                      final shouldShow =
+                                          shouldTriggerExhaustedFeedMessageAfterOverscroll(
+                                        activeFeedIndex: safeIndex,
+                                        feedPostCount: feedPosts.length,
+                                        hasMoreUnseenPosts:
+                                            !_hasLoadedSeenFeedHistory ||
+                                                remainingScopedPosts
+                                                    .isNotEmpty ||
+                                                _hasMoreUnseenPosts(
+                                                    baseFeedPosts),
+                                        overscroll: notification.overscroll,
+                                      );
+                                      if (shouldShow) {
+                                        unawaited(_showExhaustedFeedMessage());
+                                      }
+                                      return false;
+                                    },
+                                    child: PageView.builder(
+                                      controller: _pageController,
+                                      scrollDirection: Axis.vertical,
+                                      allowImplicitScrolling: true,
+                                      itemCount: feedPosts.length,
+                                      onPageChanged: (index) {
+                                        if (_currentFeedPageIndex == index)
+                                          return;
+
+                                        final visiblePost = feedPosts[index];
+                                        _recordSeenFeedPost(visiblePost);
+
+                                        setState(() {
+                                          _currentFeedPageIndex = index;
+                                        });
+                                      },
+                                      itemBuilder: (context, index) {
+                                        final visiblePost = feedPosts[index];
+                                        return _buildPostBlock(
+                                          visiblePost,
+                                          isActive: _isFeedInForeground &&
+                                              index == activeFeedIndex,
+                                        );
+                                      },
+                                    ),
+                                  ),
+                          ),
+                          floatingActionButton: scrollControls,
+                          floatingActionButtonLocation:
+                              FloatingActionButtonLocation.startFloat,
+                          bottomNavigationBar:
+                              const MainBottomNav(currentIndex: 0),
+                        );
+                      },
                     );
                   },
                 );

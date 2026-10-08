@@ -7,23 +7,22 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../app_categories.dart';
-import '../models/public_user_profile.dart';
-import 'public_user_profile_service.dart';
 
 class FeedBackendService {
   static const String _baseUrl =
       String.fromEnvironment('FEED_API_BASE_URL', defaultValue: '');
-  static const String _stableExperimentId =
-      String.fromEnvironment('FEED_STABLE_EXPERIMENT_ID', defaultValue: 'feed-stable-v1');
-  static const String _canaryExperimentId =
-      String.fromEnvironment('FEED_CANARY_EXPERIMENT_ID', defaultValue: 'feed-canary-v1');
-    static const String _canaryRatioRaw =
+  static const String _stableExperimentId = String.fromEnvironment(
+      'FEED_STABLE_EXPERIMENT_ID',
+      defaultValue: 'feed-stable-v1');
+  static const String _canaryExperimentId = String.fromEnvironment(
+      'FEED_CANARY_EXPERIMENT_ID',
+      defaultValue: 'feed-canary-v1');
+  static const String _canaryRatioRaw =
       String.fromEnvironment('FEED_CANARY_RATIO', defaultValue: '0.10');
-    static final double _canaryRatio = double.tryParse(_canaryRatioRaw) ?? 0.10;
+  static final double _canaryRatio = double.tryParse(_canaryRatioRaw) ?? 0.10;
 
   final FirebaseAuth _auth;
   final FirebaseFirestore _db;
-  final PublicUserProfileService _publicUserProfileService;
   final http.Client _client;
 
   FeedBackendService({
@@ -32,84 +31,18 @@ class FeedBackendService {
     http.Client? client,
   })  : _auth = auth ?? FirebaseAuth.instance,
         _db = db ?? FirebaseFirestore.instance,
-        _client = client ?? http.Client(),
-        _publicUserProfileService =
-            PublicUserProfileService(db: db ?? FirebaseFirestore.instance);
+        _client = client ?? http.Client();
 
   bool get isConfigured => _baseUrl.trim().isNotEmpty;
 
-  Future<({Set<String> followingIds, Set<String> followerIds})>
-      _viewerRelations(String viewerUid) async {
-    final normalizedViewerUid = viewerUid.trim();
-    if (normalizedViewerUid.isEmpty) {
-      return (followingIds: <String>{}, followerIds: <String>{});
-    }
-
-    final viewerDoc =
-        await _db.collection('users').doc(normalizedViewerUid).get();
-    final viewerData = viewerDoc.data() ?? <String, dynamic>{};
-
-    Set<String> readSet(String key) {
-      final raw = viewerData[key];
-      if (raw is! List) {
-        return <String>{};
-      }
-      return raw
-          .map((item) => item.toString().trim())
-          .where((item) => item.isNotEmpty)
-          .toSet();
-    }
-
-    return (
-      followingIds: readSet('following'),
-      followerIds: readSet('followers'),
-    );
-  }
-
-  String _postAudience(Map<String, dynamic> post) {
-    return (post['audience'] as String? ?? 'public').trim().toLowerCase();
-  }
-
-  bool _canViewerSeePost({
-    required String viewerUid,
-    required Map<String, dynamic> post,
-    required PublicUserProfile? authorProfile,
-    required Set<String> viewerFollowingIds,
-    required Set<String> viewerFollowerIds,
-  }) {
-    final authorId =
-        (post['authorId'] as String? ?? post['uid'] as String? ?? '').trim();
-    if (authorId.isEmpty) {
-      return false;
-    }
-    if (authorId == viewerUid) {
-      return true;
-    }
-
-    final audience = _postAudience(post);
-    if (audience == 'friends') {
-      return viewerFollowingIds.contains(authorId) &&
-          viewerFollowerIds.contains(authorId);
-    }
-
-    final isPrivateAuthor = authorProfile?.exists == true
-        ? authorProfile!.isPrivate
-      : false;
-    if (isPrivateAuthor) {
-      return viewerFollowingIds.contains(authorId);
-    }
-
-    return true;
-  }
-
-  Stream<List<Map<String, dynamic>>> watchRecommendedFeedWithAuthors({
+  Stream<List<Map<String, dynamic>>> watchRecommendedFeedCandidates({
     required bool isForYouFeed,
     String? category,
     String? subCategory,
     int pageSize = 40,
   }) {
     return Stream.fromFuture(
-      fetchRecommendedFeedWithAuthors(
+      fetchRecommendedFeedCandidates(
         isForYouFeed: isForYouFeed,
         category: category,
         subCategory: subCategory,
@@ -118,7 +51,7 @@ class FeedBackendService {
     );
   }
 
-  Future<List<Map<String, dynamic>>> fetchRecommendedFeedWithAuthors({
+  Future<List<Map<String, dynamic>>> fetchRecommendedFeedCandidates({
     required bool isForYouFeed,
     String? category,
     String? subCategory,
@@ -152,7 +85,8 @@ class FeedBackendService {
       headers['Authorization'] = 'Bearer ${token.trim()}';
     }
 
-    final endpoint = Uri.parse('${_baseUrl.replaceAll(RegExp(r'/$'), '')}/v1/feed/query');
+    final endpoint =
+        Uri.parse('${_baseUrl.replaceAll(RegExp(r'/$'), '')}/v1/feed/query');
     final response = await _client.post(
       endpoint,
       headers: headers,
@@ -198,55 +132,7 @@ class FeedBackendService {
       return const <Map<String, dynamic>>[];
     }
 
-    final authorIds = orderedPosts
-        .map((post) =>
-            (post['authorId'] as String? ?? post['uid'] as String? ?? '').trim())
-        .where((uid) => uid.isNotEmpty)
-        .toSet();
-
-    final profilesByUid = <String, PublicUserProfile?>{
-      for (final entry in await Future.wait(
-        authorIds.map(
-          (authorId) async => MapEntry(
-            authorId,
-            await _publicUserProfileService.fetchProfile(authorId),
-          ),
-        ),
-      ))
-        entry.key: entry.value,
-    };
-
-    final relations = await _viewerRelations(uid);
-    final viewerFollowingIds = relations.followingIds;
-    final viewerFollowerIds = relations.followerIds;
-
-    final visiblePosts = <Map<String, dynamic>>[];
-    for (final rawPost in orderedPosts) {
-      final authorId =
-          (rawPost['authorId'] as String? ?? rawPost['uid'] as String? ?? '')
-              .trim();
-      final profile = profilesByUid[authorId] ??
-          _publicUserProfileService.fallbackProfileForPost(rawPost);
-
-      if (profile.isDeleted) {
-        continue;
-      }
-
-      if (!_canViewerSeePost(
-        viewerUid: uid,
-        post: rawPost,
-        authorProfile: profile,
-        viewerFollowingIds: viewerFollowingIds,
-        viewerFollowerIds: viewerFollowerIds,
-      )) {
-        continue;
-      }
-
-      visiblePosts
-          .add(_publicUserProfileService.injectProfileIntoPost(rawPost, profile));
-    }
-
-    return visiblePosts;
+    return orderedPosts;
   }
 
   Future<Map<String, Map<String, dynamic>>> _fetchPostsByIds(
@@ -257,37 +143,59 @@ class FeedBackendService {
       return result;
     }
 
-    for (final postId in postIds) {
-      final normalizedPostId = postId.trim();
-      if (normalizedPostId.isEmpty) {
-        continue;
-      }
+    final normalizedIds = postIds
+        .map((postId) => postId.trim())
+        .where((postId) => postId.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+    const batchSize = 30;
 
-      try {
-        final doc =
-            await _db.collection('posts').doc(normalizedPostId).get();
-        if (!doc.exists) {
-          continue;
-        }
+    Future<void> fetchIndividually(List<String> ids) async {
+      for (final postId in ids) {
+        try {
+          final doc = await _db.collection('posts').doc(postId).get();
+          if (!doc.exists) continue;
 
-        final map = Map<String, dynamic>.from(doc.data() ?? <String, dynamic>{});
-        final status = (map['status'] as String? ?? 'published')
-            .trim()
-            .toLowerCase();
-        if (status != 'published') {
-          continue;
-        }
+          final map =
+              Map<String, dynamic>.from(doc.data() ?? <String, dynamic>{});
+          final status =
+              (map['status'] as String? ?? 'published').trim().toLowerCase();
+          if (status != 'published') continue;
 
-        map['id'] = doc.id;
-        map['postId'] = (map['postId'] as String? ?? doc.id).trim();
-        result[doc.id] = map;
-      } on FirebaseException catch (error) {
-        if (error.code == 'permission-denied') {
-          continue;
+          map['id'] = doc.id;
+          map['postId'] = (map['postId'] as String? ?? doc.id).trim();
+          result[doc.id] = map;
+        } on FirebaseException catch (error) {
+          if (error.code != 'permission-denied') rethrow;
         }
-        rethrow;
       }
     }
+
+    final idBatches = <List<String>>[
+      for (var start = 0; start < normalizedIds.length; start += batchSize)
+        normalizedIds.skip(start).take(batchSize).toList(growable: false),
+    ];
+    await Future.wait(idBatches.map((ids) async {
+      try {
+        final snapshot = await _db
+            .collection('posts')
+            .where(FieldPath.documentId, whereIn: ids)
+            .get();
+        for (final doc in snapshot.docs) {
+          final map = Map<String, dynamic>.from(doc.data());
+          final status =
+              (map['status'] as String? ?? 'published').trim().toLowerCase();
+          if (status != 'published') continue;
+
+          map['id'] = doc.id;
+          map['postId'] = (map['postId'] as String? ?? doc.id).trim();
+          result[doc.id] = map;
+        }
+      } on FirebaseException catch (error) {
+        if (error.code != 'permission-denied') rethrow;
+        await fetchIndividually(ids);
+      }
+    }));
 
     return result;
   }
@@ -303,7 +211,8 @@ class FeedBackendService {
       return <String>[normalizedSubCategory];
     }
 
-    if (normalizedCategory.isNotEmpty && !isGeneralCategory(normalizedCategory)) {
+    if (normalizedCategory.isNotEmpty &&
+        !isGeneralCategory(normalizedCategory)) {
       return <String>[normalizedCategory];
     }
 
