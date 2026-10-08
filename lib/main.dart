@@ -10,11 +10,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'firebase_options.dart';
-import 'features/verification/face_verification_screen.dart';
 import 'feed_screen.dart';
 import 'login_screen.dart';
 import 'services/auth_service.dart';
-import 'services/face_verification_service.dart';
 import 'services/fresh_install_session_guard.dart';
 import 'services/share_flow_log_service.dart';
 import 'services/theme_mode_service.dart';
@@ -806,17 +804,13 @@ class VerifiedSessionGate extends StatefulWidget {
 class _VerifiedSessionState {
   const _VerifiedSessionState({
     required this.onboardingStep,
-    required this.isFaceVerified,
   });
 
   final OnboardingStep onboardingStep;
-  final bool isFaceVerified;
 }
 
 class _VerifiedSessionGateState extends State<VerifiedSessionGate> {
   final AuthService _authService = AuthService();
-  final FaceVerificationService _faceVerificationService =
-      FaceVerificationService();
   late Future<_VerifiedSessionState> _verificationCheck;
 
   @override
@@ -830,34 +824,18 @@ class _VerifiedSessionGateState extends State<VerifiedSessionGate> {
     if (currentUser == null) {
       return const _VerifiedSessionState(
         onboardingStep: OnboardingStep.pendingVerification,
-        isFaceVerified: false,
       );
     }
 
     if (await _authService.canCurrentUserAccessApp()) {
-      var isFaceVerified = false;
-      try {
-        isFaceVerified = await _faceVerificationService.isCurrentUserVerified();
-      } catch (_) {
-        // A status read failure must fail closed and keep the app gated.
-      }
       return _VerifiedSessionState(
         onboardingStep: OnboardingStep.active,
-        isFaceVerified: isFaceVerified,
       );
     }
 
     return _VerifiedSessionState(
       onboardingStep: await _authService.currentUserOnboardingStep(),
-      isFaceVerified: false,
     );
-  }
-
-  void _handleFaceVerified() {
-    if (!mounted) return;
-    setState(() {
-      _verificationCheck = _ensureVerifiedSession();
-    });
   }
 
   @override
@@ -872,19 +850,12 @@ class _VerifiedSessionGateState extends State<VerifiedSessionGate> {
         final sessionState = snapshot.data ??
             const _VerifiedSessionState(
               onboardingStep: OnboardingStep.pendingVerification,
-              isFaceVerified: false,
             );
         final currentUser = FirebaseAuth.instance.currentUser;
         final isReady = sessionState.onboardingStep == OnboardingStep.active &&
             currentUser != null;
 
         if (isReady) {
-          if (!sessionState.isFaceVerified) {
-            return FaceVerificationScreen(
-              onVerified: _handleFaceVerified,
-              showExistingUserNotice: true,
-            );
-          }
           return const AuthenticatedAppShell();
         }
 

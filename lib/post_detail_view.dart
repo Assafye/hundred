@@ -4,6 +4,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
@@ -60,6 +61,16 @@ class PostDetailView extends StatefulWidget {
 
 class _PostDetailViewState extends State<PostDetailView> {
   static const bool _experimentalPostHeaderLayout = true;
+
+  double _postOverlayScale(BuildContext context) {
+    if (defaultTargetPlatform != TargetPlatform.android) {
+      return 1;
+    }
+
+    final viewportWidth = MediaQuery.sizeOf(context).width;
+    return (0.78 * viewportWidth / 390).clamp(0.70, 0.90).toDouble();
+  }
+
   late final PageController _pageController;
   late List<Map<String, dynamic>> _posts;
   final Map<String, Future<String?>> _resolvedMediaFutureByPostKey = {};
@@ -2935,6 +2946,7 @@ class _PostDetailViewState extends State<PostDetailView> {
 
   Widget _buildPostPage(Map<String, dynamic> post, {required bool isActive}) {
     final isLight = Theme.of(context).brightness == Brightness.light;
+    final overlayScale = _postOverlayScale(context);
     final title = _derivedTitle(post);
     final description = ((post['description'] as String?) ??
             (post['caption'] as String?) ??
@@ -3161,10 +3173,13 @@ class _PostDetailViewState extends State<PostDetailView> {
                   ),
                 ),
               Positioned(
-                left: 20,
-                bottom: 18,
-                child: Transform.translate(
-                  offset: const Offset(0, -30),
+                left: 20 * overlayScale,
+                bottom: 18 * overlayScale,
+                child: Transform(
+                  alignment: Alignment.bottomLeft,
+                  transform: Matrix4.identity()
+                    ..translateByDouble(0, -30 * overlayScale, 0, 1)
+                    ..scaleByDouble(overlayScale, overlayScale, 1, 1),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.end,
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -3576,11 +3591,14 @@ class _PostDetailViewState extends State<PostDetailView> {
                 ),
               ),
               Positioned(
-                right: 20,
-                bottom: 38,
-                left: 120,
-                child: Transform.translate(
-                  offset: const Offset(0, -30),
+                right: 20 * overlayScale,
+                bottom: 38 * overlayScale,
+                left: 120 * overlayScale,
+                child: Transform(
+                  alignment: Alignment.bottomRight,
+                  transform: Matrix4.identity()
+                    ..translateByDouble(0, -30 * overlayScale, 0, 1)
+                    ..scaleByDouble(overlayScale, overlayScale, 1, 1),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [

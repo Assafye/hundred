@@ -159,7 +159,7 @@ class _PostMediaViewerState extends State<PostMediaViewer> {
               if (item.isVideo) {
                 return _InlineVideoPlayer(
                   url: item.url,
-                  isActive: widget.isActive,
+                  isActive: widget.isActive && index == _currentIndex,
                 );
               }
               final rawUrl = item.url.trim();
@@ -198,8 +198,7 @@ class _PostMediaViewerState extends State<PostMediaViewer> {
             },
           ),
         ),
-        if (widget.showDesktopNavigationArrows &&
-            widget.mediaItems.length > 1)
+        if (widget.showDesktopNavigationArrows && widget.mediaItems.length > 1)
           Positioned(
             left: 12,
             right: 12,
@@ -327,7 +326,7 @@ class _MediaNavArrow extends StatelessWidget {
         duration: const Duration(milliseconds: 160),
         opacity: onPressed == null ? 0.25 : 1,
         child: Material(
-          color: Colors.black.withValues(alpha:  0.36),
+          color: Colors.black.withValues(alpha: 0.36),
           shape: const CircleBorder(),
           child: InkWell(
             onTap: onPressed,
@@ -363,6 +362,8 @@ class _InlineVideoPlayer extends StatefulWidget {
 
 class _InlineVideoPlayerState extends State<_InlineVideoPlayer> {
   VideoPlayerController? _controller;
+  int _controllerGeneration = 0;
+  int? _initializingGeneration;
   bool _isPausedByUser = false;
   Offset? _pointerDownLocal;
   DateTime? _pointerDownAt;
@@ -371,49 +372,90 @@ class _InlineVideoPlayerState extends State<_InlineVideoPlayer> {
   @override
   void initState() {
     super.initState();
-    _controller = VideoPlayerController.networkUrl(Uri.parse(widget.url))
-      ..setLooping(true)
-      ..initialize().then((_) {
-        if (!mounted) {
-          return;
-        }
-        unawaited(_applyPlaybackState());
-        setState(() {});
-      });
+    if (widget.isActive) {
+      unawaited(_initializeController());
+    }
   }
 
   @override
   void didUpdateWidget(covariant _InlineVideoPlayer oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.url != widget.url || oldWidget.isActive != widget.isActive) {
-      unawaited(_applyPlaybackState());
+    if (oldWidget.url != widget.url) {
+      _isPausedByUser = false;
+      _releaseController();
+      if (widget.isActive) {
+        unawaited(_initializeController());
+      }
+    } else if (oldWidget.isActive != widget.isActive) {
+      if (widget.isActive) {
+        unawaited(_initializeController());
+      } else {
+        _releaseController();
+      }
     }
   }
 
-  Future<void> _applyPlaybackState() async {
-    final controller = _controller;
-    if (controller == null || !controller.value.isInitialized) {
+  Future<void> _initializeController() async {
+    if (!widget.isActive ||
+        _controller != null ||
+        _initializingGeneration != null) {
+      return;
+    }
+
+    final generation = ++_controllerGeneration;
+    _initializingGeneration = generation;
+    final controller = VideoPlayerController.networkUrl(Uri.parse(widget.url));
+    _controller = controller;
+
+    try {
+      await controller.setLooping(true);
+      await controller.initialize();
+      if (!mounted || generation != _controllerGeneration || !widget.isActive) {
+        return;
+      }
+
+      await _applyPlaybackState(controller);
+      if (mounted && generation == _controllerGeneration) {
+        setState(() {});
+      }
+    } catch (_) {
+      if (identical(_controller, controller)) {
+        _controller = null;
+        unawaited(controller.dispose());
+      }
+    } finally {
+      if (_initializingGeneration == generation) {
+        _initializingGeneration = null;
+      }
+    }
+  }
+
+  Future<void> _applyPlaybackState(VideoPlayerController controller) async {
+    if (!controller.value.isInitialized) {
       return;
     }
 
     try {
-      if (widget.isActive) {
-        await controller.setVolume(1);
-        if (_isPausedByUser) {
-          if (controller.value.isPlaying) {
-            await controller.pause();
-          }
-        } else if (!controller.value.isPlaying) {
-          await controller.play();
-        }
-      } else {
+      await controller.setVolume(1);
+      if (_isPausedByUser) {
         if (controller.value.isPlaying) {
           await controller.pause();
         }
-        await controller.setVolume(0);
+      } else if (!controller.value.isPlaying) {
+        await controller.play();
       }
     } catch (_) {
       // Keep the current playback if media APIs fail on a specific platform.
+    }
+  }
+
+  void _releaseController() {
+    ++_controllerGeneration;
+    _initializingGeneration = null;
+    final controller = _controller;
+    _controller = null;
+    if (controller != null) {
+      unawaited(controller.dispose());
     }
   }
 
@@ -493,7 +535,7 @@ class _InlineVideoPlayerState extends State<_InlineVideoPlayer> {
 
   @override
   void dispose() {
-    _controller?.dispose();
+    _releaseController();
     super.dispose();
   }
 
@@ -504,7 +546,13 @@ class _InlineVideoPlayerState extends State<_InlineVideoPlayer> {
       return Container(
         color: const Color(0xFF121926),
         alignment: Alignment.center,
-        child: const CircularProgressIndicator(color: Colors.white70),
+        child: widget.isActive
+            ? const CircularProgressIndicator(color: Colors.white70)
+            : const Icon(
+                Icons.play_circle_outline_rounded,
+                color: Colors.white70,
+                size: 48,
+              ),
       );
     }
 

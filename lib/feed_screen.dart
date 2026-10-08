@@ -57,6 +57,15 @@ String feedSeenHistoryStorageKeyForUid(String uid) {
       : '${_feedSeenHistoryStorageKeyPrefix}_$normalizedUid';
 }
 
+Map<String, DateTime> retainMostRecentFeedSeenHistory(
+  Map<String, DateTime> history, {
+  int limit = _feedSeenHistoryLimit,
+}) {
+  final newestFirst = history.entries.toList()
+    ..sort((a, b) => b.value.compareTo(a.value));
+  return Map<String, DateTime>.fromEntries(newestFirst.take(limit));
+}
+
 List<PostModel> filterFeedPostsForFreshnessAndSeen(
   List<PostModel> posts, {
   required Set<String> seenPostIds,
@@ -66,6 +75,7 @@ List<PostModel> filterFeedPostsForFreshnessAndSeen(
   final cutoff = currentTime.subtract(
     const Duration(days: _feedSeenHistoryRetentionDays),
   );
+  final emittedPostIds = <String>{};
 
   return posts.where((post) {
     final id = post.id.trim();
@@ -82,7 +92,7 @@ List<PostModel> filterFeedPostsForFreshnessAndSeen(
       return false;
     }
 
-    return true;
+    return emittedPostIds.add(id);
   }).toList(growable: false);
 }
 
@@ -143,9 +153,18 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
   static const bool _experimentalFeedPostLayout = true;
   static const String _spontaneousPromptShownKeyPrefix =
       'feed_spontaneous_prompt_last_shown_at';
-    static final Map<String, Map<String, DateTime>> _sessionSeenHistoryByUid =
+  static final Map<String, Map<String, DateTime>> _sessionSeenHistoryByUid =
       <String, Map<String, DateTime>>{};
-    static Future<void> _seenHistoryPersistQueue = Future<void>.value();
+  static Future<void> _seenHistoryPersistQueue = Future<void>.value();
+
+  double _postOverlayScale(BuildContext context) {
+    if (defaultTargetPlatform != TargetPlatform.android) {
+      return 1;
+    }
+
+    final viewportWidth = MediaQuery.sizeOf(context).width;
+    return (0.78 * viewportWidth / 390).clamp(0.70, 0.90).toDouble();
+  }
 
   bool isForYouFeed = true;
   int _currentFeedPageIndex = 0;
@@ -306,12 +325,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
       pruned[entry.key] = entry.value;
     }
 
-    final sorted = pruned.entries.toList()
-      ..sort((a, b) => a.value.compareTo(b.value));
-    final limited = <String, DateTime>{};
-    for (final entry in sorted.take(_feedSeenHistoryLimit)) {
-      limited[entry.key] = entry.value;
-    }
+    final limited = retainMostRecentFeedSeenHistory(pruned);
 
     if (!mounted) {
       return;
@@ -331,24 +345,18 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
   }
 
   void _persistSeenFeedHistory() {
-    final entries = _feedSeenHistory.entries.toList()
-      ..sort((a, b) => a.value.compareTo(b.value));
-
-    final limitedEntries = entries.take(_feedSeenHistoryLimit).toList();
+    final limitedHistory = retainMostRecentFeedSeenHistory(_feedSeenHistory);
     final payload = <String, int>{
-      for (final entry in limitedEntries)
+      for (final entry in limitedHistory.entries)
         entry.key: entry.value.millisecondsSinceEpoch,
     };
     final uid = _activeFeedUid;
     final storageKey = feedSeenHistoryStorageKeyForUid(uid);
     final encodedPayload = jsonEncode(payload);
 
-    _sessionSeenHistoryByUid[uid] = Map<String, DateTime>.from(
-      _feedSeenHistory,
-    );
-    _seenHistoryPersistQueue = _seenHistoryPersistQueue
-        .catchError((Object _) {})
-        .then((_) async {
+    _sessionSeenHistoryByUid[uid] = limitedHistory;
+    _seenHistoryPersistQueue =
+        _seenHistoryPersistQueue.catchError((Object _) {}).then((_) async {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(storageKey, encodedPayload);
       if (kDebugMode) {
@@ -376,12 +384,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
       return timestamp.isBefore(cutoff);
     });
 
-    final sorted = _feedSeenHistory.entries.toList()
-      ..sort((a, b) => a.value.compareTo(b.value));
-    final trimmed = <String, DateTime>{};
-    for (final entry in sorted.take(_feedSeenHistoryLimit)) {
-      trimmed[entry.key] = entry.value;
-    }
+    final trimmed = retainMostRecentFeedSeenHistory(_feedSeenHistory);
     _feedSeenHistory
       ..clear()
       ..addAll(trimmed);
@@ -1973,24 +1976,6 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
       return orderA.compareTo(orderB);
     });
     return randomizedPosts;
-  }
-
-  String _formatPostTimestamp(DateTime? createdAt) {
-    if (createdAt == null) return '';
-
-    final now = DateTime.now();
-    final difference = now.difference(createdAt);
-    if (difference.inMinutes < 1) return 'עכשיו';
-    if (difference.inHours < 1) return 'לפני ${difference.inMinutes} דקות';
-    if (difference.inDays < 1) return 'לפני ${difference.inHours} שעות';
-    if (difference.inDays < 7) return 'לפני ${difference.inDays} ימים';
-
-    final dd = createdAt.day.toString().padLeft(2, '0');
-    final mm = createdAt.month.toString().padLeft(2, '0');
-    final yyyy = createdAt.year.toString();
-    final hh = createdAt.hour.toString().padLeft(2, '0');
-    final min = createdAt.minute.toString().padLeft(2, '0');
-    return '$dd.$mm.$yyyy • $hh:$min';
   }
 
   String _authorIdFromPostData(Map<String, dynamic> data) {
@@ -4230,7 +4215,6 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
         (post.savesCount + savesDelta).clamp(0, 1 << 30).toInt();
     final displayComments = _displayedCommentCount(post);
     final displayShares = _displayedShareCount(post);
-    final postTimestamp = _formatPostTimestamp(post.createdAt);
     final locationText = post.location.trim();
     final contributionScore = _displayedContributionScore(
       post,
@@ -4243,9 +4227,10 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
     final hasLinkedGroup = linkedGroupId.isNotEmpty;
     final participantsCount =
         _participantUidsForPost(post, includeAuthor: false).length;
-    const overlayTop = _postTopOverlayOffset;
-    final overlayBottomOffset =
-        MainBottomNav.occupiedHeight(context) + _postOverlayClearanceFromNav;
+    final overlayScale = _postOverlayScale(context);
+    final overlayTop = _postTopOverlayOffset * overlayScale;
+    final overlayBottomOffset = MainBottomNav.occupiedHeight(context) +
+        _postOverlayClearanceFromNav * overlayScale;
 
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
@@ -4372,7 +4357,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                   ),
                 ),
               Positioned(
-                left: 20,
+                left: 20 * overlayScale,
                 bottom: overlayBottomOffset,
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.end,
@@ -4380,14 +4365,14 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                   children: [
                     if (_experimentalFeedPostLayout) ...[
                       SizedBox(
-                        width: 52,
-                        height: 52,
+                        width: 52 * overlayScale,
+                        height: 52 * overlayScale,
                         child: Stack(
                           clipBehavior: Clip.none,
                           children: [
                             Container(
-                              width: 52,
-                              height: 52,
+                              width: 52 * overlayScale,
+                              height: 52 * overlayScale,
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
                                 gradient: LinearGradient(
@@ -4417,8 +4402,8 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                                             : const Color(0xFF46D3FF))
                                         .withValues(
                                             alpha: isLight ? 0.24 : 0.24),
-                                    blurRadius: 12,
-                                    spreadRadius: 0.5,
+                                    blurRadius: 12 * overlayScale,
+                                    spreadRadius: 0.5 * overlayScale,
                                   ),
                                 ],
                               ),
@@ -4429,18 +4414,18 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                                     color: isLight
                                         ? const Color(0xFF5A6CFF)
                                         : const Color(0xFF9EDBFF),
-                                    fontSize: 14,
+                                    fontSize: 14 * overlayScale,
                                     fontWeight: FontWeight.w800,
                                   ),
                                 ),
                               ),
                             ),
                             Positioned(
-                              bottom: -5,
-                              right: 9,
+                              bottom: -5 * overlayScale,
+                              right: 9 * overlayScale,
                               child: Container(
-                                width: 34,
-                                height: 14,
+                                width: 34 * overlayScale,
+                                height: 14 * overlayScale,
                                 decoration: BoxDecoration(
                                   borderRadius: BorderRadius.circular(999),
                                   color: isLight
@@ -4455,7 +4440,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                                           ? Colors.white
                                           : const Color(0xFF0F1D31),
                                       fontWeight: FontWeight.w900,
-                                      fontSize: 8.5,
+                                      fontSize: 8.5 * overlayScale,
                                       height: 1,
                                     ),
                                   ),
@@ -4465,7 +4450,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                           ],
                         ),
                       ),
-                      const SizedBox(height: 14),
+                      SizedBox(height: 14 * overlayScale),
                     ],
                     _buildActionButton(
                       icon: isLiked
@@ -4480,8 +4465,9 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                       isBusy: _likeInFlightPostIds.contains(post.id),
                       labelSpacing: 0,
                       isLight: isLight,
+                      scale: overlayScale,
                     ),
-                    const SizedBox(height: 14),
+                    SizedBox(height: 14 * overlayScale),
                     _buildActionButton(
                       icon: Icons.chat_bubble_outline_rounded,
                       iconColor: const Color(0xFF9EDBFF),
@@ -4489,8 +4475,9 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                       onTap: () => _showCommentsBottomSheet(post),
                       labelSpacing: 0,
                       isLight: isLight,
+                      scale: overlayScale,
                     ),
-                    const SizedBox(height: 14),
+                    SizedBox(height: 14 * overlayScale),
                     _buildActionButton(
                       icon: isSaved
                           ? Icons.bookmark_rounded
@@ -4503,11 +4490,12 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                       isActive: isSaved,
                       isBusy: _saveInFlightPostIds.contains(post.id),
                       isLight: isLight,
+                      scale: overlayScale,
                     ),
-                    const SizedBox(height: 8),
+                    SizedBox(height: 8 * overlayScale),
                     if (post.taggedFriends.isNotEmpty) ...[
                       _buildHorizontalFriends(post.taggedFriends),
-                      const SizedBox(height: 14),
+                      SizedBox(height: 14 * overlayScale),
                     ],
                     Row(
                       children: [
@@ -4519,8 +4507,8 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                             ),
                           ),
                           child: Container(
-                            width: 50,
-                            height: 50,
+                            width: 50 * overlayScale,
+                            height: 50 * overlayScale,
                             decoration: BoxDecoration(
                               gradient: const LinearGradient(
                                 colors: [Color(0xFF8C62FF), Color(0xFF46D3FF)],
@@ -4532,13 +4520,13 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                                 BoxShadow(
                                   color: const Color(0xFF46D3FF)
                                       .withValues(alpha: 0.35),
-                                  blurRadius: 16,
-                                  spreadRadius: 1,
+                                  blurRadius: 16 * overlayScale,
+                                  spreadRadius: overlayScale,
                                 ),
                               ],
                             ),
                             child: Container(
-                              margin: const EdgeInsets.all(1.4),
+                              margin: EdgeInsets.all(1.4 * overlayScale),
                               decoration: BoxDecoration(
                                 color: isLight
                                     ? const Color(0xFFF6FAFF)
@@ -4550,17 +4538,17 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                                 color: isLight
                                     ? const Color(0xFF33466D)
                                     : const Color(0xFFEAF4FF),
-                                size: 22,
+                                size: 22 * overlayScale,
                               ),
                             ),
                           ),
                         ),
-                        const SizedBox(width: 6),
+                        SizedBox(width: 6 * overlayScale),
                         GestureDetector(
                           onTap: () => _openParticipantsSheet(post),
                           child: Container(
-                            width: hasLinkedGroup ? 56 : 50,
-                            height: hasLinkedGroup ? 56 : 50,
+                            width: (hasLinkedGroup ? 56 : 50) * overlayScale,
+                            height: (hasLinkedGroup ? 56 : 50) * overlayScale,
                             decoration: BoxDecoration(
                               gradient: const LinearGradient(
                                 colors: [Color(0xFF8C62FF), Color(0xFF46D3FF)],
@@ -4574,14 +4562,16 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                                 BoxShadow(
                                   color: const Color(0xFF46D3FF)
                                       .withValues(alpha: 0.35),
-                                  blurRadius: hasLinkedGroup ? 20 : 16,
-                                  spreadRadius: hasLinkedGroup ? 1.8 : 1,
+                                  blurRadius:
+                                      (hasLinkedGroup ? 20 : 16) * overlayScale,
+                                  spreadRadius:
+                                      (hasLinkedGroup ? 1.8 : 1) * overlayScale,
                                 ),
                               ],
                             ),
                             child: Container(
-                              margin:
-                                  EdgeInsets.all(hasLinkedGroup ? 3.0 : 1.4),
+                              margin: EdgeInsets.all(
+                                  (hasLinkedGroup ? 3.0 : 1.4) * overlayScale),
                               decoration: BoxDecoration(
                                 color: isLight
                                     ? const Color(0xFFF6FAFF)
@@ -4592,46 +4582,46 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                                   ? Stack(
                                       alignment: Alignment.center,
                                       children: [
-                                        const Positioned(
-                                          top: 8,
-                                          left: 8,
+                                        Positioned(
+                                          top: 8 * overlayScale,
+                                          left: 8 * overlayScale,
                                           child: Icon(
                                             Icons.person_rounded,
-                                            size: 10,
-                                            color: Color(0xFF5A6CFF),
+                                            size: 10 * overlayScale,
+                                            color: const Color(0xFF5A6CFF),
                                           ),
                                         ),
-                                        const Positioned(
-                                          top: 8,
-                                          right: 8,
+                                        Positioned(
+                                          top: 8 * overlayScale,
+                                          right: 8 * overlayScale,
                                           child: Icon(
                                             Icons.person_rounded,
-                                            size: 10,
-                                            color: Color(0xFF5A6CFF),
+                                            size: 10 * overlayScale,
+                                            color: const Color(0xFF5A6CFF),
                                           ),
                                         ),
-                                        const Positioned(
-                                          bottom: 8,
-                                          left: 8,
+                                        Positioned(
+                                          bottom: 8 * overlayScale,
+                                          left: 8 * overlayScale,
                                           child: Icon(
                                             Icons.person_rounded,
-                                            size: 10,
-                                            color: Color(0xFF5A6CFF),
+                                            size: 10 * overlayScale,
+                                            color: const Color(0xFF5A6CFF),
                                           ),
                                         ),
-                                        const Positioned(
-                                          bottom: 8,
-                                          right: 8,
+                                        Positioned(
+                                          bottom: 8 * overlayScale,
+                                          right: 8 * overlayScale,
                                           child: Icon(
                                             Icons.person_rounded,
-                                            size: 10,
-                                            color: Color(0xFF5A6CFF),
+                                            size: 10 * overlayScale,
+                                            color: const Color(0xFF5A6CFF),
                                           ),
                                         ),
                                         Container(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 4,
-                                            vertical: 2,
+                                          padding: EdgeInsets.symmetric(
+                                            horizontal: 4 * overlayScale,
+                                            vertical: 2 * overlayScale,
                                           ),
                                           decoration: BoxDecoration(
                                             color: const Color(0xFFEFF4FF),
@@ -4647,17 +4637,19 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                                               if (participantsCount > 0)
                                                 Text(
                                                   participantsCount.toString(),
-                                                  style: const TextStyle(
-                                                    color: Color(0xFF5A6CFF),
-                                                    fontSize: 9,
+                                                  style: TextStyle(
+                                                    color:
+                                                        const Color(0xFF5A6CFF),
+                                                    fontSize: 9 * overlayScale,
                                                     fontWeight: FontWeight.w800,
                                                   ),
                                                 )
                                               else
-                                                const Icon(
+                                                Icon(
                                                   Icons.link_rounded,
-                                                  size: 10,
-                                                  color: Color(0xFF5A6CFF),
+                                                  size: 10 * overlayScale,
+                                                  color:
+                                                      const Color(0xFF5A6CFF),
                                                 ),
                                             ],
                                           ),
@@ -4673,7 +4665,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                                           color: isLight
                                               ? const Color(0xFF33466D)
                                               : const Color(0xFFEAF4FF),
-                                          size: 16,
+                                          size: 16 * overlayScale,
                                         ),
                                         Text(
                                           participantsCount.toString(),
@@ -4681,7 +4673,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                                             color: isLight
                                                 ? const Color(0xFF33466D)
                                                 : const Color(0xFFEAF4FF),
-                                            fontSize: 11,
+                                            fontSize: 11 * overlayScale,
                                             fontWeight: FontWeight.w700,
                                           ),
                                         ),
@@ -4690,12 +4682,12 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                             ),
                           ),
                         ),
-                        const SizedBox(width: 6),
+                        SizedBox(width: 6 * overlayScale),
                         GestureDetector(
                           onTap: () => _showShareMenu(post),
                           child: Container(
-                            width: 50,
-                            height: 50,
+                            width: 50 * overlayScale,
+                            height: 50 * overlayScale,
                             decoration: BoxDecoration(
                               gradient: const LinearGradient(
                                 colors: [Color(0xFF8C62FF), Color(0xFF46D3FF)],
@@ -4707,13 +4699,13 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                                 BoxShadow(
                                   color: const Color(0xFF46D3FF)
                                       .withValues(alpha: 0.35),
-                                  blurRadius: 16,
-                                  spreadRadius: 1,
+                                  blurRadius: 16 * overlayScale,
+                                  spreadRadius: overlayScale,
                                 ),
                               ],
                             ),
                             child: Container(
-                              margin: const EdgeInsets.all(1.4),
+                              margin: EdgeInsets.all(1.4 * overlayScale),
                               decoration: BoxDecoration(
                                 color: isLight
                                     ? const Color(0xFFF6FAFF)
@@ -4721,10 +4713,11 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                                 shape: BoxShape.circle,
                               ),
                               child: _shareInFlightPostIds.contains(post.id)
-                                  ? const Padding(
-                                      padding: EdgeInsets.all(14),
+                                  ? Padding(
+                                      padding:
+                                          EdgeInsets.all(14 * overlayScale),
                                       child: CircularProgressIndicator(
-                                        strokeWidth: 2,
+                                        strokeWidth: 2 * overlayScale,
                                         color: Colors.white,
                                       ),
                                     )
@@ -4737,7 +4730,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                                           color: isLight
                                               ? const Color(0xFF33466D)
                                               : const Color(0xFFEAF4FF),
-                                          size: 16,
+                                          size: 16 * overlayScale,
                                         ),
                                         Text(
                                           _formatCompactCount(displayShares),
@@ -4745,7 +4738,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                                             color: isLight
                                                 ? const Color(0xFF33466D)
                                                 : const Color(0xFFEAF4FF),
-                                            fontSize: 11,
+                                            fontSize: 11 * overlayScale,
                                             fontWeight: FontWeight.w700,
                                           ),
                                         ),
@@ -4754,7 +4747,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                             ),
                           ),
                         ),
-                        if (canReportPost) const SizedBox(width: 10),
+                        if (canReportPost) SizedBox(width: 10 * overlayScale),
                         if (canReportPost)
                           GestureDetector(
                             onTap: () => _reportPostFromFeed(post),
@@ -4765,7 +4758,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                               ),
                               child: Icon(
                                 Icons.flag_outlined,
-                                size: 19,
+                                size: 19 * overlayScale,
                                 color: isLight
                                     ? const Color(0xFF6B7891)
                                     : Colors.white70,
@@ -4778,9 +4771,10 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                 ),
               ),
               Positioned(
-                right: 20,
-                bottom: overlayBottomOffset + _postTextBlockExtraOffset,
-                left: 120,
+                right: 20 * overlayScale,
+                bottom: overlayBottomOffset +
+                    _postTextBlockExtraOffset * overlayScale,
+                left: 120 * overlayScale,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
@@ -4799,24 +4793,28 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                           debugPrint('Navigating to user: $authorId');
                           _navigateToScreen(UserDetailScreen(uid: authorId));
                         },
-                        child: AuthorInfoWidget(
-                          authorId: post.authorId,
-                          userFuture: _authorFuture(post.authorId),
-                          compact: true,
+                        child: Transform.scale(
+                          scale: overlayScale,
+                          alignment: Alignment.centerRight,
+                          child: AuthorInfoWidget(
+                            authorId: post.authorId,
+                            userFuture: _authorFuture(post.authorId),
+                            compact: true,
+                          ),
                         ),
                       ),
-                      const SizedBox(height: 6),
+                      SizedBox(height: 6 * overlayScale),
                     ],
                     if (post.title.isNotEmpty)
                       Text(
                         post.title,
                         textAlign: TextAlign.right,
-                        style: const TextStyle(
+                        style: TextStyle(
                           color: Colors.white,
                           fontWeight: FontWeight.w800,
-                          fontSize: 21,
+                          fontSize: 21 * overlayScale,
                           fontFamily: 'Avenir Next',
-                          fontFamilyFallback: [
+                          fontFamilyFallback: const [
                             'SF Pro Rounded',
                             'Rubik',
                             'Assistant',
@@ -4830,18 +4828,18 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                         overflow: TextOverflow.ellipsis,
                       ),
                     if (post.description.isNotEmpty) ...[
-                      const SizedBox(height: 3),
+                      SizedBox(height: 3 * overlayScale),
                       ExpandablePostDescription(
                         text: post.description,
                         maxLines: 2,
                         textAlign: TextAlign.right,
                         textDirection: TextDirection.rtl,
-                        style: const TextStyle(
+                        style: TextStyle(
                           color: Colors.white,
-                          fontSize: 14,
+                          fontSize: 14 * overlayScale,
                           fontWeight: FontWeight.w600,
                           fontFamily: 'Avenir Next',
-                          fontFamilyFallback: [
+                          fontFamilyFallback: const [
                             'SF Pro Rounded',
                             'Rubik',
                             'Assistant',
@@ -4851,32 +4849,26 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                           ],
                           height: 1.28,
                         ),
-                        toggleStyle: const TextStyle(
+                        toggleStyle: TextStyle(
                           color: Colors.white,
-                          fontSize: 12,
+                          fontSize: 12 * overlayScale,
                           fontWeight: FontWeight.w700,
                           height: 1.2,
                         ),
                       ),
                     ],
-                    if (postTimestamp.isNotEmpty ||
-                        locationText.isNotEmpty) ...[
-                      const SizedBox(height: 6),
+                    if (locationText.isNotEmpty) ...[
+                      SizedBox(height: 6 * overlayScale),
                       Wrap(
                         alignment: WrapAlignment.end,
                         spacing: 8,
                         runSpacing: 6,
                         children: [
-                          if (postTimestamp.isNotEmpty)
-                            _buildMetaChip(
-                              icon: Icons.schedule_rounded,
-                              text: postTimestamp,
-                            ),
-                          if (locationText.isNotEmpty)
-                            _buildMetaChip(
-                              icon: Icons.location_on_rounded,
-                              text: locationText,
-                            ),
+                          _buildMetaChip(
+                            icon: Icons.location_on_rounded,
+                            text: locationText,
+                            scale: overlayScale,
+                          ),
                         ],
                       ),
                     ],
@@ -4885,15 +4877,15 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
               ),
               if (_showDoubleTapHeart && _activeHeartPostId == post.id)
                 Positioned(
-                  left: _heartTapPosition.dx - 40,
-                  top: _heartTapPosition.dy - 40,
-                  child: const AnimatedOpacity(
+                  left: _heartTapPosition.dx - 40 * overlayScale,
+                  top: _heartTapPosition.dy - 40 * overlayScale,
+                  child: AnimatedOpacity(
                     opacity: 1.0,
-                    duration: Duration(milliseconds: 200),
+                    duration: const Duration(milliseconds: 200),
                     child: Icon(
                       Icons.favorite,
                       color: Colors.redAccent,
-                      size: 80,
+                      size: 80 * overlayScale,
                     ),
                   ),
                 ),
@@ -4912,6 +4904,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
       bool isActive = false,
       bool isBusy = false,
       double labelSpacing = 2,
+      double scale = 1,
       bool isLight = false}) {
     final isActiveLight = isActive && isLight;
 
@@ -4920,8 +4913,8 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
       child: Column(
         children: [
           Container(
-            width: 50,
-            height: 50,
+            width: 50 * scale,
+            height: 50 * scale,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               gradient: isActive
@@ -4956,16 +4949,16 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                   : null,
             ),
             child: isBusy
-                ? const Padding(
-                    padding: EdgeInsets.all(13),
+                ? Padding(
+                    padding: EdgeInsets.all(13 * scale),
                     child: CircularProgressIndicator(
-                      strokeWidth: 2,
+                      strokeWidth: 2 * scale,
                       color: Colors.white,
                     ),
                   )
                 : isActiveLight
                     ? Container(
-                        margin: const EdgeInsets.all(2.0),
+                        margin: EdgeInsets.all(2.0 * scale),
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
                           color: Colors.white.withValues(alpha: 0.96),
@@ -4986,7 +4979,7 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                             child: Icon(
                               icon,
                               color: Colors.white,
-                              size: 25,
+                              size: 25 * scale,
                             ),
                           ),
                         ),
@@ -4995,14 +4988,14 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
                         color: isActive
                             ? Colors.white
                             : (isLight ? const Color(0xFF5A6CFF) : iconColor),
-                        size: 25),
+                        size: 25 * scale),
           ),
-          SizedBox(height: labelSpacing),
+          SizedBox(height: labelSpacing * scale),
           Text(
             label,
             style: TextStyle(
               color: isLight ? Colors.black : const Color(0xFFEAF4FF),
-              fontSize: 12,
+              fontSize: 12 * scale,
               fontWeight: FontWeight.w600,
             ),
           ),
@@ -5011,10 +5004,17 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildMetaChip({required IconData icon, required String text}) {
+  Widget _buildMetaChip({
+    required IconData icon,
+    required String text,
+    double scale = 1,
+  }) {
     final isLight = _isLightMode(context);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      padding: EdgeInsets.symmetric(
+        horizontal: 10 * scale,
+        vertical: 5 * scale,
+      ),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(999),
         gradient: LinearGradient(
@@ -5035,15 +5035,15 @@ class _FeedScreenState extends State<FeedScreen> with TickerProviderStateMixin {
           Icon(
             icon,
             color: isLight ? const Color(0xFF5A6CFF) : const Color(0xFF9EDBFF),
-            size: 13,
+            size: 13 * scale,
           ),
-          const SizedBox(width: 5),
+          SizedBox(width: 5 * scale),
           Text(
             text,
             style: TextStyle(
               color:
                   isLight ? const Color(0xFF5A6CFF) : const Color(0xFF9EDBFF),
-              fontSize: 12,
+              fontSize: 12 * scale,
               fontWeight: FontWeight.w600,
             ),
           ),

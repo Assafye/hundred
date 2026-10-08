@@ -23,6 +23,18 @@ void main() {
     );
   });
 
+  test('seen history cap retains the most recently viewed post IDs', () {
+    final baseTime = DateTime(2026, 8, 24, 12, 0, 0);
+    final history = <String, DateTime>{
+      for (var index = 0; index < 5; index++)
+        'post-$index': baseTime.add(Duration(minutes: index)),
+    };
+
+    final retained = retainMostRecentFeedSeenHistory(history, limit: 3);
+
+    expect(retained.keys, ['post-4', 'post-3', 'post-2']);
+  });
+
   test('filters out stale and already-seen feed posts only', () {
     final now = DateTime(2026, 8, 24, 12, 0, 0);
 
@@ -54,6 +66,26 @@ void main() {
     );
 
     expect(filtered.map((post) => post.id), ['fresh-post']);
+  });
+
+  test('emits each unseen post ID only once per feed batch', () {
+    final now = DateTime(2026, 8, 24, 12, 0, 0);
+    PostModel post(String title) => PostModel(
+          id: 'duplicate-post',
+          category: 'general',
+          title: title,
+          createdAt: now.subtract(const Duration(minutes: 1)),
+          colors: const [Color(0xFF8C62FF), Color(0xFF46D3FF)],
+        );
+
+    final filtered = filterFeedPostsForFreshnessAndSeen(
+      [post('first copy'), post('second copy')],
+      seenPostIds: const <String>{},
+      now: now,
+    );
+
+    expect(filtered, hasLength(1));
+    expect(filtered.single.title, 'first copy');
   });
 
   test('keeps current feed batch stable after visible post is marked seen', () {

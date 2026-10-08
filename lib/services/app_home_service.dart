@@ -1614,6 +1614,10 @@ class AppHomeService {
       final groupId = groupRef.id;
       final effectiveAdminUid = authorUid;
       final initialMembers = <String>[effectiveAdminUid];
+      final initialChatParticipants = <String>{
+        ...initialMembers,
+        normalizedRequesterUid,
+      }.toList(growable: false);
 
       tx.set(groupRef, {
         'groupName': groupName,
@@ -1655,7 +1659,7 @@ class AppHomeService {
         'isDirect': false,
         'creatorTag': creatorTag,
         'originType': 'pop',
-        'participants': initialMembers,
+        'participants': initialChatParticipants,
         'sourceGroupId': groupId,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
