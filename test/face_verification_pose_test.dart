@@ -40,6 +40,25 @@ void main() {
     );
   });
 
+  test('second turn must go the opposite way of the first turn', () {
+    bool valid(FaceVerificationPose pose, double yaw, [double? firstTurnYaw]) =>
+        isFaceVerificationPoseValid(
+          pose: pose,
+          boundingBox: centeredFace,
+          imageSize: imageSize,
+          yaw: yaw,
+          roll: 0,
+          firstTurnYaw: firstTurnYaw,
+        );
+
+    expect(valid(FaceVerificationPose.right, 25), isTrue);
+    expect(valid(FaceVerificationPose.right, -25), isTrue);
+    expect(valid(FaceVerificationPose.left, 25, -25), isTrue);
+    expect(valid(FaceVerificationPose.left, -25, 25), isTrue);
+    expect(valid(FaceVerificationPose.left, 25, 25), isFalse);
+    expect(valid(FaceVerificationPose.left, -25, -25), isFalse);
+  });
+
   test('rejects an incorrect pose or excessive roll', () {
     expect(
       isFaceVerificationPoseValid(

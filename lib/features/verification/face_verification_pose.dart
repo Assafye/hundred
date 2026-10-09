@@ -8,6 +8,7 @@ bool isFaceVerificationPoseValid({
   required Size imageSize,
   required double? yaw,
   required double? roll,
+  double? firstTurnYaw,
 }) {
   if (yaw == null || roll == null || roll.abs() > 15) return false;
   if (imageSize.width <= 0 || imageSize.height <= 0) return false;
@@ -30,8 +31,11 @@ bool isFaceVerificationPoseValid({
     case FaceVerificationPose.front:
       return yaw.abs() <= 10;
     case FaceVerificationPose.right:
-      return yaw >= 18 && yaw <= 50;
+      // First turn: either direction is accepted.
+      return yaw.abs() >= 18 && yaw.abs() <= 50;
     case FaceVerificationPose.left:
-      return yaw <= -18 && yaw >= -50;
+      // Second turn: must be the opposite direction of the first one.
+      if (yaw.abs() < 18 || yaw.abs() > 50) return false;
+      return firstTurnYaw == null || yaw.sign != firstTurnYaw.sign;
   }
 }

@@ -54,6 +54,7 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
   CameraDescription? _camera;
   DateTime _lastProcessedAt = DateTime.fromMillisecondsSinceEpoch(0);
   int _currentStep = 0;
+  double? _firstTurnYaw;
   int _stableFrames = 0;
   bool _isInitializing = true;
   bool _isProcessingFrame = false;
@@ -69,9 +70,9 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
       case FaceVerificationPose.front:
         return 'מבט ישר למצלמה';
       case FaceVerificationPose.right:
-        return 'סובב/י את הראש ימינה';
+        return 'סובב/י את הראש לצד אחד';
       case FaceVerificationPose.left:
-        return 'סובב/י את הראש שמאלה';
+        return 'עכשיו סובב/י את הראש לצד השני';
     }
   }
 
@@ -287,10 +288,14 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
             imageSize: frameInput.processedSize,
             yaw: face.headEulerAngleY,
             roll: face.headEulerAngleZ,
+            firstTurnYaw: _firstTurnYaw,
           );
       _updatePoseState(isValid);
 
       if (isValid && _stableFrames >= _requiredStableFrames) {
+        if (_pose == FaceVerificationPose.right) {
+          _firstTurnYaw = face.headEulerAngleY;
+        }
         await _capturePose(image, frameInput.rotation);
       }
     } catch (_) {
