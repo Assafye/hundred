@@ -4,6 +4,7 @@ import 'dart:ui';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart' show TargetPlatform, defaultTargetPlatform;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -26,6 +27,7 @@ import 'services/weekly_challenge_service.dart';
 import 'stars_screen.dart' show StarsScreen;
 import 'user_profile_screen.dart';
 import 'widgets/report_dialogs.dart';
+import 'widgets/screen_scale.dart';
 
 class OnlineScreen extends StatefulWidget {
   const OnlineScreen({super.key});
@@ -1065,7 +1067,9 @@ class _OnlineScreenState extends State<OnlineScreen>
       barrierColor: Colors.black54,
       transitionDuration: const Duration(milliseconds: 180),
       pageBuilder: (sheetContext, _, __) {
-        return Material(
+        return ScreenScale(
+          child: Builder(
+            builder: (scaledContext) => Material(
           color: Colors.transparent,
           child: SafeArea(
             child: Center(
@@ -1073,8 +1077,8 @@ class _OnlineScreenState extends State<OnlineScreen>
                 padding: const EdgeInsets.all(12),
                 child: ConstrainedBox(
                   constraints: BoxConstraints(
-                    maxWidth: MediaQuery.of(sheetContext).size.width * 0.94,
-                    maxHeight: MediaQuery.of(sheetContext).size.height * 0.82,
+                    maxWidth: MediaQuery.of(scaledContext).size.width * 0.94,
+                    maxHeight: MediaQuery.of(scaledContext).size.height * 0.82,
                   ),
                   child: Container(
                     decoration: BoxDecoration(
@@ -1219,6 +1223,8 @@ class _OnlineScreenState extends State<OnlineScreen>
                   ),
                 ),
               ),
+            ),
+          ),
             ),
           ),
         );
@@ -2011,13 +2017,37 @@ class _OnlineScreenState extends State<OnlineScreen>
                 .where((item) => item.trim().isNotEmpty)
                 .toList(growable: false);
 
-            return SafeArea(
+            return ScreenScale(
+              child: Align(
+                alignment: Alignment.bottomCenter,
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final isAndroid =
+                        defaultTargetPlatform == TargetPlatform.android;
+                    final mq = MediaQuery.of(context);
+                    final keyboardInset = mq.viewInsets.bottom;
+                    final fullHeight = constraints.maxHeight;
+                    // Android: lift the sheet above the keyboard and shrink it to fit.
+                    final sheetMaxHeight = isAndroid
+                        ? math.min(
+                            fullHeight * 0.75,
+                            math.max(
+                              220.0,
+                              fullHeight - keyboardInset - mq.padding.top - 24,
+                            ),
+                          )
+                        : fullHeight * 0.75;
+                    return Padding(
+                      padding: EdgeInsets.only(
+                        bottom: isAndroid ? keyboardInset : 0,
+                      ),
+                      child: SafeArea(
               child: Listener(
                 behavior: HitTestBehavior.translucent,
                 onPointerDown: _dismissKeyboardOnBackgroundTap,
                 child: Container(
                   constraints: BoxConstraints(
-                    maxHeight: MediaQuery.of(sheetContext).size.height * 0.75,
+                    maxHeight: sheetMaxHeight,
                   ),
                   margin: const EdgeInsets.fromLTRB(14, 6, 14, 14),
                   decoration: BoxDecoration(
@@ -2039,7 +2069,7 @@ class _OnlineScreenState extends State<OnlineScreen>
                         16,
                         16,
                         16,
-                        MediaQuery.of(sheetContext).viewInsets.bottom + 16,
+                        isAndroid ? 16 : keyboardInset + 16,
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -2362,6 +2392,11 @@ class _OnlineScreenState extends State<OnlineScreen>
                       ),
                     ),
                   ),
+                ),
+              ),
+                      ),
+                    );
+                  },
                 ),
               ),
             );
@@ -5188,14 +5223,16 @@ class _OnlineScreenState extends State<OnlineScreen>
       barrierColor: Colors.black54,
       builder: (dialogContext) {
         String? selectedCategory;
-        return Dialog(
+        return ScreenScale(
+          child: Builder(
+            builder: (scaledContext) => Dialog(
           backgroundColor: Colors.transparent,
           insetPadding:
               const EdgeInsets.symmetric(horizontal: 14, vertical: 20),
           child: Container(
             constraints: BoxConstraints(
-              maxWidth: MediaQuery.of(dialogContext).size.width * 0.94,
-              maxHeight: MediaQuery.of(dialogContext).size.height * 0.84,
+              maxWidth: MediaQuery.of(scaledContext).size.width * 0.94,
+              maxHeight: MediaQuery.of(scaledContext).size.height * 0.84,
             ),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(30),
@@ -5332,6 +5369,8 @@ class _OnlineScreenState extends State<OnlineScreen>
                   );
                 },
               ),
+            ),
+          ),
             ),
           ),
         );
@@ -5587,7 +5626,8 @@ class _OnlineScreenState extends State<OnlineScreen>
   @override
   Widget build(BuildContext context) {
     final isLight = Theme.of(context).brightness == Brightness.light;
-    return Scaffold(
+    return ScreenScale(
+      child: Scaffold(
       backgroundColor: isLight ? Colors.white : _bg,
       body: Stack(
         children: [
@@ -5699,6 +5739,7 @@ class _OnlineScreenState extends State<OnlineScreen>
         ],
       ),
       bottomNavigationBar: const MainBottomNav(currentIndex: 1),
+      ),
     );
   }
 }

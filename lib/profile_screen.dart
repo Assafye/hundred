@@ -29,6 +29,7 @@ import 'settings_screen.dart';
 import 'user_profile_screen.dart';
 import 'widgets/profile_images_viewer_dialog.dart';
 import 'widgets/post_media_viewer.dart';
+import 'widgets/screen_scale.dart';
 
 class _ProfileCategoryNavItem {
   final String key;
@@ -773,7 +774,9 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
       barrierLabel: 'task-progress-categories',
       barrierColor: Colors.transparent,
       pageBuilder: (dialogContext, __, ___) {
-        return Dialog(
+        return ScreenScale(
+          child: Builder(
+            builder: (scaledContext) => Dialog(
           backgroundColor: Colors.transparent,
           insetPadding: const EdgeInsets.symmetric(
             horizontal: 14,
@@ -781,8 +784,8 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
           ),
           child: Container(
             constraints: BoxConstraints(
-              maxWidth: MediaQuery.of(dialogContext).size.width * 0.94,
-              maxHeight: MediaQuery.of(dialogContext).size.height * 0.84,
+              maxWidth: MediaQuery.of(scaledContext).size.width * 0.94,
+              maxHeight: MediaQuery.of(scaledContext).size.height * 0.84,
             ),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(30),
@@ -884,6 +887,8 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
               ),
             ),
           ),
+            ),
+          ),
         );
       },
     );
@@ -903,14 +908,16 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
       barrierLabel: 'task-sub-categories',
       barrierColor: Colors.transparent,
       pageBuilder: (dialogContext, __, ___) {
-        return Dialog(
+        return ScreenScale(
+          child: Builder(
+            builder: (scaledContext) => Dialog(
           backgroundColor: Colors.transparent,
           insetPadding:
               const EdgeInsets.symmetric(horizontal: 14, vertical: 20),
           child: Container(
             constraints: BoxConstraints(
-              maxWidth: MediaQuery.of(dialogContext).size.width * 0.94,
-              maxHeight: MediaQuery.of(dialogContext).size.height * 0.84,
+              maxWidth: MediaQuery.of(scaledContext).size.width * 0.94,
+              maxHeight: MediaQuery.of(scaledContext).size.height * 0.84,
             ),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(30),
@@ -1014,6 +1021,8 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
                   ],
                 ),
               ),
+            ),
+          ),
             ),
           ),
         );
@@ -4776,232 +4785,237 @@ class _MainUserProfileScreenState extends State<MainUserProfileScreen> {
     final screenWidth = MediaQuery.of(context).size.width;
     final orbSizeA = (screenWidth * 0.82).clamp(230.0, 320.0);
     final orbSizeB = (screenWidth * 0.9).clamp(260.0, 350.0);
-    return Scaffold(
-      backgroundColor: isLight ? Colors.white : const Color(0xFF0B1019),
-      body: Listener(
-        behavior: HitTestBehavior.translucent,
-        onPointerDown: _dismissKeyboardOnBackgroundTap,
-        child: Stack(
-          children: [
-            if (isLight)
-              Positioned(
-                top: -120,
-                right: -100,
-                child: IgnorePointer(
-                  child: Container(
-                    width: orbSizeA,
-                    height: orbSizeA,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: const Color(0xFFB9A9FF).withValues(alpha: 0.12),
+    return ScreenScale(
+      child: Scaffold(
+        backgroundColor: isLight ? Colors.white : const Color(0xFF0B1019),
+        body: Listener(
+          behavior: HitTestBehavior.translucent,
+          onPointerDown: _dismissKeyboardOnBackgroundTap,
+          child: Stack(
+            children: [
+              if (isLight)
+                Positioned(
+                  top: -120,
+                  right: -100,
+                  child: IgnorePointer(
+                    child: Container(
+                      width: orbSizeA,
+                      height: orbSizeA,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: const Color(0xFFB9A9FF).withValues(alpha: 0.12),
+                      ),
                     ),
                   ),
                 ),
-              ),
-            if (isLight)
-              Positioned(
-                bottom: -140,
-                left: -100,
-                child: IgnorePointer(
-                  child: Container(
-                    width: orbSizeB,
-                    height: orbSizeB,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: const Color(0xFF9EEBFF).withValues(alpha: 0.12),
+              if (isLight)
+                Positioned(
+                  bottom: -140,
+                  left: -100,
+                  child: IgnorePointer(
+                    child: Container(
+                      width: orbSizeB,
+                      height: orbSizeB,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: const Color(0xFF9EEBFF).withValues(alpha: 0.12),
+                      ),
                     ),
                   ),
                 ),
-              ),
-            Positioned.fill(
-              child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                stream: _profileStream(),
-                builder: (context, profileSnapshot) {
-                  if (profileSnapshot.hasError) {
-                    debugPrint(
-                        'Profile stream error: ${profileSnapshot.error}');
-                  }
+              Positioned.fill(
+                child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                  stream: _profileStream(),
+                  builder: (context, profileSnapshot) {
+                    if (profileSnapshot.hasError) {
+                      debugPrint(
+                          'Profile stream error: ${profileSnapshot.error}');
+                    }
 
-                  return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                    stream: _publicProfileStream(),
-                    builder: (context, publicProfileSnapshot) {
-                      final privateData =
-                          profileSnapshot.data?.data() ?? <String, dynamic>{};
-                      final publicData = publicProfileSnapshot.data?.data() ??
-                          <String, dynamic>{};
-                      final mergedProfileData = _mergeProfileData(
-                        privateData: privateData,
-                        publicData: publicData,
-                      );
-                      final hasProfileDocument =
-                          profileSnapshot.data?.exists == true ||
-                              publicProfileSnapshot.data?.exists == true;
-                      final hasProfileIdentity = <String>[
-                        'firstName',
-                        'lastName',
-                        'username',
-                        'displayName',
-                        'profilePictureUrl',
-                        'bio',
-                      ].any(
-                        (key) => (mergedProfileData[key] as String? ?? '')
-                            .trim()
-                            .isNotEmpty,
-                      );
-                      final hasCurrentProfileData = hasProfileDocument &&
-                          (hasProfileIdentity ||
-                              (mergedProfileData['isDeleted'] as bool? ??
-                                  false));
-                      if (hasCurrentProfileData) {
-                        _lastGoodProfileData =
-                            Map<String, dynamic>.from(mergedProfileData);
-                        _sessionProfileDataByUid[_uid] =
-                            Map<String, dynamic>.from(mergedProfileData);
-                      }
-                      // Prefer the last known-good snapshot over the generic
-                      // placeholder so a momentary listener reconnect (e.g.
-                      // after a silent re-auth) doesn't flash wrong info.
-                      final profileData = hasCurrentProfileData
-                          ? mergedProfileData
-                          : (_lastGoodProfileData ?? fallbackProfile);
-                      final unreadCount = _intValue(
-                        privateData,
-                        const ['unreadNotificationsCount'],
-                      );
-
-                      if ((profileData['isDeleted'] as bool?) ?? false) {
-                        return Center(
-                          child: Container(
-                            margin: const EdgeInsets.symmetric(horizontal: 24),
-                            padding: const EdgeInsets.all(18),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF1A2435),
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(
-                                color: const Color(0xFF53C1F9)
-                                    .withValues(alpha: 0.22),
-                              ),
-                            ),
-                            child: const Text(
-                              'משתמש מחוק',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                  color: Colors.white70, fontSize: 16),
-                            ),
-                          ),
+                    return StreamBuilder<
+                        DocumentSnapshot<Map<String, dynamic>>>(
+                      stream: _publicProfileStream(),
+                      builder: (context, publicProfileSnapshot) {
+                        final privateData =
+                            profileSnapshot.data?.data() ?? <String, dynamic>{};
+                        final publicData = publicProfileSnapshot.data?.data() ??
+                            <String, dynamic>{};
+                        final mergedProfileData = _mergeProfileData(
+                          privateData: privateData,
+                          publicData: publicData,
                         );
-                      }
+                        final hasProfileDocument =
+                            profileSnapshot.data?.exists == true ||
+                                publicProfileSnapshot.data?.exists == true;
+                        final hasProfileIdentity = <String>[
+                          'firstName',
+                          'lastName',
+                          'username',
+                          'displayName',
+                          'profilePictureUrl',
+                          'bio',
+                        ].any(
+                          (key) => (mergedProfileData[key] as String? ?? '')
+                              .trim()
+                              .isNotEmpty,
+                        );
+                        final hasCurrentProfileData = hasProfileDocument &&
+                            (hasProfileIdentity ||
+                                (mergedProfileData['isDeleted'] as bool? ??
+                                    false));
+                        if (hasCurrentProfileData) {
+                          _lastGoodProfileData =
+                              Map<String, dynamic>.from(mergedProfileData);
+                          _sessionProfileDataByUid[_uid] =
+                              Map<String, dynamic>.from(mergedProfileData);
+                        }
+                        // Prefer the last known-good snapshot over the generic
+                        // placeholder so a momentary listener reconnect (e.g.
+                        // after a silent re-auth) doesn't flash wrong info.
+                        final profileData = hasCurrentProfileData
+                            ? mergedProfileData
+                            : (_lastGoodProfileData ?? fallbackProfile);
+                        final unreadCount = _intValue(
+                          privateData,
+                          const ['unreadNotificationsCount'],
+                        );
 
-                      return StreamBuilder<
-                          List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
-                        stream: _allPostsStream(),
-                        builder: (context, postsSnapshot) {
-                          if (postsSnapshot.hasError) {
-                            debugPrint(
-                                'Error loading posts stream: ${postsSnapshot.error}');
-                          }
-
-                          final allDocs = postsSnapshot.data ??
-                              const <QueryDocumentSnapshot<
-                                  Map<String, dynamic>>>[];
-
-                          int publishedCount = 0;
-                          for (final doc in allDocs) {
-                            final isMine = _postAuthorId(doc.data()) == _uid;
-                            if (!isMine) {
-                              continue;
-                            }
-                            final status = _postStatus(doc.data());
-                            if (status != 'draft') {
-                              publishedCount += 1;
-                            }
-                          }
-
-                          final postedSubCategoryCount =
-                              _livePostedSubCategoryCount(allDocs);
-
-                          final filteredDocs = _filteredPosts(allDocs);
-                          final isPostsLoading =
-                              !postsSnapshot.hasData && !postsSnapshot.hasError;
-
-                          return RefreshIndicator(
-                            onRefresh: _refreshProfileData,
-                            notificationPredicate: (notification) {
-                              if (notification.metrics.axis != Axis.vertical) {
-                                return false;
-                              }
-                              if (_profileScrollController.hasClients &&
-                                  _profileScrollController.offset > 0) {
-                                return false;
-                              }
-                              return notification.metrics.extentBefore == 0;
-                            },
-                            edgeOffset: 0,
-                            child: NestedScrollView(
-                              controller: _profileScrollController,
-                              physics: const AlwaysScrollableScrollPhysics(
-                                parent: BouncingScrollPhysics(),
+                        if ((profileData['isDeleted'] as bool?) ?? false) {
+                          return Center(
+                            child: Container(
+                              margin:
+                                  const EdgeInsets.symmetric(horizontal: 24),
+                              padding: const EdgeInsets.all(18),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF1A2435),
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(
+                                  color: const Color(0xFF53C1F9)
+                                      .withValues(alpha: 0.22),
+                                ),
                               ),
-                              headerSliverBuilder:
-                                  (context, innerBoxIsScrolled) {
-                                return [
-                                  SliverToBoxAdapter(
-                                    child: _buildHeader(
-                                      profileData,
-                                      publishedCount,
-                                      postedSubCategoryCount,
-                                      allDocs,
-                                      isLight: isLight,
-                                      unreadCount: unreadCount,
-                                    ),
-                                  ),
-                                ];
-                              },
-                              body: LayoutBuilder(
-                                builder: (context, constraints) {
-                                  final isNarrow = constraints.maxWidth < 700;
-                                  final sidebarWidth =
-                                      constraints.maxWidth < 390
-                                          ? 102.0
-                                          : (isNarrow ? 108.0 : 120.0);
-
-                                  return Transform.translate(
-                                    offset: const Offset(0, -18),
-                                    child: Row(
-                                      children: [
-                                        SizedBox(
-                                          width: sidebarWidth,
-                                          child: _buildSidebarWithLock(
-                                            viewportHeight:
-                                                constraints.maxHeight,
-                                            isLight: isLight,
-                                          ),
-                                        ),
-                                        Expanded(
-                                          child: _buildPostsGrid(
-                                            filteredDocs,
-                                            isLoading: isPostsLoading,
-                                            hasError: postsSnapshot.hasError,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  );
-                                },
+                              child: const Text(
+                                'משתמש מחוק',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                    color: Colors.white70, fontSize: 16),
                               ),
                             ),
                           );
-                        },
-                      );
-                    },
-                  );
-                },
+                        }
+
+                        return StreamBuilder<
+                            List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
+                          stream: _allPostsStream(),
+                          builder: (context, postsSnapshot) {
+                            if (postsSnapshot.hasError) {
+                              debugPrint(
+                                  'Error loading posts stream: ${postsSnapshot.error}');
+                            }
+
+                            final allDocs = postsSnapshot.data ??
+                                const <QueryDocumentSnapshot<
+                                    Map<String, dynamic>>>[];
+
+                            int publishedCount = 0;
+                            for (final doc in allDocs) {
+                              final isMine = _postAuthorId(doc.data()) == _uid;
+                              if (!isMine) {
+                                continue;
+                              }
+                              final status = _postStatus(doc.data());
+                              if (status != 'draft') {
+                                publishedCount += 1;
+                              }
+                            }
+
+                            final postedSubCategoryCount =
+                                _livePostedSubCategoryCount(allDocs);
+
+                            final filteredDocs = _filteredPosts(allDocs);
+                            final isPostsLoading = !postsSnapshot.hasData &&
+                                !postsSnapshot.hasError;
+
+                            return RefreshIndicator(
+                              onRefresh: _refreshProfileData,
+                              notificationPredicate: (notification) {
+                                if (notification.metrics.axis !=
+                                    Axis.vertical) {
+                                  return false;
+                                }
+                                if (_profileScrollController.hasClients &&
+                                    _profileScrollController.offset > 0) {
+                                  return false;
+                                }
+                                return notification.metrics.extentBefore == 0;
+                              },
+                              edgeOffset: 0,
+                              child: NestedScrollView(
+                                controller: _profileScrollController,
+                                physics: const AlwaysScrollableScrollPhysics(
+                                  parent: BouncingScrollPhysics(),
+                                ),
+                                headerSliverBuilder:
+                                    (context, innerBoxIsScrolled) {
+                                  return [
+                                    SliverToBoxAdapter(
+                                      child: _buildHeader(
+                                        profileData,
+                                        publishedCount,
+                                        postedSubCategoryCount,
+                                        allDocs,
+                                        isLight: isLight,
+                                        unreadCount: unreadCount,
+                                      ),
+                                    ),
+                                  ];
+                                },
+                                body: LayoutBuilder(
+                                  builder: (context, constraints) {
+                                    final isNarrow = constraints.maxWidth < 700;
+                                    final sidebarWidth =
+                                        constraints.maxWidth < 390
+                                            ? 102.0
+                                            : (isNarrow ? 108.0 : 120.0);
+
+                                    return Transform.translate(
+                                      offset: const Offset(0, -18),
+                                      child: Row(
+                                        children: [
+                                          SizedBox(
+                                            width: sidebarWidth,
+                                            child: _buildSidebarWithLock(
+                                              viewportHeight:
+                                                  constraints.maxHeight,
+                                              isLight: isLight,
+                                            ),
+                                          ),
+                                          Expanded(
+                                            child: _buildPostsGrid(
+                                              filteredDocs,
+                                              isLoading: isPostsLoading,
+                                              hasError: postsSnapshot.hasError,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
+                            );
+                          },
+                        );
+                      },
+                    );
+                  },
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
+        bottomNavigationBar: const MainBottomNav(currentIndex: 4),
       ),
-      bottomNavigationBar: const MainBottomNav(currentIndex: 4),
     );
   }
 }

@@ -32,6 +32,7 @@ import 'services/social_service.dart';
 import 'widgets/profile_images_viewer_dialog.dart';
 import 'widgets/post_media_viewer.dart';
 import 'widgets/report_dialogs.dart';
+import 'widgets/screen_scale.dart';
 import 'widgets/swipe_back_wrapper.dart';
 
 class _ProfileCategoryNavItem {
@@ -792,14 +793,16 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       context: context,
       barrierColor: Colors.black54,
       builder: (dialogContext) {
-        return Dialog(
+        return ScreenScale(
+          child: Builder(
+            builder: (scaledContext) => Dialog(
           backgroundColor: Colors.transparent,
           insetPadding:
               const EdgeInsets.symmetric(horizontal: 14, vertical: 20),
           child: Container(
             constraints: BoxConstraints(
-              maxWidth: MediaQuery.of(dialogContext).size.width * 0.94,
-              maxHeight: MediaQuery.of(dialogContext).size.height * 0.84,
+              maxWidth: MediaQuery.of(scaledContext).size.width * 0.94,
+              maxHeight: MediaQuery.of(scaledContext).size.height * 0.84,
             ),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(30),
@@ -893,6 +896,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
               ),
             ),
           ),
+            ),
+          ),
         );
       },
     );
@@ -910,14 +915,16 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       context: context,
       barrierColor: Colors.black54,
       builder: (dialogContext) {
-        return Dialog(
+        return ScreenScale(
+          child: Builder(
+            builder: (scaledContext) => Dialog(
           backgroundColor: Colors.transparent,
           insetPadding:
               const EdgeInsets.symmetric(horizontal: 14, vertical: 20),
           child: Container(
             constraints: BoxConstraints(
-              maxWidth: MediaQuery.of(dialogContext).size.width * 0.94,
-              maxHeight: MediaQuery.of(dialogContext).size.height * 0.84,
+              maxWidth: MediaQuery.of(scaledContext).size.width * 0.94,
+              maxHeight: MediaQuery.of(scaledContext).size.height * 0.84,
             ),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(30),
@@ -1023,6 +1030,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                   ],
                 ),
               ),
+            ),
+          ),
             ),
           ),
         );
@@ -5976,11 +5985,13 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                   borderRadius: BorderRadius.circular(14),
                 ),
               ),
-              child: Text(
-                label,
-                textAlign: TextAlign.center,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                ),
               ),
             ),
           ),
@@ -6757,309 +6768,316 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     final canShowSafetyActions =
         currentUid.isNotEmpty && widget.uid.trim() != currentUid;
     return SwipeBackWrapper(
-      child: Scaffold(
-        backgroundColor: isLight ? Colors.white : const Color(0xFF0B1019),
-        appBar: AppBar(
-          backgroundColor:
-              isLight ? const Color(0xFFCFEFFF) : const Color(0xFF1E2632),
-          elevation: 0,
-          title: const SizedBox.shrink(),
-          centerTitle: false,
-          leading: IconButton(
-            onPressed: () => Navigator.of(context).maybePop(),
-            icon: const Icon(Icons.arrow_back_rounded),
-          ),
-          actions: [
-            if (canShowSafetyActions)
-              Padding(
-                padding: const EdgeInsetsDirectional.only(end: 4),
-                child: IconButton(
-                  tooltip: 'אפשרויות משתמש',
-                  onPressed: _showSafetyActionsMenu,
-                  icon: Icon(
-                    Icons.flag_outlined,
-                    size: 18,
-                    color: isLight ? const Color(0xFF6E7A90) : Colors.white70,
+      child: ScreenScale(
+        child: Scaffold(
+          backgroundColor: isLight ? Colors.white : const Color(0xFF0B1019),
+          appBar: AppBar(
+            backgroundColor:
+                isLight ? const Color(0xFFCFEFFF) : const Color(0xFF1E2632),
+            elevation: 0,
+            title: const SizedBox.shrink(),
+            centerTitle: false,
+            leading: IconButton(
+              onPressed: () => Navigator.of(context).maybePop(),
+              icon: const Icon(Icons.arrow_back_rounded),
+            ),
+            actions: [
+              if (canShowSafetyActions)
+                Padding(
+                  padding: const EdgeInsetsDirectional.only(end: 4),
+                  child: IconButton(
+                    tooltip: 'אפשרויות משתמש',
+                    onPressed: _showSafetyActionsMenu,
+                    icon: Icon(
+                      Icons.flag_outlined,
+                      size: 18,
+                      color: isLight ? const Color(0xFF6E7A90) : Colors.white70,
+                    ),
                   ),
                 ),
-              ),
-          ],
-          iconTheme:
-              IconThemeData(color: isLight ? Colors.black : Colors.white),
-        ),
-        body: Listener(
-          behavior: HitTestBehavior.translucent,
-          onPointerDown: _dismissKeyboardOnBackgroundTap,
-          child: StreamBuilder<PublicUserProfile?>(
-            stream: _profileStreamRef,
-            builder: (context, profileSnapshot) {
-              return StreamBuilder<BlockRelationship>(
-                stream: _blockRelationshipStream,
-                builder: (context, blockSnapshot) {
-                  final relation = blockSnapshot.data ?? BlockRelationship.none;
-                  final blockedByMe =
-                      relation == BlockRelationship.blockedByMe ||
-                          relation == BlockRelationship.both;
-                  final blockedByOther =
-                      relation == BlockRelationship.blockedByOther ||
-                          relation == BlockRelationship.both;
+            ],
+            iconTheme:
+                IconThemeData(color: isLight ? Colors.black : Colors.white),
+          ),
+          body: Listener(
+            behavior: HitTestBehavior.translucent,
+            onPointerDown: _dismissKeyboardOnBackgroundTap,
+            child: StreamBuilder<PublicUserProfile?>(
+              stream: _profileStreamRef,
+              builder: (context, profileSnapshot) {
+                return StreamBuilder<BlockRelationship>(
+                  stream: _blockRelationshipStream,
+                  builder: (context, blockSnapshot) {
+                    final relation =
+                        blockSnapshot.data ?? BlockRelationship.none;
+                    final blockedByMe =
+                        relation == BlockRelationship.blockedByMe ||
+                            relation == BlockRelationship.both;
+                    final blockedByOther =
+                        relation == BlockRelationship.blockedByOther ||
+                            relation == BlockRelationship.both;
 
-                  if (blockedByMe || blockedByOther) {
-                    if (!_blockedBackNavigationScheduled) {
-                      _blockedBackNavigationScheduled = true;
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        if (!mounted) return;
-                        final navigator = Navigator.of(context);
-                        if (widget.openedFromDirectChat) {
-                          Navigator.of(context).pushAndRemoveUntil(
-                            PageRouteBuilder(
-                              pageBuilder:
-                                  (context, animation, secondaryAnimation) =>
-                                      const ChatsScreen(),
-                              transitionsBuilder: (context, animation,
-                                  secondaryAnimation, child) {
-                                return FadeTransition(
-                                  opacity: animation,
-                                  child: child,
-                                );
-                              },
-                            ),
-                            (route) => false,
-                          );
-                          return;
-                        }
-                        var popCount = widget.openedFromPostFlow ? 2 : 1;
-                        while (popCount > 0 && navigator.canPop()) {
-                          navigator.pop();
-                          popCount -= 1;
-                        }
-                        if (popCount == 0) {
-                          return;
-                        }
-
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('הפרופיל לא זמין עקב חסימה.'),
-                          ),
-                        );
-                      });
-                    }
-
-                    return Scaffold(
-                      backgroundColor:
-                          isLight ? Colors.white : const Color(0xFF0F172A),
-                      appBar: AppBar(
-                        backgroundColor:
-                            isLight ? Colors.white : const Color(0xFF0F172A),
-                        foregroundColor: isLight ? Colors.black : Colors.white,
-                        elevation: 0,
-                        automaticallyImplyLeading: false,
-                        leading: IconButton(
-                          tooltip: 'חזרה',
-                          onPressed: () {
-                            if (Navigator.of(context).canPop()) {
-                              Navigator.of(context).pop();
-                              return;
-                            }
+                    if (blockedByMe || blockedByOther) {
+                      if (!_blockedBackNavigationScheduled) {
+                        _blockedBackNavigationScheduled = true;
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          if (!mounted) return;
+                          final navigator = Navigator.of(context);
+                          if (widget.openedFromDirectChat) {
                             Navigator.of(context).pushAndRemoveUntil(
-                              MaterialPageRoute(
-                                  builder: (_) => const ChatsScreen()),
+                              PageRouteBuilder(
+                                pageBuilder:
+                                    (context, animation, secondaryAnimation) =>
+                                        const ChatsScreen(),
+                                transitionsBuilder: (context, animation,
+                                    secondaryAnimation, child) {
+                                  return FadeTransition(
+                                    opacity: animation,
+                                    child: child,
+                                  );
+                                },
+                              ),
                               (route) => false,
                             );
-                          },
-                          icon: const Icon(Icons.arrow_back_rounded),
+                            return;
+                          }
+                          var popCount = widget.openedFromPostFlow ? 2 : 1;
+                          while (popCount > 0 && navigator.canPop()) {
+                            navigator.pop();
+                            popCount -= 1;
+                          }
+                          if (popCount == 0) {
+                            return;
+                          }
+
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('הפרופיל לא זמין עקב חסימה.'),
+                            ),
+                          );
+                        });
+                      }
+
+                      return Scaffold(
+                        backgroundColor:
+                            isLight ? Colors.white : const Color(0xFF0F172A),
+                        appBar: AppBar(
+                          backgroundColor:
+                              isLight ? Colors.white : const Color(0xFF0F172A),
+                          foregroundColor:
+                              isLight ? Colors.black : Colors.white,
+                          elevation: 0,
+                          automaticallyImplyLeading: false,
+                          leading: IconButton(
+                            tooltip: 'חזרה',
+                            onPressed: () {
+                              if (Navigator.of(context).canPop()) {
+                                Navigator.of(context).pop();
+                                return;
+                              }
+                              Navigator.of(context).pushAndRemoveUntil(
+                                MaterialPageRoute(
+                                    builder: (_) => const ChatsScreen()),
+                                (route) => false,
+                              );
+                            },
+                            icon: const Icon(Icons.arrow_back_rounded),
+                          ),
                         ),
-                      ),
-                      body: Center(
+                        body: Center(
+                          child: Container(
+                            width: 280,
+                            padding: const EdgeInsets.all(24),
+                            decoration: BoxDecoration(
+                              color: isLight
+                                  ? const Color(0xFFF3F6FF)
+                                  : const Color(0xFF1A2435),
+                              borderRadius: BorderRadius.circular(24),
+                              border: Border.all(
+                                color: isLight
+                                    ? const Color(0xFFB8C8FF)
+                                    : const Color(0xFF53C1F9)
+                                        .withValues(alpha: 0.35),
+                              ),
+                            ),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.block_rounded,
+                                  size: 48,
+                                  color: isLight
+                                      ? const Color(0xFF6E7A90)
+                                      : Colors.white70,
+                                ),
+                                const SizedBox(height: 16),
+                                Text(
+                                  'הפרופיל אינו זמין',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    color:
+                                        isLight ? Colors.black87 : Colors.white,
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  'הגישה נחסמה עקב קשר חסימה בין המשתמשים.',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    color: isLight
+                                        ? const Color(0xFF5B6782)
+                                        : Colors.white70,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    } else {
+                      _blockedBackNavigationScheduled = false;
+                    }
+
+                    if (profileSnapshot.connectionState ==
+                            ConnectionState.waiting &&
+                        !profileSnapshot.hasData) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+
+                    if (profileSnapshot.hasError) {
+                      return Center(
+                        child: Text(
+                          'שגיאה בטעינת פרטי המשתמש',
+                          style: TextStyle(
+                              color:
+                                  isLight ? Colors.black54 : Colors.grey[300]),
+                        ),
+                      );
+                    }
+
+                    final profile = profileSnapshot.data;
+                    if (profile == null || !profile.exists) {
+                      return Center(
+                        child: Text(
+                          'המשתמש לא נמצא',
+                          style: TextStyle(
+                              color:
+                                  isLight ? Colors.black54 : Colors.grey[300]),
+                        ),
+                      );
+                    }
+
+                    final profileData = profile.toMap();
+                    final currentUid =
+                        FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+                    if (profile.isDeleted) {
+                      final isCurrentUserDeleted = currentUid.isNotEmpty &&
+                          currentUid == widget.uid.trim();
+                      return Center(
                         child: Container(
-                          width: 280,
-                          padding: const EdgeInsets.all(24),
+                          margin: const EdgeInsets.symmetric(horizontal: 24),
+                          padding: const EdgeInsets.all(18),
                           decoration: BoxDecoration(
                             color: isLight
-                                ? const Color(0xFFF3F6FF)
+                                ? Colors.white.withValues(alpha: 0.84)
                                 : const Color(0xFF1A2435),
-                            borderRadius: BorderRadius.circular(24),
+                            borderRadius: BorderRadius.circular(20),
                             border: Border.all(
                               color: isLight
-                                  ? const Color(0xFFB8C8FF)
+                                  ? const Color(0xFFA9C3FF)
                                   : const Color(0xFF53C1F9)
-                                      .withValues(alpha: 0.35),
+                                      .withValues(alpha: 0.22),
                             ),
                           ),
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              Icon(
-                                Icons.block_rounded,
-                                size: 48,
-                                color: isLight
-                                    ? const Color(0xFF6E7A90)
-                                    : Colors.white70,
-                              ),
-                              const SizedBox(height: 16),
                               Text(
-                                'הפרופיל אינו זמין',
+                                'משתמש מחוק',
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
                                   color:
-                                      isLight ? Colors.black87 : Colors.white,
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w700,
+                                      isLight ? Colors.black87 : Colors.white70,
+                                  fontSize: 16,
                                 ),
                               ),
-                              const SizedBox(height: 8),
-                              Text(
-                                'הגישה נחסמה עקב קשר חסימה בין המשתמשים.',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  color: isLight
-                                      ? const Color(0xFF5B6782)
-                                      : Colors.white70,
-                                  fontSize: 14,
+                              if (isCurrentUserDeleted) ...[
+                                const SizedBox(height: 16),
+                                ElevatedButton.icon(
+                                  onPressed: _isSigningOutDeletedAccount
+                                      ? null
+                                      : _signOutDeletedAccount,
+                                  icon: _isSigningOutDeletedAccount
+                                      ? const SizedBox(
+                                          width: 18,
+                                          height: 18,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        )
+                                      : const Icon(Icons.logout_rounded),
+                                  label: Text(
+                                    _isSigningOutDeletedAccount
+                                        ? 'מתנתק...'
+                                        : 'התנתקות',
+                                  ),
                                 ),
-                              ),
+                              ],
                             ],
                           ),
                         ),
-                      ),
-                    );
-                  } else {
-                    _blockedBackNavigationScheduled = false;
-                  }
+                      );
+                    }
 
-                  if (profileSnapshot.connectionState ==
-                          ConnectionState.waiting &&
-                      !profileSnapshot.hasData) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
+                    final isPrivateProfile =
+                        profile.isPrivate && currentUid != widget.uid;
 
-                  if (profileSnapshot.hasError) {
-                    return Center(
-                      child: Text(
-                        'שגיאה בטעינת פרטי המשתמש',
-                        style: TextStyle(
-                            color: isLight ? Colors.black54 : Colors.grey[300]),
-                      ),
-                    );
-                  }
+                    if (isPrivateProfile) {
+                      return FutureBuilder<bool>(
+                        future: _canViewProfileContentFuture,
+                        builder: (context, privacySnapshot) {
+                          final canView = privacySnapshot.data ?? false;
+                          return _buildProfileContent(
+                            profileData,
+                            profile,
+                            showPosts: canView,
+                            canViewFriendsOnlyPosts: canView,
+                          );
+                        },
+                      );
+                    }
 
-                  final profile = profileSnapshot.data;
-                  if (profile == null || !profile.exists) {
-                    return Center(
-                      child: Text(
-                        'המשתמש לא נמצא',
-                        style: TextStyle(
-                            color: isLight ? Colors.black54 : Colors.grey[300]),
-                      ),
-                    );
-                  }
-
-                  final profileData = profile.toMap();
-                  final currentUid =
-                      FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
-                  if (profile.isDeleted) {
-                    final isCurrentUserDeleted = currentUid.isNotEmpty &&
-                        currentUid == widget.uid.trim();
-                    return Center(
-                      child: Container(
-                        margin: const EdgeInsets.symmetric(horizontal: 24),
-                        padding: const EdgeInsets.all(18),
-                        decoration: BoxDecoration(
-                          color: isLight
-                              ? Colors.white.withValues(alpha: 0.84)
-                              : const Color(0xFF1A2435),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(
-                            color: isLight
-                                ? const Color(0xFFA9C3FF)
-                                : const Color(0xFF53C1F9)
-                                    .withValues(alpha: 0.22),
-                          ),
-                        ),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Text(
-                              'משתמש מחוק',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                color:
-                                    isLight ? Colors.black87 : Colors.white70,
-                                fontSize: 16,
-                              ),
-                            ),
-                            if (isCurrentUserDeleted) ...[
-                              const SizedBox(height: 16),
-                              ElevatedButton.icon(
-                                onPressed: _isSigningOutDeletedAccount
-                                    ? null
-                                    : _signOutDeletedAccount,
-                                icon: _isSigningOutDeletedAccount
-                                    ? const SizedBox(
-                                        width: 18,
-                                        height: 18,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                        ),
-                                      )
-                                    : const Icon(Icons.logout_rounded),
-                                label: Text(
-                                  _isSigningOutDeletedAccount
-                                      ? 'מתנתק...'
-                                      : 'התנתקות',
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-                    );
-                  }
-
-                  final isPrivateProfile =
-                      profile.isPrivate && currentUid != widget.uid;
-
-                  if (isPrivateProfile) {
                     return FutureBuilder<bool>(
-                      future: _canViewProfileContentFuture,
-                      builder: (context, privacySnapshot) {
-                        final canView = privacySnapshot.data ?? false;
+                      future: _canViewFriendsOnlyPostsFuture,
+                      builder: (context, audienceSnapshot) {
+                        final canViewFriendsOnly =
+                            audienceSnapshot.data ?? false;
                         return _buildProfileContent(
                           profileData,
                           profile,
-                          showPosts: canView,
-                          canViewFriendsOnlyPosts: canView,
+                          canViewFriendsOnlyPosts: canViewFriendsOnly,
                         );
                       },
                     );
-                  }
-
-                  return FutureBuilder<bool>(
-                    future: _canViewFriendsOnlyPostsFuture,
-                    builder: (context, audienceSnapshot) {
-                      final canViewFriendsOnly = audienceSnapshot.data ?? false;
-                      return _buildProfileContent(
-                        profileData,
-                        profile,
-                        canViewFriendsOnlyPosts: canViewFriendsOnly,
-                      );
-                    },
-                  );
-                },
-              );
-            },
+                  },
+                );
+              },
+            ),
           ),
-        ),
-        bottomNavigationBar: MainBottomNav(
-          currentIndex: widget.currentBottomIndex,
-          onReselectCurrentTab: widget.currentBottomIndex == 0
-              ? () {
-                  if (Navigator.of(context).canPop()) {
-                    Navigator.of(context).pop();
+          bottomNavigationBar: MainBottomNav(
+            currentIndex: widget.currentBottomIndex,
+            onReselectCurrentTab: widget.currentBottomIndex == 0
+                ? () {
+                    if (Navigator.of(context).canPop()) {
+                      Navigator.of(context).pop();
+                    }
                   }
-                }
-              : null,
+                : null,
+          ),
         ),
       ),
     );

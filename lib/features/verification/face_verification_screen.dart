@@ -8,6 +8,7 @@ import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 
 import '../../services/camera_permission_service.dart';
 import '../../services/face_verification_service.dart';
+import 'camera_frame_jpeg.dart';
 import 'face_verification_pose.dart';
 
 class FaceVerificationScreen extends StatefulWidget {
@@ -290,7 +291,7 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
       _updatePoseState(isValid);
 
       if (isValid && _stableFrames >= _requiredStableFrames) {
-        await _capturePose();
+        await _capturePose(image, frameInput.rotation);
       }
     } catch (_) {
       _updatePoseState(false);
@@ -323,6 +324,7 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
 
     return _CameraFrameInput(
       processedSize: processedSize,
+      rotation: rotation,
       image: InputImage.fromBytes(
         bytes: image.planes.first.bytes,
         metadata: InputImageMetadata(
@@ -368,7 +370,36 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
     });
   }
 
-  Future<void> _capturePose() async {
+  /// Saves the validated preview frame as a JPEG; takePicture plays a shutter sound.
+  Future<XFile?> _captureFromFrame(
+    CameraImage frame,
+    InputImageRotation rotation,
+  ) async {
+    if (frame.planes.length != 1) return null;
+    try {
+      final bytes = await encodeCameraFrameAsJpeg(
+        CameraFrameJpegRequest(
+          width: frame.width,
+          height: frame.height,
+          bytes: frame.planes.first.bytes,
+          bytesPerRow: frame.planes.first.bytesPerRow,
+          isNv21: Platform.isAndroid,
+          rotationDegrees: rotation.rawValue,
+        ),
+      );
+      final path = '${Directory.systemTemp.path}/face_verification_'
+          '${DateTime.now().microsecondsSinceEpoch}.jpg';
+      await File(path).writeAsBytes(bytes, flush: true);
+      return XFile(path, mimeType: 'image/jpeg');
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _capturePose(
+    CameraImage frame,
+    InputImageRotation rotation,
+  ) async {
     final controller = _cameraController;
     if (controller == null || _isCapturing || !controller.value.isInitialized) {
       return;
@@ -377,10 +408,13 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
     _isCapturing = true;
     if (mounted) setState(() {});
     try {
-      if (controller.value.isStreamingImages) {
-        await controller.stopImageStream();
+      var capture = await _captureFromFrame(frame, rotation);
+      if (capture == null) {
+        if (controller.value.isStreamingImages) {
+          await controller.stopImageStream();
+        }
+        capture = await controller.takePicture();
       }
-      final capture = await controller.takePicture();
       _captures.add(capture);
 
       if (_captures.length == FaceVerificationPose.values.length) {
@@ -395,7 +429,9 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen>
         _poseReady = false;
       });
       await Future<void>.delayed(const Duration(milliseconds: 500));
-      if (mounted && controller.value.isInitialized) {
+      if (mounted &&
+          controller.value.isInitialized &&
+          !controller.value.isStreamingImages) {
         await controller.startImageStream(_processCameraImage);
       }
     } catch (error) {
@@ -607,10 +643,12 @@ class _CameraFrameInput {
   const _CameraFrameInput({
     required this.image,
     required this.processedSize,
+    required this.rotation,
   });
 
   final InputImage image;
   final Size processedSize;
+  final InputImageRotation rotation;
 }
 
 class _CameraPreviewCover extends StatelessWidget {

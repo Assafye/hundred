@@ -18,6 +18,7 @@ import 'services/app_home_service.dart';
 import 'services/block_user_service.dart';
 import 'services/spontaneous_challenge_service.dart';
 import 'services/weekly_challenge_service.dart';
+import 'widgets/screen_scale.dart';
 import 'widgets/swipe_back_wrapper.dart';
 
 class StarsScreen extends StatefulWidget {
@@ -1450,7 +1451,8 @@ class _StarsScreenState extends State<StarsScreen> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     final isLight = Theme.of(context).brightness == Brightness.light;
     return SwipeBackWrapper(
-      child: Scaffold(
+      child: ScreenScale(
+        child: Scaffold(
         backgroundColor: isLight ? Colors.white : const Color(0xFF0B1019),
         body: SafeArea(
           child: Stack(
@@ -1614,6 +1616,7 @@ class _StarsScreenState extends State<StarsScreen> with WidgetsBindingObserver {
               (route) => false,
             );
           },
+        ),
         ),
       ),
     );

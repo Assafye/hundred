@@ -19,6 +19,7 @@ import 'services/group_service.dart';
 import 'services/keyboard_dismiss_controller.dart';
 import 'user_profile_screen.dart';
 import 'widgets/group_avatar.dart';
+import 'widgets/screen_scale.dart';
 
 bool isSearchablePublicUser(Map<String, dynamic> data) {
   return data['isSearchable'] == true && data['isDeleted'] != true;
@@ -1332,408 +1333,419 @@ class _ChatsScreenState extends State<ChatsScreen> {
       color: isLight ? Colors.black : Colors.white,
     );
 
-    return Scaffold(
-      extendBody: true,
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: isLight
-                ? const [Colors.white, Color(0xFFF8FBFF), Colors.white]
-                : const [Color(0xFF0B1019), Color(0xFF0B1019)],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
+    return ScreenScale(
+      child: Scaffold(
+        extendBody: true,
+        body: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: isLight
+                  ? const [Colors.white, Color(0xFFF8FBFF), Colors.white]
+                  : const [Color(0xFF0B1019), Color(0xFF0B1019)],
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+            ),
+          ),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              if (isLight)
+                Positioned(
+                  top: -130,
+                  right: -100,
+                  child: IgnorePointer(
+                    child: Container(
+                      width: orbSizeA,
+                      height: orbSizeA,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: const Color(0xFFB9A9FF).withValues(alpha: 0.12),
+                      ),
+                    ),
+                  ),
+                ),
+              if (isLight)
+                Positioned(
+                  bottom: -140,
+                  left: -100,
+                  child: IgnorePointer(
+                    child: Container(
+                      width: orbSizeB,
+                      height: orbSizeB,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: const Color(0xFF9EEBFF).withValues(alpha: 0.12),
+                      ),
+                    ),
+                  ),
+                ),
+              Listener(
+                behavior: HitTestBehavior.translucent,
+                onPointerDown: _dismissKeyboardOnBackgroundTap,
+                child: SafeArea(
+                  child: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Container(
+                                  clipBehavior: Clip.antiAlias,
+                                  decoration: BoxDecoration(
+                                    color: isLight
+                                        ? Colors.white.withValues(alpha: 0.62)
+                                        : const Color(0xFF1E2632),
+                                    borderRadius: BorderRadius.circular(24),
+                                  ),
+                                  child: TextField(
+                                    controller: _searchController,
+                                    onTapOutside: (_) {},
+                                    onChanged: (value) {
+                                      setState(() {
+                                        _globalSearchQuery = value;
+                                      });
+                                    },
+                                    style: baseTextStyle,
+                                    decoration: InputDecoration(
+                                      hintText: 'חיפוש משתמשים וקבוצות',
+                                      hintStyle: baseTextStyle.copyWith(
+                                        color: isLight
+                                            ? Colors.black54
+                                            : Colors.grey[600],
+                                      ),
+                                      filled: true,
+                                      fillColor: Colors.transparent,
+                                      prefixIcon: Icon(
+                                        Icons.search_rounded,
+                                        color: isLight
+                                            ? const Color(0xFF9AB0FF)
+                                            : Colors.grey[500],
+                                        size: 20,
+                                      ),
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(24),
+                                        borderSide: BorderSide(
+                                          color: isLight
+                                              ? const Color(0xFFA9C3FF)
+                                              : const Color(0xFF3F5877),
+                                          width: 1.3,
+                                        ),
+                                      ),
+                                      enabledBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(24),
+                                        borderSide: BorderSide(
+                                          color: isLight
+                                              ? const Color(0xFFA9C3FF)
+                                              : const Color(0xFF3F5877),
+                                          width: 1.3,
+                                        ),
+                                      ),
+                                      focusedBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(24),
+                                        borderSide: BorderSide(
+                                          color: isLight
+                                              ? const Color(0xFFA9C3FF)
+                                              : const Color(0xFF3F5877),
+                                          width: 1.3,
+                                        ),
+                                      ),
+                                      contentPadding:
+                                          const EdgeInsets.symmetric(
+                                        vertical: 12,
+                                        horizontal: 16,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Container(
+                                width: 48,
+                                height: 48,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  gradient: isLight
+                                      ? const LinearGradient(
+                                          colors: [
+                                            Color(0xFF9EEBFF),
+                                            Color(0xFFC9B7FF)
+                                          ],
+                                          begin: Alignment.topLeft,
+                                          end: Alignment.bottomRight,
+                                        )
+                                      : const LinearGradient(
+                                          colors: [
+                                            Color(0xFF9E7CFF),
+                                            Color(0xFF53C1F9)
+                                          ],
+                                        ),
+                                  color: isLight ? null : null,
+                                  border: Border.all(
+                                    color: isLight
+                                        ? const Color(0xFFB79BFF)
+                                        : Colors.transparent,
+                                  ),
+                                  boxShadow: isLight
+                                      ? [
+                                          BoxShadow(
+                                            color: const Color(0xFF53C1F9)
+                                                .withValues(alpha: 0.25),
+                                            blurRadius: 14,
+                                            offset: const Offset(0, 5),
+                                          ),
+                                          BoxShadow(
+                                            color: const Color(0xFFB79BFF)
+                                                .withValues(alpha: 0.22),
+                                            blurRadius: 14,
+                                            offset: const Offset(0, 6),
+                                          ),
+                                        ]
+                                      : null,
+                                ),
+                                child: Material(
+                                  color: Colors.transparent,
+                                  child: InkWell(
+                                    borderRadius: BorderRadius.circular(24),
+                                    onTap: () async {
+                                      final newGroup = await Navigator.push<
+                                          Map<String, dynamic>>(
+                                        context,
+                                        PageRouteBuilder(
+                                          pageBuilder: (context, animation,
+                                                  secondaryAnimation) =>
+                                              const CreateGroupScreen(),
+                                          transitionsBuilder: (context,
+                                              animation,
+                                              secondaryAnimation,
+                                              child) {
+                                            return FadeTransition(
+                                                opacity: animation,
+                                                child: child);
+                                          },
+                                        ),
+                                      );
+
+                                      if (!mounted) {
+                                        return;
+                                      }
+
+                                      if (newGroup != null) {
+                                        setState(() {
+                                          _selectedChatsTabIndex = 1;
+                                        });
+                                      }
+                                    },
+                                    child: const Icon(
+                                      Icons.add_rounded,
+                                      color: Colors.white,
+                                      size: 25,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (_hasSearchQuery) _buildGlobalSearchResultsPanel(),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: isLight
+                                  ? Colors.white.withValues(alpha: 0.62)
+                                  : const Color(0xFF1E2632),
+                              borderRadius: BorderRadius.circular(24),
+                              border: Border.all(
+                                color: isLight
+                                    ? const Color(0xFFA9C3FF)
+                                    : Colors.transparent,
+                              ),
+                            ),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(23),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: GestureDetector(
+                                      onTap: () {
+                                        setState(() {
+                                          _selectedChatsTabIndex = 0;
+                                          _hasNewUsersNotification = false;
+                                          _usersTabAcknowledgedAt =
+                                              DateTime.now();
+                                          _searchController.clear();
+                                          _globalSearchQuery = '';
+                                        });
+                                      },
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          vertical: 12,
+                                        ),
+                                        margin: const EdgeInsets.all(4),
+                                        decoration: BoxDecoration(
+                                          color: _selectedChatsTabIndex == 0
+                                              ? (isLight
+                                                  ? const Color(0xFFE8EEFF)
+                                                  : const Color(0xFF9E7CFF))
+                                              : Colors.transparent,
+                                          borderRadius:
+                                              BorderRadius.circular(18),
+                                        ),
+                                        alignment: Alignment.center,
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.center,
+                                          children: [
+                                            Flexible(
+                                              child: FittedBox(
+                                                fit: BoxFit.scaleDown,
+                                                child: Text(
+                                                  'משתמשים',
+                                                  maxLines: 1,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                  style: baseTextStyle.copyWith(
+                                                      color: isLight
+                                                          ? Colors.black
+                                                          : Colors.white,
+                                                      fontWeight:
+                                                          FontWeight.w600),
+                                                ),
+                                              ),
+                                            ),
+                                            if (_hasNewUsersNotification) ...[
+                                              const SizedBox(width: 6),
+                                              _buildGroupsTabNotificationDot(
+                                                isLight: isLight,
+                                              ),
+                                            ],
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  Expanded(
+                                    child: GestureDetector(
+                                      onTap: () {
+                                        setState(() {
+                                          _selectedChatsTabIndex = 1;
+                                          _hasNewGroupsNotification = false;
+                                          _groupsTabAcknowledgedAt =
+                                              DateTime.now();
+                                          _searchController.clear();
+                                          _globalSearchQuery = '';
+                                        });
+                                      },
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          vertical: 12,
+                                        ),
+                                        margin: const EdgeInsets.all(4),
+                                        decoration: BoxDecoration(
+                                          color: _selectedChatsTabIndex == 1
+                                              ? (isLight
+                                                  ? const Color(0xFFE8EEFF)
+                                                  : const Color(0xFF9E7CFF))
+                                              : Colors.transparent,
+                                          borderRadius:
+                                              BorderRadius.circular(18),
+                                        ),
+                                        alignment: Alignment.center,
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.center,
+                                          children: [
+                                            Flexible(
+                                              child: FittedBox(
+                                                fit: BoxFit.scaleDown,
+                                                child: Text(
+                                                  'קבוצות',
+                                                  maxLines: 1,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                  style: baseTextStyle.copyWith(
+                                                      color: isLight
+                                                          ? Colors.black
+                                                          : Colors.white,
+                                                      fontWeight:
+                                                          FontWeight.w600),
+                                                ),
+                                              ),
+                                            ),
+                                            if (_hasNewGroupsNotification) ...[
+                                              const SizedBox(width: 6),
+                                              _buildGroupsTabNotificationDot(
+                                                isLight: isLight,
+                                              ),
+                                            ],
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  Expanded(
+                                    child: GestureDetector(
+                                      onTap: () {
+                                        setState(() {
+                                          _selectedChatsTabIndex = 2;
+                                          _searchController.clear();
+                                          _globalSearchQuery = '';
+                                        });
+                                      },
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          vertical: 12,
+                                        ),
+                                        margin: const EdgeInsets.all(4),
+                                        decoration: BoxDecoration(
+                                          color: _selectedChatsTabIndex == 2
+                                              ? (isLight
+                                                  ? const Color(0xFFE8EEFF)
+                                                  : const Color(0xFF9E7CFF))
+                                              : Colors.transparent,
+                                          borderRadius:
+                                              BorderRadius.circular(18),
+                                        ),
+                                        alignment: Alignment.center,
+                                        child: FittedBox(
+                                          fit: BoxFit.scaleDown,
+                                          child: Text(
+                                            'קבוצות ציבוריות',
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: baseTextStyle.copyWith(
+                                                color: isLight
+                                                    ? Colors.black
+                                                    : Colors.white,
+                                                fontWeight: FontWeight.w600),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        _buildActiveChatsTab(),
+                        const SizedBox(height: 120),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            if (isLight)
-              Positioned(
-                top: -130,
-                right: -100,
-                child: IgnorePointer(
-                  child: Container(
-                    width: orbSizeA,
-                    height: orbSizeA,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: const Color(0xFFB9A9FF).withValues(alpha: 0.12),
-                    ),
-                  ),
-                ),
-              ),
-            if (isLight)
-              Positioned(
-                bottom: -140,
-                left: -100,
-                child: IgnorePointer(
-                  child: Container(
-                    width: orbSizeB,
-                    height: orbSizeB,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: const Color(0xFF9EEBFF).withValues(alpha: 0.12),
-                    ),
-                  ),
-                ),
-              ),
-            Listener(
-              behavior: HitTestBehavior.translucent,
-              onPointerDown: _dismissKeyboardOnBackgroundTap,
-              child: SafeArea(
-                child: SingleChildScrollView(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Container(
-                                clipBehavior: Clip.antiAlias,
-                                decoration: BoxDecoration(
-                                  color: isLight
-                                      ? Colors.white.withValues(alpha: 0.62)
-                                      : const Color(0xFF1E2632),
-                                  borderRadius: BorderRadius.circular(24),
-                                ),
-                                child: TextField(
-                                  controller: _searchController,
-                                  onTapOutside: (_) {},
-                                  onChanged: (value) {
-                                    setState(() {
-                                      _globalSearchQuery = value;
-                                    });
-                                  },
-                                  style: baseTextStyle,
-                                  decoration: InputDecoration(
-                                    hintText: 'חיפוש משתמשים וקבוצות',
-                                    hintStyle: baseTextStyle.copyWith(
-                                      color: isLight
-                                          ? Colors.black54
-                                          : Colors.grey[600],
-                                    ),
-                                    filled: true,
-                                    fillColor: Colors.transparent,
-                                    prefixIcon: Icon(
-                                      Icons.search_rounded,
-                                      color: isLight
-                                          ? const Color(0xFF9AB0FF)
-                                          : Colors.grey[500],
-                                      size: 20,
-                                    ),
-                                    border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(24),
-                                      borderSide: BorderSide(
-                                        color: isLight
-                                            ? const Color(0xFFA9C3FF)
-                                            : const Color(0xFF3F5877),
-                                        width: 1.3,
-                                      ),
-                                    ),
-                                    enabledBorder: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(24),
-                                      borderSide: BorderSide(
-                                        color: isLight
-                                            ? const Color(0xFFA9C3FF)
-                                            : const Color(0xFF3F5877),
-                                        width: 1.3,
-                                      ),
-                                    ),
-                                    focusedBorder: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(24),
-                                      borderSide: BorderSide(
-                                        color: isLight
-                                            ? const Color(0xFFA9C3FF)
-                                            : const Color(0xFF3F5877),
-                                        width: 1.3,
-                                      ),
-                                    ),
-                                    contentPadding: const EdgeInsets.symmetric(
-                                      vertical: 12,
-                                      horizontal: 16,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Container(
-                              width: 48,
-                              height: 48,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                gradient: isLight
-                                    ? const LinearGradient(
-                                        colors: [
-                                          Color(0xFF9EEBFF),
-                                          Color(0xFFC9B7FF)
-                                        ],
-                                        begin: Alignment.topLeft,
-                                        end: Alignment.bottomRight,
-                                      )
-                                    : const LinearGradient(
-                                        colors: [
-                                          Color(0xFF9E7CFF),
-                                          Color(0xFF53C1F9)
-                                        ],
-                                      ),
-                                color: isLight ? null : null,
-                                border: Border.all(
-                                  color: isLight
-                                      ? const Color(0xFFB79BFF)
-                                      : Colors.transparent,
-                                ),
-                                boxShadow: isLight
-                                    ? [
-                                        BoxShadow(
-                                          color: const Color(0xFF53C1F9)
-                                              .withValues(alpha: 0.25),
-                                          blurRadius: 14,
-                                          offset: const Offset(0, 5),
-                                        ),
-                                        BoxShadow(
-                                          color: const Color(0xFFB79BFF)
-                                              .withValues(alpha: 0.22),
-                                          blurRadius: 14,
-                                          offset: const Offset(0, 6),
-                                        ),
-                                      ]
-                                    : null,
-                              ),
-                              child: Material(
-                                color: Colors.transparent,
-                                child: InkWell(
-                                  borderRadius: BorderRadius.circular(24),
-                                  onTap: () async {
-                                    final newGroup = await Navigator.push<
-                                        Map<String, dynamic>>(
-                                      context,
-                                      PageRouteBuilder(
-                                        pageBuilder: (context, animation,
-                                                secondaryAnimation) =>
-                                            const CreateGroupScreen(),
-                                        transitionsBuilder: (context, animation,
-                                            secondaryAnimation, child) {
-                                          return FadeTransition(
-                                              opacity: animation, child: child);
-                                        },
-                                      ),
-                                    );
-
-                                    if (!mounted) {
-                                      return;
-                                    }
-
-                                    if (newGroup != null) {
-                                      setState(() {
-                                        _selectedChatsTabIndex = 1;
-                                      });
-                                    }
-                                  },
-                                  child: const Icon(
-                                    Icons.add_rounded,
-                                    color: Colors.white,
-                                    size: 25,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      if (_hasSearchQuery) _buildGlobalSearchResultsPanel(),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: isLight
-                                ? Colors.white.withValues(alpha: 0.62)
-                                : const Color(0xFF1E2632),
-                            borderRadius: BorderRadius.circular(24),
-                            border: Border.all(
-                              color: isLight
-                                  ? const Color(0xFFA9C3FF)
-                                  : Colors.transparent,
-                            ),
-                          ),
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(23),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: GestureDetector(
-                                    onTap: () {
-                                      setState(() {
-                                        _selectedChatsTabIndex = 0;
-                                        _hasNewUsersNotification = false;
-                                        _usersTabAcknowledgedAt =
-                                            DateTime.now();
-                                        _searchController.clear();
-                                        _globalSearchQuery = '';
-                                      });
-                                    },
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        vertical: 12,
-                                      ),
-                                      margin: const EdgeInsets.all(4),
-                                      decoration: BoxDecoration(
-                                        color: _selectedChatsTabIndex == 0
-                                            ? (isLight
-                                                ? const Color(0xFFE8EEFF)
-                                                : const Color(0xFF9E7CFF))
-                                            : Colors.transparent,
-                                        borderRadius: BorderRadius.circular(18),
-                                      ),
-                                      alignment: Alignment.center,
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.center,
-                                        children: [
-                                          Flexible(
-                                            child: FittedBox(
-                                              fit: BoxFit.scaleDown,
-                                              child: Text(
-                                                'משתמשים',
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: baseTextStyle.copyWith(
-                                                    color: isLight
-                                                        ? Colors.black
-                                                        : Colors.white,
-                                                    fontWeight:
-                                                        FontWeight.w600),
-                                              ),
-                                            ),
-                                          ),
-                                          if (_hasNewUsersNotification) ...[
-                                            const SizedBox(width: 6),
-                                            _buildGroupsTabNotificationDot(
-                                              isLight: isLight,
-                                            ),
-                                          ],
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                Expanded(
-                                  child: GestureDetector(
-                                    onTap: () {
-                                      setState(() {
-                                        _selectedChatsTabIndex = 1;
-                                        _hasNewGroupsNotification = false;
-                                        _groupsTabAcknowledgedAt =
-                                            DateTime.now();
-                                        _searchController.clear();
-                                        _globalSearchQuery = '';
-                                      });
-                                    },
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        vertical: 12,
-                                      ),
-                                      margin: const EdgeInsets.all(4),
-                                      decoration: BoxDecoration(
-                                        color: _selectedChatsTabIndex == 1
-                                            ? (isLight
-                                                ? const Color(0xFFE8EEFF)
-                                                : const Color(0xFF9E7CFF))
-                                            : Colors.transparent,
-                                        borderRadius: BorderRadius.circular(18),
-                                      ),
-                                      alignment: Alignment.center,
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.center,
-                                        children: [
-                                          Flexible(
-                                            child: FittedBox(
-                                              fit: BoxFit.scaleDown,
-                                              child: Text(
-                                                'קבוצות',
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: baseTextStyle.copyWith(
-                                                    color: isLight
-                                                        ? Colors.black
-                                                        : Colors.white,
-                                                    fontWeight:
-                                                        FontWeight.w600),
-                                              ),
-                                            ),
-                                          ),
-                                          if (_hasNewGroupsNotification) ...[
-                                            const SizedBox(width: 6),
-                                            _buildGroupsTabNotificationDot(
-                                              isLight: isLight,
-                                            ),
-                                          ],
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                Expanded(
-                                  child: GestureDetector(
-                                    onTap: () {
-                                      setState(() {
-                                        _selectedChatsTabIndex = 2;
-                                        _searchController.clear();
-                                        _globalSearchQuery = '';
-                                      });
-                                    },
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        vertical: 12,
-                                      ),
-                                      margin: const EdgeInsets.all(4),
-                                      decoration: BoxDecoration(
-                                        color: _selectedChatsTabIndex == 2
-                                            ? (isLight
-                                                ? const Color(0xFFE8EEFF)
-                                                : const Color(0xFF9E7CFF))
-                                            : Colors.transparent,
-                                        borderRadius: BorderRadius.circular(18),
-                                      ),
-                                      alignment: Alignment.center,
-                                      child: FittedBox(
-                                        fit: BoxFit.scaleDown,
-                                        child: Text(
-                                          'קבוצות ציבוריות',
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: baseTextStyle.copyWith(
-                                              color: isLight
-                                                  ? Colors.black
-                                                  : Colors.white,
-                                              fontWeight: FontWeight.w600),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      _buildActiveChatsTab(),
-                      const SizedBox(height: 120),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
+        bottomNavigationBar: const MainBottomNav(currentIndex: 3),
       ),
-      bottomNavigationBar: const MainBottomNav(currentIndex: 3),
     );
   }
 

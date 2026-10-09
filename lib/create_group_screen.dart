@@ -13,6 +13,7 @@ import 'services/group_service.dart';
 import 'services/keyboard_dismiss_controller.dart';
 import 'services/public_user_profile_service.dart';
 import 'widgets/group_avatar.dart';
+import 'widgets/screen_scale.dart';
 import 'widgets/swipe_back_wrapper.dart';
 
 class _FriendOption {
@@ -892,7 +893,8 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
     final orbSizeB = (screenWidth * 0.86).clamp(240.0, 320.0);
 
     return SwipeBackWrapper(
-      child: Scaffold(
+      child: ScreenScale(
+        child: Scaffold(
         backgroundColor: isLight ? Colors.white : const Color(0xFF0B1019),
         appBar: AppBar(
           backgroundColor:
@@ -1511,6 +1513,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
               ),
             ),
           ],
+        ),
         ),
       ),
     );

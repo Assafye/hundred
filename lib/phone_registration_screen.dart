@@ -22,6 +22,7 @@ import 'services/phone_otp_error_messages.dart';
 import 'services/phone_otp_provider_policy.dart';
 import 'services/phone_otp_service.dart';
 import 'services/share_flow_log_service.dart';
+import 'widgets/screen_scale.dart';
 import 'widgets/swipe_back_wrapper.dart';
 
 class PhoneRegistrationScreen extends StatefulWidget {
@@ -165,11 +166,9 @@ class _PhoneRegistrationScreenState extends State<PhoneRegistrationScreen>
   String? _password(String? value) {
     final password = value?.trim() ?? '';
     if (password.length < 7 ||
-        !RegExp(r'[A-Z]').hasMatch(password) ||
-        !RegExp(r'[a-z]').hasMatch(password) ||
-        !RegExp(r'[0-9]').hasMatch(password) ||
-        !RegExp(r'[^A-Za-z0-9]').hasMatch(password)) {
-      return 'לפחות 7 תווים, אות גדולה, אות קטנה, מספר וסימן מיוחד';
+        !RegExp(r'[A-Za-z]').hasMatch(password) ||
+        !RegExp(r'[0-9]').hasMatch(password)) {
+      return 'לפחות 7 תווים, הכוללים אותיות באנגלית ומספרים';
     }
     return null;
   }
@@ -320,6 +319,7 @@ class _PhoneRegistrationScreenState extends State<PhoneRegistrationScreen>
         },
         verificationFailed: (error, stackTrace) {
           final diagnostics = phoneAuthExceptionDiagnostics(error);
+          debugPrint('[PhoneRegistration] verificationFailed | $diagnostics');
           ShareFlowLogService.log(
             'PHONE_VERIFY_FAILED | attemptId=$attemptId | $diagnostics',
           );
@@ -363,6 +363,9 @@ class _PhoneRegistrationScreenState extends State<PhoneRegistrationScreen>
         },
       );
     } on FirebaseAuthException catch (error, stackTrace) {
+      debugPrint(
+        '[PhoneRegistration] verifyPhoneNumber exception | code=${error.code} | message=${error.message}',
+      );
       await ShareFlowLogService.log(
         'PHONE_VERIFY_EXCEPTION | code=${error.code} | message=${error.message}',
       );
@@ -1120,7 +1123,8 @@ class _PhoneRegistrationScreenState extends State<PhoneRegistrationScreen>
         if (!didPop) unawaited(_exitRegistration());
       },
       child: SwipeBackWrapper(
-        child: Scaffold(
+        child: ScreenScale(
+          child: Scaffold(
           backgroundColor: _background,
           resizeToAvoidBottomInset: false,
           appBar: AppBar(
@@ -1332,6 +1336,7 @@ class _PhoneRegistrationScreenState extends State<PhoneRegistrationScreen>
               ),
             ],
           ),
+        ),
         ),
       ),
     );

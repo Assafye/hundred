@@ -18,6 +18,7 @@ import 'services/auth_service.dart';
 import 'services/face_verification_service.dart';
 import 'services/keyboard_dismiss_controller.dart';
 import 'usage_guide_screen.dart';
+import 'widgets/screen_scale.dart';
 import 'widgets/swipe_back_wrapper.dart';
 
 class RegisterScreen extends StatefulWidget {
@@ -48,7 +49,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   static const Color _fieldFill = Color(0xFF141D2E);
   static const int _maxProfileImages = 6;
   static const String _passwordRequirementsMessage =
-      'הסיסמה חייבת לכלול לפחות 8 תווים,\nאות גדולה באנגלית, אות קטנה באנגלית ומספר אחד';
+      'הסיסמה חייבת לכלול לפחות 7 תווים,\nהכוללים אותיות באנגלית ומספרים';
   static final RegExp _usernameAllowedPattern = RegExp(r'^[A-Za-z0-9._]+$');
   static const String _usernameAllowedMessage =
       'מותר רק אותיות באנגלית, מספרים, ., _';
@@ -789,9 +790,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
   String? _passwordValidator(String? value) {
     final text = (value ?? '').trim();
     if (text.isEmpty) return _passwordRequirementsMessage;
-    if (text.length < 8) return _passwordRequirementsMessage;
-    if (!RegExp(r'[A-Z]').hasMatch(text)) return _passwordRequirementsMessage;
-    if (!RegExp(r'[a-z]').hasMatch(text)) return _passwordRequirementsMessage;
+    if (text.length < 7) return _passwordRequirementsMessage;
+    if (!RegExp(r'[A-Za-z]').hasMatch(text)) {
+      return _passwordRequirementsMessage;
+    }
     if (!RegExp(r'[0-9]').hasMatch(text)) return _passwordRequirementsMessage;
     return null;
   }
@@ -1137,7 +1139,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
       builder: (dialogContext) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
-            return Directionality(
+            return ScreenScale(
+              child: Directionality(
               textDirection: TextDirection.rtl,
               child: Dialog(
                 backgroundColor: Colors.transparent,
@@ -1473,6 +1476,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     ),
                   ),
                 ),
+              ),
               ),
             );
           },
@@ -3204,7 +3208,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
         }
       },
       child: SwipeBackWrapper(
-        child: Scaffold(
+        child: ScreenScale(
+          child: Scaffold(
           backgroundColor: _bgBottom,
           resizeToAvoidBottomInset: false,
           body: SafeArea(
@@ -3410,6 +3415,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               ),
             ),
           ),
+        ),
         ),
       ),
     );

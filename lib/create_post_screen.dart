@@ -13,6 +13,7 @@ import 'models/post_media_item.dart';
 import 'post_edit_screen.dart';
 import 'profile_screen.dart';
 import 'services/camera_permission_service.dart';
+import 'widgets/screen_scale.dart';
 import 'widgets/swipe_back_wrapper.dart';
 import 'video_preview_utils.dart';
 
@@ -43,6 +44,9 @@ class _CreatePostScreenState extends State<CreatePostScreen>
   bool _isCameraOperationInProgress = false;
   bool _isTransitioning = false;
   bool _isRecordingVideo = false;
+  bool _isStartingVideo = false;
+  bool _isStoppingVideo = false;
+  bool _releaseRequestedWhileStarting = false;
   bool _isProcessingCapture = false;
   bool _isFrontCamera = false;
   bool _flashEnabled = false;
@@ -547,7 +551,10 @@ class _CreatePostScreenState extends State<CreatePostScreen>
   }
 
   Future<void> _capturePhoto() async {
-    if (_isProcessingCapture || _isRecordingVideo) {
+    if (_isProcessingCapture ||
+        _isRecordingVideo ||
+        _isStartingVideo ||
+        _isStoppingVideo) {
       return;
     }
     if (!_canAddMoreMedia) {
@@ -622,7 +629,10 @@ class _CreatePostScreenState extends State<CreatePostScreen>
   }
 
   Future<void> _startVideoRecording() async {
-    if (_isProcessingCapture || _isRecordingVideo) {
+    if (_isProcessingCapture ||
+        _isRecordingVideo ||
+        _isStartingVideo ||
+        _isStoppingVideo) {
       return;
     }
     if (!_canAddMoreMedia) {
@@ -630,6 +640,20 @@ class _CreatePostScreenState extends State<CreatePostScreen>
       return;
     }
 
+    _isStartingVideo = true;
+    _releaseRequestedWhileStarting = false;
+    try {
+      await _startVideoRecordingInner();
+    } finally {
+      _isStartingVideo = false;
+    }
+    if (_releaseRequestedWhileStarting) {
+      _releaseRequestedWhileStarting = false;
+      _handleVideoRelease();
+    }
+  }
+
+  Future<void> _startVideoRecordingInner() async {
     if (!await CameraPermissionService.ensureCameraAccess(context)) return;
     if (_cameraController == null || !_cameraController!.value.isInitialized) {
       await _initializeCamera();
@@ -678,6 +702,10 @@ class _CreatePostScreenState extends State<CreatePostScreen>
   }
 
   void _handleVideoRelease() {
+    if (_isStartingVideo) {
+      _releaseRequestedWhileStarting = true;
+      return;
+    }
     if (_isRecordingVideo) {
       _stopVideoRecording();
     }
@@ -685,9 +713,10 @@ class _CreatePostScreenState extends State<CreatePostScreen>
 
   Future<void> _stopVideoRecording({bool reachedMaxDuration = false}) async {
     final controller = _cameraController;
-    if (controller == null || !_isRecordingVideo) {
+    if (controller == null || !_isRecordingVideo || _isStoppingVideo) {
       return;
     }
+    _isStoppingVideo = true;
 
     _recordingLimitTimer?.cancel();
     _recordingLimitTimer = null;
@@ -726,6 +755,7 @@ class _CreatePostScreenState extends State<CreatePostScreen>
         debugPrint('Failed to stop video recording: $error');
       }
     } finally {
+      _isStoppingVideo = false;
       if (!_isFrontCamera && _flashEnabled) {
         try {
           await controller.setFlashMode(FlashMode.off);
@@ -1425,7 +1455,8 @@ class _CreatePostScreenState extends State<CreatePostScreen>
       canPop: false,
       child: SwipeBackWrapper(
         enabled: false,
-        child: Scaffold(
+        child: ScreenScale(
+          child: Scaffold(
           backgroundColor: isLight ? Colors.white : const Color(0xFF0B1019),
           extendBodyBehindAppBar: true,
           appBar: AppBar(
@@ -1499,6 +1530,7 @@ class _CreatePostScreenState extends State<CreatePostScreen>
               _buildMediaStrip(),
               _buildControls(),
             ],
+          ),
           ),
         ),
       ),

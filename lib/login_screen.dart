@@ -13,6 +13,7 @@ import 'register_screen.dart';
 import 'services/keyboard_dismiss_controller.dart';
 import 'widgets/animated_infinity_splash_screen.dart';
 import 'widgets/forgot_password_sheet.dart';
+import 'widgets/screen_scale.dart';
 import 'widgets/swipe_back_wrapper.dart';
 
 bool shouldBlockLoginForState({
@@ -445,7 +446,8 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
     final orbSizeA = (screenWidth * 0.78).clamp(220.0, 300.0);
     final orbSizeB = (screenWidth * 0.9).clamp(250.0, 350.0);
     return SwipeBackWrapper(
-      child: Scaffold(
+      child: ScreenScale(
+        child: Scaffold(
         resizeToAvoidBottomInset: false,
         backgroundColor: _bgBottom,
         body: SafeArea(
@@ -767,6 +769,7 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
               ],
             ),
           ),
+        ),
         ),
       ),
     );

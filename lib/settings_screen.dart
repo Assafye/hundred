@@ -13,6 +13,7 @@ import 'services/theme_mode_service.dart';
 import 'settings_history_screen.dart';
 import 'services/auth_service.dart';
 import 'usage_guide_screen.dart';
+import 'widgets/screen_scale.dart';
 import 'widgets/swipe_back_wrapper.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -347,7 +348,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Directionality(
       textDirection: TextDirection.rtl,
       child: SwipeBackWrapper(
-        child: Scaffold(
+        child: ScreenScale(
+          child: Scaffold(
           backgroundColor: isLight ? _bgBottom : _darkBgBottom,
           appBar: AppBar(
             backgroundColor:
@@ -869,6 +871,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
               ],
             ),
+          ),
           ),
         ),
       ),

@@ -21,6 +21,7 @@ import 'services/keyboard_dismiss_controller.dart';
 import 'services/post_service.dart';
 import 'services/public_user_profile_service.dart';
 import 'widgets/post_media_viewer.dart';
+import 'widgets/screen_scale.dart';
 import 'widgets/swipe_back_wrapper.dart';
 import 'video_preview_utils.dart';
 
@@ -2372,9 +2373,6 @@ class _PostEditScreenState extends State<PostEditScreen> {
         if (message.contains('title is required')) {
           return 'חסרה כותרת לפוסט.';
         }
-        if (message.contains('caption is required')) {
-          return 'חסר תיאור לפוסט.';
-        }
         if (message.contains('category is required')) {
           return 'חסרה קטגוריה לפוסט.';
         }
@@ -2582,10 +2580,6 @@ class _PostEditScreenState extends State<PostEditScreen> {
       final currentUser = FirebaseAuth.instance.currentUser;
       if (currentUser == null || currentUser.uid.trim().isEmpty) {
         throw StateError('User must be logged in');
-      }
-
-      if (isPublishingFlow && description.isEmpty) {
-        throw ArgumentError('caption is required');
       }
 
       await _ensureSelectedSourcePostInEventGroup();
@@ -3459,7 +3453,8 @@ class _PostEditScreenState extends State<PostEditScreen> {
         hasSelectedCategory && _subCategory != null ? _subCategory! : '';
 
     return SwipeBackWrapper(
-      child: Scaffold(
+      child: ScreenScale(
+        child: Scaffold(
         backgroundColor: _screenBackground(context),
         appBar: AppBar(
           backgroundColor: _screenBackground(context),
@@ -3695,6 +3690,7 @@ class _PostEditScreenState extends State<PostEditScreen> {
               ],
             ),
           ),
+        ),
         ),
       ),
     );
